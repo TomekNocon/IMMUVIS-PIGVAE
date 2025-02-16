@@ -1,25 +1,62 @@
-_target_: src.models.mnist_module.MNISTLitModule
+# config.yaml
+defaults:
+  - _self_
+  - graph_ae: default
+  - graph_encoder: default
+  - graph_decoder: default
+  - bottle_neck_encoder: default
+  - bottle_neck_decoder: default
+  - property_predictor: default
+  - permuter: default
 
-optimizer:
-  _target_: torch.optim.Adam
-  _partial_: true
-  lr: 0.001
-  weight_decay: 0.0
+graph_ae:
+  _target_: "models.graph_ae.GraphAE"  # Path to the GraphAE class
+  vae: true
+  encoder: ${graph_encoder}
+  decoder: ${graph_decoder}
+  bottle_neck_encoder: ${bottle_neck_encoder}
+  bottle_neck_decoder: ${bottle_neck_decoder}
+  property_predictor: ${property_predictor}
+  permuter: ${permuter}
 
-scheduler:
-  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
-  _partial_: true
-  mode: min
-  factor: 0.1
-  patience: 10
+graph_encoder:
+  _target_: "models.graph_ae.GraphEncoder"  # Path to GraphEncoder class
+  graph_encoder_hidden_dim: 32
+  num_node_features: 16
+  num_edge_features: 0
+  graph_encoder_num_heads: 2
+  graph_encoder_ppf_hidden_dim: 128
+  graph_encoder_num_layers: 4
+  emb_dim: 16
+  grid_size: 6
 
-net:
-  _target_: src.models.components.simple_dense_net.SimpleDenseNet
-  input_size: 784
-  lin1_size: 64
-  lin2_size: 128
-  lin3_size: 64
-  output_size: 10
+graph_decoder:
+  _target_: "models.graph_ae.GraphDecoder"  # Path to GraphDecoder class
+  graph_decoder_hidden_dim: 32
+  graph_decoder_pos_emb_dim: 16
+  graph_decoder_num_heads: 4
+  graph_decoder_ppf_hidden_dim: 128
+  graph_decoder_num_layers: 4
+  num_node_features: 16
+  num_edge_features: 0
 
-# compile model for faster training with pytorch 2.0
-compile: false
+bottle_neck_encoder:
+  _target_: "models.graph_ae.BottleNeckEncoder"  # Path to BottleNeckEncoder class
+  graph_encoder_hidden_dim: 128
+  emb_dim: 128
+  vae: true
+
+bottle_neck_decoder:
+  _target_: "models.graph_ae.BottleNeckDecoder"  # Path to BottleNeckDecoder class
+  emb_dim: 16
+  graph_decoder_hidden_dim: 32
+
+property_predictor:
+  _target_: "models.graph_ae.PropertyPredictor"  # Path to PropertyPredictor class
+  emb_dim: 16
+  property_predictor_hidden_dim: 32
+  num_properties: 1
+
+permuter:
+  _target_: "models.graph_ae.Permuter"  # Path to Permuter class
+  graph_decoder_hidden_dim: 32

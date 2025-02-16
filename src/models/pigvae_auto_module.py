@@ -43,11 +43,11 @@ class PLGraphAE(L.LightningModule):
         https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
     """
 
-    def __init__(self, hparams, critic: torch.nn.Module) -> None:
+    def __init__(self, graph_ae, critic: torch.nn.Module) -> None:
         super().__init__()
-        self.save_hyperparameters(hparams)
-        self.graph_ae = GraphAE(hparams)
-        self.critic = critic(hparams)
+        self.save_hyperparameters(logger=False)
+        self.graph_ae = graph_ae
+        self.critic = critic
         self.automatic_optimization = True
 
     def forward(self, graph, training):

@@ -157,7 +157,7 @@ configs/local/default.yaml
 .aim
 
 # Ignore data folder
-data/
+/data/
 # Ignore PIGVAE folder
 PIGVAE/
 # Ignore run0 folder

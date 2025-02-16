@@ -168,40 +168,40 @@ class GraphDataModule(L.LightningDataModule):
             raise NotImplementedError
         return ds
     
-    def train_dataloader(self):
-        self.train_dataset = self.make_dataset(samples_per_epoch=self.samples_per_epoch)
-        if self.distributed_sampler:
-            train_sampler = DistributedSampler(
-                dataset=self.train_dataset,
-                shuffle=False
-            )
-        else:
-            train_sampler = None
+    # def train_dataloader(self):
+    #     self.train_dataset = self.make_dataset(samples_per_epoch=self.samples_per_epoch)
+    #     if self.distributed_sampler:
+    #         train_sampler = DistributedSampler(
+    #             dataset=self.train_dataset,
+    #             shuffle=False
+    #         )
+    #     else:
+    #         train_sampler = None
         
-        return DenseGraphDataLoader(
-            dataset=self.train_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            sampler=train_sampler,
-            persistent_workers=True
-        )
+    #     return DenseGraphDataLoader(
+    #         dataset=self.train_dataset,
+    #         batch_size=self.batch_size,
+    #         num_workers=self.num_workers,
+    #         pin_memory=True,
+    #         sampler=train_sampler,
+    #         persistent_workers=True
+    #     )
 
-    def val_dataloader(self):
-        self.eval_dataset = self.make_dataset(samples_per_epoch=self.samples_per_epoch // 5)
-        if self.distributed_sampler:
-            eval_sampler = DistributedSampler(
-                dataset=self.eval_dataset,
-                shuffle=False
-            )
-        else:
-            eval_sampler = None
-        return DenseGraphDataLoader(
-            dataset=self.eval_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            sampler=eval_sampler,
-            persistent_workers=True
+    # def val_dataloader(self):
+    #     self.eval_dataset = self.make_dataset(samples_per_epoch=self.samples_per_epoch // 5)
+    #     if self.distributed_sampler:
+    #         eval_sampler = DistributedSampler(
+    #             dataset=self.eval_dataset,
+    #             shuffle=False
+    #         )
+    #     else:
+    #         eval_sampler = None
+    #     return DenseGraphDataLoader(
+    #         dataset=self.eval_dataset,
+    #         batch_size=self.batch_size,
+    #         num_workers=self.num_workers,
+    #         pin_memory=True,
+    #         sampler=eval_sampler,
+    #         persistent_workers=True
             
-        )
+    #     )
