@@ -152,3 +152,12 @@ configs/local/default.yaml
 
 # Aim logging
 .aim
+
+# Ignore data folder
+data/
+# Ignore PIGVAE folder
+PIGVAE/
+# Ignore run0 folder
+run0/
+# Ignore wandb folder
+wandb/
