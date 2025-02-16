@@ -1,5 +1,5 @@
 import torch
-from torch.nn import BCEWithLogitsLoss, MSELoss
+from torch.nn import MSELoss
 
 
 class Critic(torch.nn.Module):
@@ -16,13 +16,11 @@ class Critic(torch.nn.Module):
 
     def forward(self, graph_true, graph_pred, perm, mu, logvar):
         recon_loss = self.reconstruction_loss(
-            graph_true=graph_true,
-            graph_pred=graph_pred
+            graph_true=graph_true, graph_pred=graph_pred
         )
         perm_loss = self.perm_loss(perm)
         property_loss = self.property_loss(
-            input=graph_pred.properties,
-            target=graph_true.properties
+            input=graph_pred.properties, target=graph_true.properties
         )
         loss = {**recon_loss, "perm_loss": perm_loss, "property_loss": property_loss}
         loss["loss"] = loss["loss"] + self.beta * perm_loss + self.gamma * property_loss
@@ -38,7 +36,7 @@ class Critic(torch.nn.Module):
             graph_pred=graph_pred,
             perm=perm,
             mu=mu,
-            logvar=logvar
+            logvar=logvar,
         )
         metrics = loss
 
@@ -76,7 +74,7 @@ class Critic(torch.nn.Module):
 class GraphReconstructionLoss(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.node_loss = MSELoss() #BCEWithLogitsLoss() #MSE
+        self.node_loss = MSELoss()  # BCEWithLogitsLoss() #MSE
 
     def forward(self, graph_true, graph_pred):
         # Use the mask to identify valid nodes
@@ -87,18 +85,11 @@ class GraphReconstructionLoss(torch.nn.Module):
         nodes_pred = graph_pred.node_features[mask]
 
         # Compute the node-based loss
-        node_loss = self.node_loss(
-            input=nodes_pred,
-            target=nodes_true
-        )
+        node_loss = self.node_loss(input=nodes_pred, target=nodes_true)
 
         # Return the loss dictionary
-        loss = {
-            "node_loss": node_loss,
-            "loss": node_loss
-        }
+        loss = {"node_loss": node_loss, "loss": node_loss}
         return loss
-
 
 
 class PropertyLoss(torch.nn.Module):
@@ -107,10 +98,7 @@ class PropertyLoss(torch.nn.Module):
         self.mse_loss = MSELoss()
 
     def forward(self, input, target):
-        loss = self.mse_loss(
-            input=input,
-            target=target
-        )
+        loss = self.mse_loss(input=input, target=target)
         return loss
 
 
@@ -122,11 +110,11 @@ class PermutaionMatrixPenalty(torch.nn.Module):
     def entropy(p, axis, normalize=True, eps=10e-12):
         if normalize:
             p = p / (p.sum(axis=axis, keepdim=True) + eps)
-        e = - torch.sum(p * torch.clamp_min(torch.log(p), -100), axis=axis)
+        e = -torch.sum(p * torch.clamp_min(torch.log(p), -100), axis=axis)
         return e
 
     def forward(self, perm, eps=10e-8):
-        #print(perm.shape)
+        # print(perm.shape)
         perm = perm + eps
         entropy_col = self.entropy(perm, axis=1, normalize=False)
         entropy_row = self.entropy(perm, axis=2, normalize=False)

@@ -150,6 +150,9 @@ configs/local/default.yaml
 /logs/
 .env
 
+# Ruff
+.ruff_cache
+
 # Aim logging
 .aim
 

@@ -48,7 +48,7 @@ class PLGraphAE(L.LightningModule):
         self.save_hyperparameters(hparams)
         self.graph_ae = GraphAE(hparams)
         self.critic = critic(hparams)
-        self.automatic_optimization = True
+        self.automatic_optimization = False
 
     def forward(self, graph, training):
         graph_pred, perm, mu, logvar = self.graph_ae(graph, training, tau=1.0)
@@ -74,23 +74,36 @@ class PLGraphAE(L.LightningModule):
         """
         pass
 
-    def training_step(
-        self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def training_step(self, graph, batch_idx):
+        opt = self.optimizers()
+        scheduler = self.lr_schedulers()
+
         graph_pred, perm, mu, logvar = self(
             graph=graph,
             training=True,
         )
-        loss = self.critic(
+
+        loss_dict = self.critic(
             graph_true=graph,
             graph_pred=graph_pred,
             perm=perm,
             mu=mu,
             logvar=logvar,
         )
-        self.log_dict(loss)
-        return loss
 
+        loss = loss_dict["loss"]
+        opt.zero_grad()
+        self.manual_backward(loss)
+
+        def closure():
+            self.log_dict(loss_dict)
+            return loss
+
+        opt.optimizer.step(closure=closure)  # Ensure using actual optimizer
+        scheduler.step()
+
+        return loss
+    
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a training epoch ends."
         pass

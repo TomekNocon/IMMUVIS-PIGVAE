@@ -5,6 +5,13 @@ from lightning import LightningDataModule
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 from torchvision.datasets import MNIST
 from torchvision.transforms import transforms
+from src.data.components.graphs_datamodules import (
+    SplitPatches, 
+    GraphDataModule, 
+    GridGraphDataset,
+    DenseGraphDataLoader,
+    SIZE, PATCH_SIZE
+)
 
 
 class MNISTDataModule(LightningDataModule):
@@ -59,6 +66,7 @@ class MNISTDataModule(LightningDataModule):
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
+        grid_size: int = 6
     ) -> None:
         """Initialize a `MNISTDataModule`.
 
@@ -74,10 +82,13 @@ class MNISTDataModule(LightningDataModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
 
-        # data transformations
-        self.transforms = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-        )
+        self.transforms = transforms.Compose([
+            transforms.ToTensor(), 
+            transforms.Normalize((0.1307,), (0.3081,)),
+            transforms.Resize((SIZE, SIZE)),
+            add_channel,
+            SplitPatches(PATCH_SIZE)
+        ])
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
@@ -144,12 +155,18 @@ class MNISTDataModule(LightningDataModule):
 
         :return: The train dataloader.
         """
-        return DataLoader(
+        train_dataset = GridGraphDataset(
+            grid_size=self.hparams.grid_size,
             dataset=self.data_train,
+            channels=[0]
+            ) 
+        
+        return DenseGraphDataLoader(
+            dataset=train_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=True,
+            persistent_workers=True
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -157,12 +174,18 @@ class MNISTDataModule(LightningDataModule):
 
         :return: The validation dataloader.
         """
-        return DataLoader(
+        val_dataset = GridGraphDataset(
+            grid_size=self.hparams.grid_size,
             dataset=self.data_val,
+            channels=[0]
+            ) 
+        
+        return DenseGraphDataLoader(
+            dataset=val_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=False,
+            persistent_workers=True
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
@@ -170,12 +193,18 @@ class MNISTDataModule(LightningDataModule):
 
         :return: The test dataloader.
         """
-        return DataLoader(
+        test_dataset = GridGraphDataset(
+            grid_size=self.hparams.grid_size,
             dataset=self.data_test,
+            channels=[0]
+            ) 
+        
+        return DenseGraphDataLoader(
+            dataset=test_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
-            shuffle=False,
+            persistent_workers=True
         )
 
     def teardown(self, stage: Optional[str] = None) -> None:
@@ -201,6 +230,9 @@ class MNISTDataModule(LightningDataModule):
         :param state_dict: The datamodule state returned by `self.state_dict()`.
         """
         pass
+    
+def add_channel(x):
+    return x.unsqueeze(0)
 
 
 if __name__ == "__main__":
