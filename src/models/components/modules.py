@@ -1,9 +1,9 @@
 import torch
 from torch.nn import Linear, LayerNorm, Dropout
 from torch.nn.functional import relu, pad
-from models.components.custom_graph_transformer import Transformer, PositionalEncoding
-from data.components.graphs_datamodules import DenseGraphBatch
-from models.components.spectral_embeddings import NetworkXSpectralEmbedding
+from src.models.components.custom_graph_transformer import Transformer, PositionalEncoding
+from src.data.components.graphs_datamodules import DenseGraphBatch
+from src.models.components.spectral_embeddings import NetworkXSpectralEmbedding
 
 from omegaconf import DictConfig
 
@@ -15,12 +15,12 @@ class GraphAE(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.vae = hparams.vae
-        self.encoder = GraphEncoder(hparams.graph_encoder)
+        self.encoder = GraphEncoder(hparams.encoder)
         self.bottle_neck_encoder = BottleNeckEncoder(hparams.bottle_neck_encoder)
         self.bottle_neck_decoder = BottleNeckDecoder(hparams.bottle_neck_decoder)
         self.property_predictor = PropertyPredictor(hparams.property_predictor)
         self.permuter = Permuter(hparams.permuter)
-        self.decoder = GraphDecoder(hparams.graph_decoder)
+        self.decoder = GraphDecoder(hparams.decoder)
 
     def encode(self, graph):
         node_features = graph.node_features
@@ -69,7 +69,7 @@ class GraphEncoder(torch.nn.Module):
             hidden_dim=hparams.graph_encoder_hidden_dim,
             num_heads=hparams.graph_encoder_num_heads,
             ppf_hidden_dim=hparams.graph_encoder_ppf_hidden_dim,
-            num_layers=hparams.graph_encoder_num_layers,
+            num_layers=hparams.graph_encoder_num_layers
         )
         message_input_dim = (
             2 * (hparams.num_node_features + 1) + hparams.num_edge_features

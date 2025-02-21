@@ -2,9 +2,12 @@ from typing import Tuple
 
 import torch
 import lightning as L
-from models.components.modules import GraphAE
-from ..utils.warmups import get_cosine_schedule_with_warmup
+from src.models.components.warmups import get_cosine_schedule_with_warmup
 import wandb
+
+import os
+import rootutils
+rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
 
 
 DATASET_LEN = 100
@@ -43,8 +46,15 @@ class PLGraphAE(L.LightningModule):
         https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
     """
 
-    def __init__(self, graph_ae, critic: torch.nn.Module) -> None:
+    def __init__(self, 
+                 graph_ae: torch.nn.Module, 
+                 critic: torch.nn.Module, 
+                 optimizer: torch.optim.Optimizer,
+                 scheduler: torch.optim.lr_scheduler,
+                 compile: bool) -> None:
         super().__init__()
+        self.save_hyperparameters(ignore=['graph_ae'])
+        self.save_hyperparameters(ignore=['critic'])
         self.save_hyperparameters(logger=False)
         self.graph_ae = graph_ae
         self.critic = critic
@@ -167,12 +177,13 @@ class PLGraphAE(L.LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        optimizer = torch.optim.Adam(
-            self.graph_ae.parameters(), lr=self.hparams["lr"], betas=(0.9, 0.98)
-        )
+        # optimizer = torch.optim.Adam(
+        #     self.graph_ae.parameters(), lr=self.hparams["lr"], betas=(0.9, 0.98)
+        # )
+        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
         # Calculate total training steps (num_epochs * batches_per_epoch)
-        num_training_steps = self.hparams["num_epochs"] * int(
-            DATASET_LEN // self.hparams["batch_size"] + 1
+        num_training_steps = self.trainer.max_epochs * int(
+            DATASET_LEN // self.hparams.scheduler.batch_size + 1
         )
         num_warmup_steps = int(0.01 * num_training_steps)
 

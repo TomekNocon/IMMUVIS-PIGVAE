@@ -4,8 +4,8 @@ import torch.nn.functional as F
 
 # from torch.nn.attention import SDPBackend
 from typing import Optional
-from models.components.custom_pytorch_functions import scaled_dot_product_attention
-from models.components.custom_pytorch_functions import RMSNorm
+from src.models.components.custom_pytorch_functions import scaled_dot_product_attention
+from src.models.components.custom_pytorch_functions import RMSNorm
 
 
 """

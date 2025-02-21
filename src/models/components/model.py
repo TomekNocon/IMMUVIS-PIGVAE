@@ -7,6 +7,10 @@ from src.models.components.losses import (
 )
 from omegaconf import DictConfig
 
+import os
+import rootutils
+rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
+
 
 class Critic(torch.nn.Module):
     def __init__(self, hparams: DictConfig):

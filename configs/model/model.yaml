@@ -1,0 +1,62 @@
+_target_: "src.models.pigvae_auto_module.PLGraphAE"
+
+graph_ae:
+  _target_: "src.models.components.modules.GraphAE"
+  hparams:
+    vae: true
+    encoder:
+      graph_encoder_hidden_dim: 32
+      num_node_features: 16
+      num_edge_features: 0
+      graph_encoder_num_heads: 2
+      graph_encoder_ppf_hidden_dim: 128
+      graph_encoder_num_layers: 4
+      emb_dim: 16
+      grid_size: 6
+
+    decoder:
+      graph_decoder_hidden_dim: 32
+      graph_decoder_pos_emb_dim: 16
+      graph_decoder_num_heads: 2
+      graph_decoder_ppf_hidden_dim: 128
+      graph_decoder_num_layers: 4
+      num_node_features: 16
+      num_edge_features: 0
+
+    bottle_neck_encoder:
+      graph_encoder_hidden_dim: 32
+      emb_dim: 16
+      vae: true
+
+    bottle_neck_decoder:
+      emb_dim: 16
+      graph_decoder_hidden_dim: 32
+
+    property_predictor:
+      emb_dim: 16
+      property_predictor_hidden_dim: 32
+      num_properties: 1
+
+    permuter:
+      graph_decoder_hidden_dim: 32
+
+critic:
+  _target_: "src.models.components.model.Critic"
+  hparams:
+    kld_loss_scale: 0.001
+    perm_loss_scale: 0.1
+    property_loss_scale: 0.1
+    vae: true
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.001
+  weight_decay: 0.0
+
+scheduler:
+  batch_size: 64 #${data.batch_size}
+
+compile: false
+
+

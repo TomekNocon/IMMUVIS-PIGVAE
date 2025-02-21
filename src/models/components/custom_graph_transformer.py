@@ -20,7 +20,7 @@ class Transformer(nn.Module):
         #     config.vocab_size, config.d_model, config.max_len
         # )
         self.blocks = nn.ModuleList(
-            [Transformer(hidden_dim, num_heads, dropout) for _ in range(num_layers)]
+            [TransformerBlock(hidden_dim, num_heads, dropout) for _ in range(num_layers)]
         )
 
         # self.head = nn.Linear(config.d_model, config.vocab_size, bias=False)
