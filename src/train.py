@@ -1,11 +1,22 @@
 from typing import Any, Dict, List, Optional, Tuple
 
+
+import os # or pathlib
+import logging
+
 import hydra
 import lightning as L
 import rootutils
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
-from lightning.pytorch.loggers import Logger
+from lightning.pytorch.loggers import Logger, WandbLogger
+from torchvision import transforms, datasets
 from omegaconf import DictConfig
+import torch
+from data.components.graphs_datamodules import SplitPatches, GraphDataModule, SIZE, PATCH_SIZE
+from models.pigvae_auto_module import PLGraphAE
+from pigvae.synthetic_graphs.custom_hyperparameter import add_arguments
+from argparse import ArgumentParser
+from omegaconf import OmegaConf
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -24,6 +35,8 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 #
 # more info: https://github.com/ashleve/rootutils
 # ------------------------------------------------------------------------------------ #
+
+# https://github.com/Lightning-AI/pytorch-lightning/discussions/16688
 
 from src.utils import (
     RankedLogger,
@@ -89,14 +102,14 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     train_metrics = trainer.callback_metrics
 
-    if cfg.get("test"):
-        log.info("Starting testing!")
-        ckpt_path = trainer.checkpoint_callback.best_model_path
-        if ckpt_path == "":
-            log.warning("Best ckpt not found! Using current weights for testing...")
-            ckpt_path = None
-        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
-        log.info(f"Best ckpt path: {ckpt_path}")
+    # if cfg.get("test"):
+    #     log.info("Starting testing!")
+    #     ckpt_path = trainer.checkpoint_callback.best_model_path
+    #     if ckpt_path == "":
+    #         log.warning("Best ckpt not found! Using current weights for testing...")
+    #         ckpt_path = None
+    #     trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+    #     log.info(f"Best ckpt path: {ckpt_path}")
 
     test_metrics = trainer.callback_metrics
 
@@ -104,7 +117,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     metric_dict = {**train_metrics, **test_metrics}
 
     return metric_dict, object_dict
-
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
@@ -116,7 +128,7 @@ def main(cfg: DictConfig) -> Optional[float]:
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
-
+    
     # train the model
     metric_dict, _ = train(cfg)
 
@@ -131,3 +143,5 @@ def main(cfg: DictConfig) -> Optional[float]:
 
 if __name__ == "__main__":
     main()
+
+

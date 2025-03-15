@@ -2,15 +2,18 @@ from typing import Tuple
 
 import torch
 import lightning as L
-from src.models.components.warmups import get_cosine_schedule_with_warmup
+from models.components.warmups import get_cosine_schedule_with_warmup
+from models.components.plot import restore_tensor, plot_images
 import wandb
 
-import os
-import rootutils
-rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
+# import os
+# import rootutils
+# rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
 
 
-DATASET_LEN = 100
+# https://stackoverflow.com/questions/65807601/output-prediction-of-pytorch-lightning-model
+
+DATASET_LEN = 1000
 
 
 class PLGraphAE(L.LightningModule):
@@ -59,6 +62,7 @@ class PLGraphAE(L.LightningModule):
         self.graph_ae = graph_ae
         self.critic = critic
         self.automatic_optimization = True
+        self.validation_step_outputs = []
 
     def forward(self, graph, training):
         graph_pred, perm, mu, logvar = self.graph_ae(graph, training, tau=1.0)
@@ -107,7 +111,7 @@ class PLGraphAE(L.LightningModule):
 
     def validation_step(
         self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> None:
+    ):
         graph_pred, perm, mu, logvar = self(
             graph=graph,
             training=True,
@@ -135,10 +139,26 @@ class PLGraphAE(L.LightningModule):
         metrics = {**metrics_soft, **metrics_hard}
         self.log_dict(metrics, sync_dist=True, on_epoch=True)
         wandb.log(metrics)
+        
+        outputs = {'prediction': graph_pred, 'ground_truth': graph}
+        self.validation_step_outputs.append(outputs)
+        return metrics
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
         pass
+        # Log one example to W&B
+        pred = self.validation_step_outputs[0]['prediction'].node_features
+        gt = self.validation_step_outputs[0]['ground_truth'].node_features
+        batch_size = pred.shape[0]
+        pred_img = restore_tensor(pred, batch_size, 1, 24, 24, 4).detach().cpu().squeeze().numpy()
+        gt_img = restore_tensor(gt, batch_size, 1, 24, 24, 4).detach().cpu().squeeze().numpy()
+        wandb.log({
+            "Prediction": wandb.Image(plot_images(pred_img, n_images=10), caption="Predicted Image"),
+            "Ground Truth": wandb.Image(plot_images(gt_img, n_images=10), caption="Ground Truth")
+        })
+        self.validation_step_outputs.clear()
+        
 
     def test_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int

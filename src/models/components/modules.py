@@ -26,7 +26,6 @@ class GraphAE(torch.nn.Module):
         node_features = graph.node_features
         edge_features = graph.edge_features
         mask = graph.mask
-
         graph_emb, node_features = self.encoder(
             node_features=node_features,
             edge_features=edge_features,
@@ -64,7 +63,9 @@ class GraphAE(torch.nn.Module):
 class GraphEncoder(torch.nn.Module):
     def __init__(self, hparams):
         super().__init__()
-        self.posiotional_embedding = PositionalEncoding(32)
+        
+        self.projection_in = Linear(hparams.num_node_features, hparams.graph_encoder_hidden_dim)
+        
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_encoder_hidden_dim,
             num_heads=hparams.graph_encoder_num_heads,
@@ -72,13 +73,13 @@ class GraphEncoder(torch.nn.Module):
             num_layers=hparams.graph_encoder_num_layers
         )
         message_input_dim = (
-            2 * (hparams.num_node_features + 1) + hparams.num_edge_features
+            2 * (hparams.graph_encoder_hidden_dim + 1) + hparams.num_edge_features
         )
         self.fc_in = Linear(message_input_dim, hparams.graph_encoder_hidden_dim)
         self.layer_norm = LayerNorm(hparams.graph_encoder_hidden_dim)
         self.dropout = Dropout(0.1)
         self.spectral_embeddings = NetworkXSpectralEmbedding(
-            hparams.emb_dim, hparams.grid_size
+            hparams.num_node_features, hparams.grid_size
         )
 
     def add_emb_node_and_feature(self, node_features, edge_features, mask):
@@ -113,6 +114,7 @@ class GraphEncoder(torch.nn.Module):
         # node_features = self.add_laplacian_embeddings(node_features,
         # self.sorted_eigenvecs)
         node_features = self.spectral_embeddings(node_features)
+        node_features = self.projection_in(node_features)
         x, edge_mask = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=edge_mask)
         graph_emb, node_features = self.read_out_message_matrix(x)
