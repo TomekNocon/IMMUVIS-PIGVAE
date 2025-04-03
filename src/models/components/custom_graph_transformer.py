@@ -116,13 +116,14 @@ class SelfAttention(torch.nn.Module):
             0, 3, 2, 1, 4
         )
 
-        attn_mask = mask.masked_fill(
-            torch.eye(num_nodes, num_nodes, device=device).bool(), 0
-        )
+        attn_mask = mask
+        # .masked_fill(
+        #     torch.eye(num_nodes, num_nodes, device=device).bool(), 0
+        # )
         attn_mask = attn_mask.unsqueeze(1).expand(-1, num_nodes, -1, -1)
-        attn_mask = attn_mask * (
-            torch.eye(num_nodes, num_nodes, device=device) == 0
-        ).bool().unsqueeze(0).unsqueeze(-2).expand(-1, -1, num_nodes, -1)
+        # attn_mask = attn_mask * (
+        #     torch.eye(num_nodes, num_nodes, device=device) == 0
+        # ).bool().unsqueeze(0).unsqueeze(-2).expand(-1, -1, num_nodes, -1)
 
         # with torch.nn.attention.sdpa_kernel(
         #     [

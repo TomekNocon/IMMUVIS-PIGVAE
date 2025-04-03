@@ -22,14 +22,14 @@ class GraphReconstructionLoss(torch.nn.Module):
         return loss
 
 
-class PropertyLoss(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.mse_loss = MSELoss()
+# class PropertyLoss(torch.nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         self.mse_loss = MSELoss()
 
-    def forward(self, input, target):
-        loss = self.mse_loss(input=input, target=target)
-        return loss
+#     def forward(self, input, target):
+#         loss = self.mse_loss(input=input, target=target)
+#         return loss
 
 
 class PermutaionMatrixPenalty(torch.nn.Module):
