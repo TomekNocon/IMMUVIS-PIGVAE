@@ -6,9 +6,9 @@ from models.components.warmups import get_cosine_schedule_with_warmup
 from models.components.plot import restore_tensor, plot_images
 import wandb
 
-# import os
-# import rootutils
-# rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
+import os
+import rootutils
+rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
 
 
 # https://stackoverflow.com/questions/65807601/output-prediction-of-pytorch-lightning-model
@@ -222,15 +222,11 @@ class PLGraphAE(L.LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        # optimizer = torch.optim.Adam(
-        #     self.graph_ae.parameters(), lr=self.hparams["lr"], betas=(0.9, 0.98)
-        # )
-        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
-        # Calculate total training steps (num_epochs * batches_per_epoch)
-        num_training_steps = self.trainer.max_epochs * int(
-            DATASET_LEN // self.hparams.scheduler.batch_size + 1
-        )
-        num_warmup_steps = int(0.01 * num_training_steps)
+        optimizer = self.hparams.optimizer(params=self.parameters())
+        # Calculate total training steps based on the actual number of batches
+        # This is more accurate than using a fixed DATASET_LEN
+        num_training_steps = self.trainer.estimated_stepping_batches
+        num_warmup_steps = int(0.1 * num_training_steps)  # 10% warmup is a common choice
 
         lr_scheduler = get_cosine_schedule_with_warmup(
             optimizer,
