@@ -7,7 +7,7 @@ from ..utils.warmups import get_cosine_schedule_with_warmup
 import wandb
 
 
-DATASET_LEN = 100
+DATASET_LEN = 2_000
 
 
 class PLGraphAE(L.LightningModule):
@@ -103,7 +103,7 @@ class PLGraphAE(L.LightningModule):
         scheduler.step()
 
         return loss
-    
+
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a training epoch ends."
         pass

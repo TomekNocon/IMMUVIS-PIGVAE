@@ -5,29 +5,30 @@
 
 defaults:
   - override /data: mnist
-  - override /model: mnist
+  - override /model: model
   - override /callbacks: default
   - override /trainer: default
 
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["mnist", "simple_dense_net"]
+tags: ["mnist", "pigvae"]
 
 seed: 12345
 
 trainer:
-  min_epochs: 10
-  max_epochs: 10
-  gradient_clip_val: 0.5
+  min_epochs: 1
+  max_epochs: 150
+  gradient_clip_val: 1.0
 
 model:
   optimizer:
     lr: 0.002
-  net:
-    lin1_size: 128
-    lin2_size: 256
-    lin3_size: 64
+  graph_ae:
+    hparams:
+      num_heads: 8
+      input_size: 64
+      num_layers: 4
   compile: false
 
 data:

@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import math
 import torch.nn as nn
+import torch.nn.functional as F
 
 # from torch.nn.attention import SDPBackend
 from collections import OrderedDict
@@ -20,7 +21,10 @@ class Transformer(nn.Module):
         #     config.vocab_size, config.d_model, config.max_len
         # )
         self.blocks = nn.ModuleList(
-            [TransformerBlock(hidden_dim, num_heads, dropout) for _ in range(num_layers)]
+            [
+                TransformerBlock(hidden_dim, num_heads, dropout)
+                for _ in range(num_layers)
+            ]
         )
 
         # self.head = nn.Linear(config.d_model, config.vocab_size, bias=False)
@@ -106,44 +110,76 @@ class SelfAttention(torch.nn.Module):
         device = x.device
 
         q_chunk, k_chunk, v_chunk = torch.chunk(projected, chunks=3, dim=-1)
-        query = q_chunk.view(batch_size, num_nodes, num_nodes, self.n_head, -1).permute(
-            0, 3, 1, 2, 4
-        )
-        key = k_chunk.view(batch_size, num_nodes, num_nodes, self.n_head, -1).permute(
-            0, 3, 2, 1, 4
-        )
-        value = v_chunk.view(batch_size, num_nodes, num_nodes, self.n_head, -1).permute(
-            0, 3, 2, 1, 4
-        )
+        query = q_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        key = k_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        value = v_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
 
-        attn_mask = mask
-        # .masked_fill(
-        #     torch.eye(num_nodes, num_nodes, device=device).bool(), 0
-        # )
-        attn_mask = attn_mask.unsqueeze(1).expand(-1, num_nodes, -1, -1)
-        # attn_mask = attn_mask * (
-        #     torch.eye(num_nodes, num_nodes, device=device) == 0
-        # ).bool().unsqueeze(0).unsqueeze(-2).expand(-1, -1, num_nodes, -1)
+        attn_mask = mask.to(device)
 
-        # with torch.nn.attention.sdpa_kernel(
-        #     [
-        #         SDPBackend.FLASH_ATTENTION,
-        #         SDPBackend.EFFICIENT_ATTENTION,
-        #         SDPBackend.MATH,
-        #     ]
-        # ):
+        attn_mask = attn_mask.unsqueeze(1).unsqueeze(
+            2
+        )  # Shape: (batch_size, 1, 1, num_nodes)
+        attn_mask = attn_mask.expand(-1, self.n_head, num_nodes, -1)
 
-        attention_output = scaled_dot_product_attention(
+        attention_output = F.scaled_dot_product_attention(
             query=query,
             key=key,
             value=value,
             attn_mask=attn_mask,
             is_causal=False,
         )
-        attention_output = attention_output.permute(0, 2, 3, 1, 4).contiguous()
+
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
         output = self.dropout(output)
         return output
+
+    # def forward(self, x, mask):
+    #     # x: b x nn x nn x dv
+    #     batch_size, num_nodes = x.size(0), x.size(1)
+    #     x = self.layer_norm(x)
+    #     projected = self.input_projection(x)
+
+    #     device = x.device
+
+    #     q_chunk, k_chunk, v_chunk = torch.chunk(projected, chunks=3, dim=-1)
+    #     query = q_chunk.view(batch_size, num_nodes, num_nodes, self.n_head, -1).permute(
+    #         0, 3, 1, 2, 4
+    #     )
+    #     key = k_chunk.view(batch_size, num_nodes, num_nodes, self.n_head, -1).permute(
+    #         0, 3, 2, 1, 4
+    #     )
+    #     value = v_chunk.view(batch_size, num_nodes, num_nodes, self.n_head, -1).permute(
+    #         0, 3, 2, 1, 4
+    #     )
+
+    #     attn_mask = mask
+    #     # .masked_fill(
+    #     #     torch.eye(num_nodes, num_nodes, device=device).bool(), 0
+    #     # )
+    #     attn_mask = attn_mask.unsqueeze(1).expand(-1, num_nodes, -1, -1)
+    #     # attn_mask = attn_mask * (
+    #     #     torch.eye(num_nodes, num_nodes, device=device) == 0
+    #     # ).bool().unsqueeze(0).unsqueeze(-2).expand(-1, -1, num_nodes, -1)
+
+    #     # with torch.nn.attention.sdpa_kernel(
+    #     #     [
+    #     #         SDPBackend.FLASH_ATTENTION,
+    #     #         SDPBackend.EFFICIENT_ATTENTION,
+    #     #         SDPBackend.MATH,
+    #     #     ]
+    #     # ):
+
+    #     attention_output = scaled_dot_product_attention(
+    #         query=query,
+    #         key=key,
+    #         value=value,
+    #         attn_mask=attn_mask,
+    #         is_causal=False,
+    #     )
+    #     attention_output = attention_output.permute(0, 2, 3, 1, 4).contiguous()
+    #     output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
+    #     output = self.dropout(output)
+    #     return output
 
 
 class PositionalEncoding(torch.nn.Module):

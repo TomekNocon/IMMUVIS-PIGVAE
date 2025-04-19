@@ -1,22 +1,19 @@
+import rootutils
+
 from typing import Any, Dict, List, Optional, Tuple
 
 
-import os # or pathlib
-import logging
-
 import hydra
 import lightning as L
-import rootutils
+
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
-from lightning.pytorch.loggers import Logger, WandbLogger
-from torchvision import transforms, datasets
+from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
-import torch
-from data.components.graphs_datamodules import SplitPatches, GraphDataModule, SIZE, PATCH_SIZE
-from models.pigvae_auto_module import PLGraphAE
-from pigvae.synthetic_graphs.custom_hyperparameter import add_arguments
-from argparse import ArgumentParser
 from omegaconf import OmegaConf
+import operator
+
+# Register a custom resolver to multiply values in Hydra configs
+OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)))
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -118,6 +115,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     return metric_dict, object_dict
 
+
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
     """Main entry point for training.
@@ -125,10 +123,12 @@ def main(cfg: DictConfig) -> Optional[float]:
     :param cfg: DictConfig configuration composed by Hydra.
     :return: Optional[float] with optimized metric value.
     """
+    log.info(f"Configuration: {OmegaConf.to_yaml(cfg)}")
+
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
-    
+
     # train the model
     metric_dict, _ = train(cfg)
 
@@ -143,5 +143,3 @@ def main(cfg: DictConfig) -> Optional[float]:
 
 if __name__ == "__main__":
     main()
-
-

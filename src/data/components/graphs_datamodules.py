@@ -1,27 +1,19 @@
-import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
-from torch.utils.data.distributed import DistributedSampler
-import random
 import lightning as L
-from torch_geometric.data import Data
-from torch_geometric.utils import from_networkx
+
+# from torch_geometric.data import Data
+# from torch_geometric.utils import from_networkx
 import networkx as nx
-import networkx.generators as nxg
-from networkx.generators.random_graphs import *
-import scipy.sparse as scs
-import numpy as np
-import torch
 
 
 SIZE = 24
 PATCH_SIZE = 4
 
+
 class CellDataset(Dataset):
-
     def __init__(self, imgs, targets, channels, img_transform=None):
-
         super().__init__()
         self.img_transform = img_transform
         self.imgs = imgs
@@ -29,7 +21,6 @@ class CellDataset(Dataset):
         self.channels = channels
 
     def __getitem__(self, idx):
-        
         img = self.imgs[idx][self.channels, :].to(torch.float32)
         target = self.targets[idx]
         if self.img_transform:
@@ -39,9 +30,9 @@ class CellDataset(Dataset):
 
     def __len__(self):
         return len(self.imgs)
-    
+
+
 class SplitPatches(nn.Module):
-    
     def __init__(self, patch_size):
         super().__init__()
         self.patch_size = patch_size
@@ -51,41 +42,52 @@ class SplitPatches(nn.Module):
         # x -> B c h w
         # bs, c, h, w = x.shape
         bs, c, h, w = x.shape
-        
+
         x = self.unfold(x)
         # x -> B (c*p*p) L
-        
+
         # Reshaping into the shape we want
         a = x.view(bs, c, self.patch_size, self.patch_size, -1).permute(0, 4, 1, 2, 3)
-        a = a.view(bs, -1, c *self.patch_size* self.patch_size)
+        a = a.view(bs, -1, c * self.patch_size * self.patch_size)
         # a -> ( B no.of patches c p p )
         return a
-     
+
+
 class GridGraphDataset(Dataset):
-    def __init__(self,
-                 dataset,
-                 grid_size: int, 
-                 channels, 
-        ):
+    def __init__(
+        self,
+        dataset,
+        grid_size: int,
+        channels,
+    ):
         self.grid_size = grid_size
         self.dataset = dataset
         self.channels = channels
-        
+
     def __len__(self):
         return len(self.dataset)
-    
+
     def __getitem__(self, idx):
         g = nx.grid_graph((self.grid_size, self.grid_size))
         img = self.dataset[idx][0].to(torch.float32)
-        target =self.dataset[idx][1]
+        target = self.dataset[idx][1]
         return (g, img, target)
 
-class DenseGraphBatch(Data):
+
+# class DenseGraphBatch(Data):
+#     def __init__(self, node_features, edge_features, mask, **kwargs):
+#         super().__init__(**kwargs)  # Call the parent class' constructor (Data)
+#         self.node_features = node_features
+#         self.edge_features = edge_features
+#         self.mask = mask
+
+
+class DenseGraphBatch:
     def __init__(self, node_features, edge_features, mask, **kwargs):
-        super().__init__(**kwargs)  # Call the parent class' constructor (Data)
         self.node_features = node_features
         self.edge_features = edge_features
         self.mask = mask
+        self.properties = kwargs.get("properties", None)
 
     @classmethod
     def from_sparse_graph_list(cls, data_list, labels=True):
@@ -93,7 +95,7 @@ class DenseGraphBatch(Data):
             max_num_nodes = max([graph.number_of_nodes() for graph, _, _ in data_list])
         else:
             max_num_nodes = max([graph.number_of_nodes() for graph in data_list])
-        node_features = [] 
+        node_features = []
         edge_features = []
         mask = []
         y = []
@@ -110,11 +112,15 @@ class DenseGraphBatch(Data):
         edge_features = torch.tensor(edge_features)
         mask = torch.cat(mask, dim=0)
         props = torch.cat(props, dim=0)
-        batch = DenseGraphBatch(node_features=node_features, edge_features=edge_features, mask=mask, properties=props)
+        batch = DenseGraphBatch(
+            node_features=node_features,
+            edge_features=edge_features,
+            mask=mask,
+            properties=props,
+        )
         if labels:
             batch.y = torch.Tensor(y)
         return batch
-    
 
 
 def dense_graph_collate_fn(data_list):
@@ -135,15 +141,15 @@ class DenseGraphDataLoader(torch.utils.data.DataLoader):
 
 class GraphDataModule(L.LightningDataModule):
     def __init__(
-            self, 
-            graph_family,
-            train_graph_kwargs=None, 
-            val_graph_kwargs=None,
-            samples_per_epoch=100000, 
-            batch_size=32,
-            distributed_sampler=True, 
-            num_workers=1
-        ):
+        self,
+        graph_family,
+        train_graph_kwargs=None,
+        val_graph_kwargs=None,
+        samples_per_epoch=100000,
+        batch_size=32,
+        distributed_sampler=True,
+        num_workers=1,
+    ):
         super().__init__()
         self.graph_family = graph_family
         self.train_graph_kwargs = train_graph_kwargs
@@ -157,17 +163,17 @@ class GraphDataModule(L.LightningDataModule):
         self.train_sampler = None
         self.eval_sampler = None
 
-    def make_dataset(self, samples_per_epoch, is_train = True):
-        if self.graph_family == 'grid':
+    def make_dataset(self, samples_per_epoch, is_train=True):
+        if self.graph_family == "grid":
             if is_train:
                 graph_kwargs = self.train_graph_kwargs
             else:
                 graph_kwargs = self.val_graph_kwargs
-            ds = GridGraphDataset(sample_per_epoch=samples_per_epoch, **graph_kwargs) 
+            ds = GridGraphDataset(sample_per_epoch=samples_per_epoch, **graph_kwargs)
         else:
             raise NotImplementedError
         return ds
-    
+
     # def train_dataloader(self):
     #     self.train_dataset = self.make_dataset(samples_per_epoch=self.samples_per_epoch)
     #     if self.distributed_sampler:
@@ -177,7 +183,7 @@ class GraphDataModule(L.LightningDataModule):
     #         )
     #     else:
     #         train_sampler = None
-        
+
     #     return DenseGraphDataLoader(
     #         dataset=self.train_dataset,
     #         batch_size=self.batch_size,
@@ -203,5 +209,5 @@ class GraphDataModule(L.LightningDataModule):
     #         pin_memory=True,
     #         sampler=eval_sampler,
     #         persistent_workers=True
-            
+
     #     )

@@ -47,6 +47,8 @@ class NetworkXSpectralEmbedding(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch, _, _ = x.shape
         embbeding = torch.tile(self.sorted_eigenvecs, (batch, 1, 1))
+        device = embbeding.device
+        x = x.to(device)
         x = x + embbeding
         return self.dropout(x)
 

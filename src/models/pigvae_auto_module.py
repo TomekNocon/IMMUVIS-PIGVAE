@@ -13,7 +13,7 @@ import wandb
 
 # https://stackoverflow.com/questions/65807601/output-prediction-of-pytorch-lightning-model
 
-DATASET_LEN = 1000
+DATASET_LEN = 2_000
 
 
 class PLGraphAE(L.LightningModule):
@@ -49,15 +49,17 @@ class PLGraphAE(L.LightningModule):
         https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
     """
 
-    def __init__(self, 
-                 graph_ae: torch.nn.Module, 
-                 critic: torch.nn.Module, 
-                 optimizer: torch.optim.Optimizer,
-                 scheduler: torch.optim.lr_scheduler,
-                 compile: bool) -> None:
+    def __init__(
+        self,
+        graph_ae: torch.nn.Module,
+        critic: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        scheduler: torch.optim.lr_scheduler,
+        compile: bool,
+    ) -> None:
         super().__init__()
-        self.save_hyperparameters(ignore=['graph_ae'])
-        self.save_hyperparameters(ignore=['critic'])
+        self.save_hyperparameters(ignore=["graph_ae"])
+        self.save_hyperparameters(ignore=["critic"])
         self.save_hyperparameters(logger=False)
         self.graph_ae = graph_ae
         self.critic = critic
@@ -109,13 +111,14 @@ class PLGraphAE(L.LightningModule):
         "Lightning hook that is called when a training epoch ends."
         pass
 
-    def validation_step(
-        self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ):
+    def validation_step(self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         graph_pred, perm, mu, logvar = self(
             graph=graph,
             training=True,
         )
+
+        batch_size = graph_pred.node_features.shape[0]
+
         metrics_soft = self.critic.evaluate(
             graph_true=graph,
             graph_pred=graph_pred,
@@ -137,10 +140,15 @@ class PLGraphAE(L.LightningModule):
             prefix="val_hard",
         )
         metrics = {**metrics_soft, **metrics_hard}
-        self.log_dict(metrics, sync_dist=True, on_epoch=True)
-        wandb.log(metrics)
-        
-        outputs = {'prediction': graph_pred, 'ground_truth': graph}
+        self.log_dict(
+            metrics,
+            sync_dist=False,
+            on_epoch=True,
+            on_step=False,
+            batch_size=batch_size,
+        )
+
+        outputs = {"prediction": graph_pred, "ground_truth": graph}
         self.validation_step_outputs.append(outputs)
         return metrics
 
@@ -148,17 +156,34 @@ class PLGraphAE(L.LightningModule):
         "Lightning hook that is called when a validation epoch ends."
         pass
         # Log one example to W&B
-        pred = self.validation_step_outputs[0]['prediction'].node_features
-        gt = self.validation_step_outputs[0]['ground_truth'].node_features
+        pred = self.validation_step_outputs[0]["prediction"].node_features
+        gt = self.validation_step_outputs[0]["ground_truth"].node_features
         batch_size = pred.shape[0]
-        pred_img = restore_tensor(pred, batch_size, 1, 24, 24, 4).detach().cpu().squeeze().numpy()
-        gt_img = restore_tensor(gt, batch_size, 1, 24, 24, 4).detach().cpu().squeeze().numpy()
-        wandb.log({
-            "Prediction": wandb.Image(plot_images(pred_img, n_images=10), caption="Predicted Image"),
-            "Ground Truth": wandb.Image(plot_images(gt_img, n_images=10), caption="Ground Truth")
-        })
+        pred_img = (
+            restore_tensor(pred, batch_size, 1, 24, 24, 4)
+            .detach()
+            .cpu()
+            .squeeze()
+            .numpy()
+        )
+        gt_img = (
+            restore_tensor(gt, batch_size, 1, 24, 24, 4)
+            .detach()
+            .cpu()
+            .squeeze()
+            .numpy()
+        )
+        wandb.log(
+            {
+                "Prediction": wandb.Image(
+                    plot_images(pred_img, n_images=10), caption="Predicted Image"
+                ),
+                "Ground Truth": wandb.Image(
+                    plot_images(gt_img, n_images=10), caption="Ground Truth"
+                ),
+            }
+        )
         self.validation_step_outputs.clear()
-        
 
     def test_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
