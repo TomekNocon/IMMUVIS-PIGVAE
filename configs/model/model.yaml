@@ -3,8 +3,8 @@ _target_: "src.models.pigvae_auto_module.PLGraphAE"
 graph_ae:
   _target_: "src.models.components.modules.GraphAE"
   hparams:
-    input_size: 64
-    num_heads: 8
+    input_size: 256
+    num_heads: 4
     num_layers: 4
     vae: true
     encoder:
@@ -44,6 +44,7 @@ graph_ae:
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
       num_permutations: 8
       grid_size: 6
+      tau: 1.0
 
 critic:
   _target_: "src.models.components.model.Critic"
@@ -56,7 +57,7 @@ critic:
 optimizer:
   _target_: torch.optim.Adam
   _partial_: true
-  lr: 0.001
+  lr: 0.0006921113055205339
   weight_decay: 0.0
 
 scheduler:

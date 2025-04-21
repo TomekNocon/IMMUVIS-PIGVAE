@@ -65,9 +65,10 @@ class PLGraphAE(L.LightningModule):
         self.critic = critic
         self.automatic_optimization = True
         self.validation_step_outputs = []
+        self.perms = []
 
     def forward(self, graph, training):
-        graph_pred, perm, mu, logvar = self.graph_ae(graph, training, tau=1.0)
+        graph_pred, perm, mu, logvar = self.graph_ae(graph, training)
         return graph_pred, perm, mu, logvar
 
     def on_train_start(self) -> None:
@@ -116,7 +117,9 @@ class PLGraphAE(L.LightningModule):
             graph=graph,
             training=True,
         )
-
+        self.perms.append(perm[:10, :, :])
+        outputs = {"prediction": graph_pred, "ground_truth": graph}
+        self.validation_step_outputs.append(outputs)
         batch_size = graph_pred.node_features.shape[0]
 
         metrics_soft = self.critic.evaluate(
@@ -147,14 +150,10 @@ class PLGraphAE(L.LightningModule):
             on_step=False,
             batch_size=batch_size,
         )
-
-        outputs = {"prediction": graph_pred, "ground_truth": graph}
-        self.validation_step_outputs.append(outputs)
         return metrics
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
-        pass
         # Log one example to W&B
         pred = self.validation_step_outputs[0]["prediction"].node_features
         gt = self.validation_step_outputs[0]["ground_truth"].node_features
@@ -173,6 +172,11 @@ class PLGraphAE(L.LightningModule):
             .squeeze()
             .numpy()
         )
+        p = (self.perms[0].detach()
+            .cpu()
+            .squeeze()
+            .numpy()
+        )
         wandb.log(
             {
                 "Prediction": wandb.Image(
@@ -181,9 +185,13 @@ class PLGraphAE(L.LightningModule):
                 "Ground Truth": wandb.Image(
                     plot_images(gt_img, n_images=10), caption="Ground Truth"
                 ),
+                "Perms": wandb.Image(
+                    plot_images(p, n_images=10), caption="Perms"
+                ),
             }
         )
         self.validation_step_outputs.clear()
+        self.perms.clear()
 
     def test_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int

@@ -58,9 +58,9 @@ class GraphAE(torch.nn.Module):
         )
         return graph_pred
 
-    def forward(self, graph, training, tau):
+    def forward(self, graph, training):
         graph_emb, node_features, mu, logvar = self.encode(graph=graph)
-        perm = self.permuter(node_features, mask=graph.mask, hard=not training, tau=tau)
+        perm = self.permuter(node_features, mask=graph.mask, hard=not training)
         graph_pred = self.decode(graph_emb, perm, graph.mask)
         return graph_pred, perm, mu, logvar
 
@@ -161,8 +161,8 @@ class GraphDecoder(torch.nn.Module):
         batch_size = graph_emb.size(0)
 
         pos_emb = self.posiotional_embedding(batch_size, num_nodes)
-        # if perm is not None:
-        #     pos_emb = torch.matmul(perm, pos_emb)
+        if perm is not None:
+            pos_emb = torch.matmul(perm, pos_emb)
         # pos_emb_combined = torch.cat(
         #     (
         #         pos_emb.unsqueeze(2).repeat(1, 1, num_nodes, 1),
@@ -197,7 +197,15 @@ class GraphDecoder(torch.nn.Module):
 class Permuter(torch.nn.Module):
     def __init__(self, hparams):
         super().__init__()
-        self.scoring_fc = Linear(hparams.graph_decoder_hidden_dim, 1)
+        # self.scoring_fc = Linear(hparams.graph_decoder_hidden_dim, 1)
+        self.scoring_fc = torch.nn.Sequential(
+            Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim),
+            torch.nn.ReLU(),
+            Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim),
+            torch.nn.ReLU(),
+            Linear(hparams.graph_decoder_hidden_dim, 1)
+        )
+        self.tau = hparams.tau  
 
     def score(self, x, mask):
         scores = self.scoring_fc(x)
@@ -210,10 +218,17 @@ class Permuter(torch.nn.Module):
         scores_sorted = scores.sort(descending=True, dim=1)[0]
         pairwise_diff = (scores.transpose(1, 2) - scores_sorted).abs().neg() / tau
         perm = pairwise_diff.softmax(-1)
+        # batch = perm.shape[0]
+        # if hard:
+        #     perm_ = torch.zeros_like(perm, device=perm.device)
+        #     perm_.scatter_(-1, perm.topk(1, -1)[1], value=1)
+        #     perm = (perm_ - perm).detach() + perm
         if hard:
-            perm_ = torch.zeros_like(perm, device=perm.device)
-            perm_.scatter_(-1, perm.topk(1, -1)[1], value=1)
-            perm = (perm_ - perm).detach() + perm
+            # Gumbel-Softmax trick for hard selection
+            gumbel_noise = -torch.log(-torch.log(torch.rand_like(perm)))
+            perm = (perm + gumbel_noise).argmax(dim=-1)
+            perm = torch.nn.functional.one_hot(perm, num_classes=perm.size(-1)).float()
+        # perm = torch.eye(36).repeat(batch, 1, 1)
         return perm
 
     def mask_perm(self, perm, mask):
@@ -228,14 +243,14 @@ class Permuter(torch.nn.Module):
         perm = torch.where(mask, perm, eye)
         return perm
 
-    def forward(self, node_features, mask, hard=False, tau=1.0):
+    def forward(self, node_features, mask, hard=False):
         # add noise to break symmetry
         device = node_features.device
         node_features = node_features + torch.randn_like(node_features) * 0.05
         mask = mask.to(device)
         scores = self.score(node_features, mask)
 
-        perm = self.soft_sort(scores, hard, tau)
+        perm = self.soft_sort(scores, hard, self.tau)
         perm = perm.transpose(2, 1)
         perm = self.mask_perm(perm, mask)
         return perm

@@ -1,5 +1,5 @@
 import torch
-from src.models.components.losses import GraphReconstructionLoss, KLDLoss
+from src.models.components.losses import GraphReconstructionLoss, KLDLoss, PermutationMatrixPenalty
 from omegaconf import DictConfig
 
 import os
@@ -12,11 +12,11 @@ class Critic(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.alpha = hparams.kld_loss_scale
-        # self.beta = hparams.perm_loss_scale
+        self.beta = hparams.perm_loss_scale
         # self.gamma = hparams.property_loss_scale
         self.vae = hparams.vae
         self.reconstruction_loss = GraphReconstructionLoss()
-        # self.perm_loss = PermutaionMatrixPenalty()
+        self.perm_loss = PermutationMatrixPenalty()
         # self.property_loss = PropertyLoss()
         self.kld_loss = KLDLoss()
 
@@ -24,16 +24,14 @@ class Critic(torch.nn.Module):
         recon_loss = self.reconstruction_loss(
             graph_true=graph_true, graph_pred=graph_pred
         )
-        # perm_loss = self.perm_loss(perm)
+        perm_loss = self.perm_loss(perm)
         # property_loss = self.property_loss(
         #     input=graph_pred.properties, target=graph_true.properties
         # )
         loss = {
-            **recon_loss,  # "perm_loss": perm_loss, #"property_loss": property_loss
+            **recon_loss,  "perm_loss": perm_loss, #"property_loss": property_loss
         }
-        loss["loss"] = loss[
-            "loss"
-        ]  # + self.beta * perm_loss #+ self.gamma * property_loss
+        loss["loss"] = loss["loss"]  + self.beta * perm_loss #+ self.gamma * property_loss
         if self.vae:
             kld_loss = self.kld_loss(mu, logvar)
             loss["kld_loss"] = kld_loss

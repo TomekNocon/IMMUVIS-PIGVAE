@@ -36,7 +36,7 @@ class GraphReconstructionLoss(torch.nn.Module):
 #         return loss
 
 
-class PermutaionMatrixPenalty(torch.nn.Module):
+class PermutationMatrixPenalty(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
