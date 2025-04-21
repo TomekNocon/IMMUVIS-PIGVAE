@@ -162,7 +162,8 @@ class GraphDecoder(torch.nn.Module):
 
         pos_emb = self.posiotional_embedding(batch_size, num_nodes)
         if perm is not None:
-            pos_emb = torch.matmul(perm, pos_emb)
+            # pos_emb = torch.matmul(perm, pos_emb)
+            pos_emb = (1 - 0.5) * pos_emb + 0.5 * torch.matmul(perm, pos_emb)
         # pos_emb_combined = torch.cat(
         #     (
         #         pos_emb.unsqueeze(2).repeat(1, 1, num_nodes, 1),
