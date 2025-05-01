@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 import lightning as L
+import torchvision.transforms.functional as TF
+import random
 
 # from torch_geometric.data import Data
 # from torch_geometric.utils import from_networkx
@@ -11,26 +13,77 @@ import networkx as nx
 SIZE = 24
 PATCH_SIZE = 4
 
-
-class CellDataset(Dataset):
-    def __init__(self, imgs, targets, channels, img_transform=None):
+class ImageAugmentations(nn.Module):
+    """Class to handle image augmentations"""
+    def __init__(self, prob=0.5):
         super().__init__()
-        self.img_transform = img_transform
-        self.imgs = imgs
-        self.targets = targets
-        self.channels = channels
+        self.prob = prob
+    
+    @staticmethod
+    def rotate_90(img):
+        """Rotate image by 90 degrees clockwise"""
+        return torch.rot90(img, k=1, dims=[-2, -1])
+    
+    @staticmethod
+    def rotate_180(img):
+        """Rotate image by 180 degrees"""
+        return torch.rot90(img, k=2, dims=[-2, -1])
+    
+    @staticmethod
+    def rotate_270(img):
+        """Rotate image by 270 degrees clockwise (or 90 counter-clockwise)"""
+        return torch.rot90(img, k=3, dims=[-2, -1])
+    
+    @staticmethod
+    def horizontal_flip(img):
+        """Flip image horizontally"""
+        return TF.hflip(img)
+    
+    @staticmethod
+    def vertical_flip(img):
+        """Flip image vertically"""
+        return TF.vflip(img)
 
-    def __getitem__(self, idx):
-        img = self.imgs[idx][self.channels, :].to(torch.float32)
-        target = self.targets[idx]
-        if self.img_transform:
-            img = self.img_transform(img.unsqueeze(0))
-
-        return img, target
-
-    def __len__(self):
-        return len(self.imgs)
-
+    def forward(self, img):
+        """Apply a random augmentation with a certain probability"""
+        if random.random() < self.prob:
+            aug_type = random.choice(['rot90', 'rot180', 'rot270', 'hflip', 'vflip'])
+            
+            if aug_type == 'rot90':
+                return ImageAugmentations.rotate_90(img)
+            elif aug_type == 'rot180':
+                return ImageAugmentations.rotate_180(img)
+            elif aug_type == 'rot270':
+                return ImageAugmentations.rotate_270(img)
+            elif aug_type == 'hflip':
+                return ImageAugmentations.horizontal_flip(img)
+            elif aug_type == 'vflip':
+                return ImageAugmentations.vertical_flip(img)
+        
+        return img
+    
+class DualOutputTransform:
+    """
+    A wrapper that returns both original and augmented versions of the image
+    """
+    def __init__(self, base_transforms, augmentation_transforms, patch_transform=None):
+        self.base_transforms = base_transforms
+        self.augmentation_transforms = augmentation_transforms
+        self.patch_transform = patch_transform
+        
+    def __call__(self, img):
+        # Apply base transformations to get the original version
+        original = self.base_transforms(img)
+        
+        # Apply the same base transformations + augmentations to get the augmented version
+        augmented = self.augmentation_transforms(img)
+        
+        # Apply patch transform if specified
+        if self.patch_transform:
+            original = self.patch_transform(original)
+            augmented = self.patch_transform(augmented)
+        
+        return original, augmented
 
 class SplitPatches(nn.Module):
     def __init__(self, patch_size):
@@ -58,7 +111,7 @@ class GridGraphDataset(Dataset):
         self,
         dataset,
         grid_size: int,
-        channels,
+        channels: list,
     ):
         self.grid_size = grid_size
         self.dataset = dataset
@@ -69,22 +122,17 @@ class GridGraphDataset(Dataset):
 
     def __getitem__(self, idx):
         g = nx.grid_graph((self.grid_size, self.grid_size))
-        img = self.dataset[idx][0].to(torch.float32)
+        # img = self.dataset[idx][0].to(torch.float32)
+        original, augmented = self.dataset[idx][0]
+        original, augmented  = original.to(torch.float32), augmented.to(torch.float32)
         target = self.dataset[idx][1]
-        return (g, img, target)
-
-
-# class DenseGraphBatch(Data):
-#     def __init__(self, node_features, edge_features, mask, **kwargs):
-#         super().__init__(**kwargs)  # Call the parent class' constructor (Data)
-#         self.node_features = node_features
-#         self.edge_features = edge_features
-#         self.mask = mask
+        return (g, original, augmented, target)
 
 
 class DenseGraphBatch:
-    def __init__(self, node_features, edge_features, mask, **kwargs):
+    def __init__(self, node_features, out_node_features, edge_features, mask, **kwargs):
         self.node_features = node_features
+        self.out_node_features = out_node_features
         self.edge_features = edge_features
         self.mask = mask
         self.properties = kwargs.get("properties", None)
@@ -92,28 +140,31 @@ class DenseGraphBatch:
     @classmethod
     def from_sparse_graph_list(cls, data_list, labels=True):
         if labels:
-            max_num_nodes = max([graph.number_of_nodes() for graph, _, _ in data_list])
+            max_num_nodes = max([graph.number_of_nodes() for graph, _, _, _ in data_list])
         else:
             max_num_nodes = max([graph.number_of_nodes() for graph in data_list])
-        node_features = []
+        in_node_features = []
+        out_node_features = []
         edge_features = []
         mask = []
         y = []
         props = []
-        for graph, embedding, label in data_list:
+        for graph, original_embedding, augmented_embedding, label in data_list:
             y.append(label)
             num_nodes = graph.number_of_nodes()
             props.append(torch.Tensor([num_nodes]))
             graph.add_nodes_from([i for i in range(num_nodes, max_num_nodes)])
-            nf = embedding
-            node_features.append(nf)
+            in_node_features.append(augmented_embedding)
+            out_node_features.append(original_embedding)
             mask.append((torch.arange(max_num_nodes) < num_nodes).unsqueeze(0))
-        node_features = torch.cat(node_features, dim=0)
+        in_node_features = torch.cat(in_node_features, dim=0)
+        out_node_features = torch.cat(out_node_features, dim=0)
         edge_features = torch.tensor(edge_features)
         mask = torch.cat(mask, dim=0)
         props = torch.cat(props, dim=0)
         batch = DenseGraphBatch(
-            node_features=node_features,
+            node_features=in_node_features,
+            out_node_features=out_node_features,
             edge_features=edge_features,
             mask=mask,
             properties=props,
@@ -139,75 +190,41 @@ class DenseGraphDataLoader(torch.utils.data.DataLoader):
         )
 
 
-class GraphDataModule(L.LightningDataModule):
-    def __init__(
-        self,
-        graph_family,
-        train_graph_kwargs=None,
-        val_graph_kwargs=None,
-        samples_per_epoch=100000,
-        batch_size=32,
-        distributed_sampler=True,
-        num_workers=1,
-    ):
-        super().__init__()
-        self.graph_family = graph_family
-        self.train_graph_kwargs = train_graph_kwargs
-        self.val_graph_kwargs = val_graph_kwargs
-        self.samples_per_epoch = samples_per_epoch
-        self.num_workers = num_workers
-        self.batch_size = batch_size
-        self.distributed_sampler = distributed_sampler
-        self.train_dataset = None
-        self.eval_dataset = None
-        self.train_sampler = None
-        self.eval_sampler = None
+# class GraphDataModule(L.LightningDataModule):
+#     def __init__(
+#         self,
+#         graph_family,
+#         train_graph_kwargs=None,
+#         val_graph_kwargs=None,
+#         samples_per_epoch=100000,
+#         batch_size=32,
+#         distributed_sampler=True,
+#         num_workers=1,
+#         augmentation=True,
+#         aug_prob=0.5
+#     ):
+#         super().__init__()
+#         self.graph_family = graph_family
+#         self.train_graph_kwargs = train_graph_kwargs
+#         self.val_graph_kwargs = val_graph_kwargs
+#         self.samples_per_epoch = samples_per_epoch
+#         self.num_workers = num_workers
+#         self.batch_size = batch_size
+#         self.distributed_sampler = distributed_sampler
+#         self.augmentation = augmentation
+#         self.aug_prob = aug_prob
+#         self.train_dataset = None
+#         self.eval_dataset = None
+#         self.train_sampler = None
+#         self.eval_sampler = None
 
-    def make_dataset(self, samples_per_epoch, is_train=True):
-        if self.graph_family == "grid":
-            if is_train:
-                graph_kwargs = self.train_graph_kwargs
-            else:
-                graph_kwargs = self.val_graph_kwargs
-            ds = GridGraphDataset(sample_per_epoch=samples_per_epoch, **graph_kwargs)
-        else:
-            raise NotImplementedError
-        return ds
-
-    # def train_dataloader(self):
-    #     self.train_dataset = self.make_dataset(samples_per_epoch=self.samples_per_epoch)
-    #     if self.distributed_sampler:
-    #         train_sampler = DistributedSampler(
-    #             dataset=self.train_dataset,
-    #             shuffle=False
-    #         )
-    #     else:
-    #         train_sampler = None
-
-    #     return DenseGraphDataLoader(
-    #         dataset=self.train_dataset,
-    #         batch_size=self.batch_size,
-    #         num_workers=self.num_workers,
-    #         pin_memory=True,
-    #         sampler=train_sampler,
-    #         persistent_workers=True
-    #     )
-
-    # def val_dataloader(self):
-    #     self.eval_dataset = self.make_dataset(samples_per_epoch=self.samples_per_epoch // 5)
-    #     if self.distributed_sampler:
-    #         eval_sampler = DistributedSampler(
-    #             dataset=self.eval_dataset,
-    #             shuffle=False
-    #         )
-    #     else:
-    #         eval_sampler = None
-    #     return DenseGraphDataLoader(
-    #         dataset=self.eval_dataset,
-    #         batch_size=self.batch_size,
-    #         num_workers=self.num_workers,
-    #         pin_memory=True,
-    #         sampler=eval_sampler,
-    #         persistent_workers=True
-
-    #     )
+#     def make_dataset(self, samples_per_epoch, is_train=True):
+#         if self.graph_family == "grid":
+#             if is_train:
+#                 graph_kwargs = self.train_graph_kwargs
+#             else:
+#                 graph_kwargs = self.val_graph_kwargs
+#             ds = GridGraphDataset(sample_per_epoch=samples_per_epoch, **graph_kwargs)
+#         else:
+#             raise NotImplementedError
+#         return ds

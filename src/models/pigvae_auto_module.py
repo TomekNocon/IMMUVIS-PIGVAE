@@ -117,7 +117,7 @@ class PLGraphAE(L.LightningModule):
             graph=graph,
             training=True,
         )
-        self.perms.append(perm[:10, :, :])
+        self.perms.append(perm[:5, :, :])
         outputs = {"prediction": graph_pred, "ground_truth": graph}
         self.validation_step_outputs.append(outputs)
         batch_size = graph_pred.node_features.shape[0]
@@ -172,11 +172,18 @@ class PLGraphAE(L.LightningModule):
             .squeeze()
             .numpy()
         )
-        p = (self.perms[0].detach()
+        # p = (self.perms[0].detach()
+        #     .cpu()
+        #     .squeeze()
+        #     .numpy()
+        # )
+        p = (
+            torch.concat([self.perms[0], self.perms[1]], dim= 0)
+            .detach()
             .cpu()
             .squeeze()
             .numpy()
-        )
+            )
         wandb.log(
             {
                 "Prediction": wandb.Image(

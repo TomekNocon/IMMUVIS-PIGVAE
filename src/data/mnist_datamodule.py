@@ -7,8 +7,10 @@ from torchvision.datasets import MNIST
 from torchvision.transforms import transforms
 from src.data.components.graphs_datamodules import (
     SplitPatches,
+    ImageAugmentations,
     GridGraphDataset,
     DenseGraphDataLoader,
+    DualOutputTransform,
     SIZE,
     PATCH_SIZE,
 )
@@ -81,16 +83,30 @@ class MNISTDataModule(LightningDataModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
+        
+        self.base_transforms = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+            transforms.Resize((SIZE, SIZE)),
+            add_channel,
+        ])
+        
+        self.aug_transforms = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+            transforms.Resize((SIZE, SIZE)),
+            add_channel,
+            ImageAugmentations(prob=0.5),
+        ])
+        
+        self.patch_transform = SplitPatches(PATCH_SIZE)
 
-        self.transforms = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,)),
-                transforms.Resize((SIZE, SIZE)),
-                add_channel,
-                SplitPatches(PATCH_SIZE),
-            ]
+        self.dual_transforms = DualOutputTransform(
+            self.base_transforms, 
+            self.aug_transforms,
+            self.patch_transform
         )
+
 
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
@@ -140,10 +156,10 @@ class MNISTDataModule(LightningDataModule):
         # load and split datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
             trainset = MNIST(
-                self.hparams.data_dir, train=True, transform=self.transforms
+                self.hparams.data_dir, train=True, transform=self.dual_transforms
             )
             testset = MNIST(
-                self.hparams.data_dir, train=False, transform=self.transforms
+                self.hparams.data_dir, train=False, transform=self.dual_transforms
             )
             dataset = ConcatDataset(datasets=[trainset, testset])
             self.data_train, self.data_val, self.data_test = random_split(

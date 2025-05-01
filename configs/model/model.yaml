@@ -8,7 +8,7 @@ graph_ae:
     num_layers: 4
     vae: true
     encoder:
-      graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
+      n: ${model.graph_ae.hparams.input_size}
       num_node_features: 16
       num_edge_features: 0
       graph_encoder_num_heads: ${model.graph_ae.hparams.num_heads}
@@ -61,7 +61,7 @@ optimizer:
   weight_decay: 0.0
 
 scheduler:
-  batch_size: 64 #${data.batch_size}
+  batch_size: ${data.batch_size}
 
 compile: false
 
