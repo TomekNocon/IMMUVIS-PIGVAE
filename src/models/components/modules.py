@@ -71,7 +71,7 @@ class GraphEncoder(torch.nn.Module):
             num_heads=hparams.graph_encoder_num_heads,
             ppf_hidden_dim=hparams.graph_encoder_ppf_hidden_dim,
             num_layers=hparams.graph_encoder_num_layers,
-            dropout=hparams.dropout
+            dropout=hparams.dropout,
         )
         self.fc_in = Linear(
             hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim
@@ -135,7 +135,7 @@ class GraphDecoder(torch.nn.Module):
             num_heads=hparams.graph_decoder_num_heads,
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=hparams.graph_decoder_num_layers,
-            dropout=hparams.dropout
+            dropout=hparams.dropout,
         )
         self.fc_in = Linear(
             hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim

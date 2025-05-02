@@ -6,6 +6,7 @@ from typing import Optional
 
 # from torch.nn.attention import SDPBackend
 from collections import OrderedDict
+from src.models.components.rotary_embedding import BaseRotaryEmbedding
 
 """
 adapted from https://github.com/jadore801120/attention-is-all-you-need-pytorch
@@ -98,7 +99,7 @@ def FeedForward(hidden_size: int, dropout: float) -> nn.Sequential:
 
 class SelfAttention(torch.nn.Module):
     def __init__(
-        self, n_head: torch.Tensor, hidden_dim: torch.Tensor, dropout: float
+        self, n_head: torch.Tensor, hidden_dim: torch.Tensor, dropout: float, rope: Optional[BaseRotaryEmbedding] = None
     ):
         super().__init__()
 
@@ -109,6 +110,7 @@ class SelfAttention(torch.nn.Module):
         self.input_projection = nn.Linear(hidden_dim, 3 * hidden_dim, bias=False)
         self.output_projection = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
+        self.rope = rope
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         # x: b x nn x nn x dv
@@ -122,7 +124,11 @@ class SelfAttention(torch.nn.Module):
         query = q_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         key = k_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         value = v_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-
+        
+        if self.rope:
+            query = self.rope.rotate_queries_or_keys(query)
+            key = self.rope.rotate_queries_or_keys(key)
+            
         attn_mask = mask.to(device)
 
         attn_mask = attn_mask.unsqueeze(1).unsqueeze(
@@ -149,6 +155,7 @@ class SelfAttention(torch.nn.Module):
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
         output = self.dropout(output)
         return output
+
 
 # Efficient implementation equivalent to the following:
 # https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
