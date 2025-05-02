@@ -1,21 +1,13 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
-import lightning as L
 import torchvision.transforms.functional as TF
 import random
-
-# from torch_geometric.data import Data
-# from torch_geometric.utils import from_networkx
 import networkx as nx
-
-
-SIZE = 24
-PATCH_SIZE = 4
 
 class ImageAugmentations(nn.Module):
     """Class to handle image augmentations"""
-    def __init__(self, prob=0.5):
+    def __init__(self, prob=1.0):
         super().__init__()
         self.prob = prob
     
@@ -83,7 +75,7 @@ class DualOutputTransform:
             original = self.patch_transform(original)
             augmented = self.patch_transform(augmented)
         
-        return original, augmented
+        return (original, augmented)
 
 class SplitPatches(nn.Module):
     def __init__(self, patch_size):
@@ -130,9 +122,8 @@ class GridGraphDataset(Dataset):
 
 
 class DenseGraphBatch:
-    def __init__(self, node_features, out_node_features, edge_features, mask, **kwargs):
+    def __init__(self, node_features, edge_features, mask, **kwargs):
         self.node_features = node_features
-        self.out_node_features = out_node_features
         self.edge_features = edge_features
         self.mask = mask
         self.properties = kwargs.get("properties", None)
@@ -159,12 +150,13 @@ class DenseGraphBatch:
             mask.append((torch.arange(max_num_nodes) < num_nodes).unsqueeze(0))
         in_node_features = torch.cat(in_node_features, dim=0)
         out_node_features = torch.cat(out_node_features, dim=0)
+        contrastive_node_features = torch.cat([out_node_features, in_node_features], dim=0)
         edge_features = torch.tensor(edge_features)
         mask = torch.cat(mask, dim=0)
+        mask = torch.cat([mask, mask], dim=0)
         props = torch.cat(props, dim=0)
         batch = DenseGraphBatch(
-            node_features=in_node_features,
-            out_node_features=out_node_features,
+            node_features=contrastive_node_features,
             edge_features=edge_features,
             mask=mask,
             properties=props,
@@ -177,7 +169,6 @@ class DenseGraphBatch:
 def dense_graph_collate_fn(data_list):
     return DenseGraphBatch.from_sparse_graph_list(data_list)
 
-
 class DenseGraphDataLoader(torch.utils.data.DataLoader):
     def __init__(self, dataset, batch_size=1, shuffle=False, labels=True, **kwargs):
         self.labels = labels
@@ -189,42 +180,3 @@ class DenseGraphDataLoader(torch.utils.data.DataLoader):
             **kwargs,
         )
 
-
-# class GraphDataModule(L.LightningDataModule):
-#     def __init__(
-#         self,
-#         graph_family,
-#         train_graph_kwargs=None,
-#         val_graph_kwargs=None,
-#         samples_per_epoch=100000,
-#         batch_size=32,
-#         distributed_sampler=True,
-#         num_workers=1,
-#         augmentation=True,
-#         aug_prob=0.5
-#     ):
-#         super().__init__()
-#         self.graph_family = graph_family
-#         self.train_graph_kwargs = train_graph_kwargs
-#         self.val_graph_kwargs = val_graph_kwargs
-#         self.samples_per_epoch = samples_per_epoch
-#         self.num_workers = num_workers
-#         self.batch_size = batch_size
-#         self.distributed_sampler = distributed_sampler
-#         self.augmentation = augmentation
-#         self.aug_prob = aug_prob
-#         self.train_dataset = None
-#         self.eval_dataset = None
-#         self.train_sampler = None
-#         self.eval_sampler = None
-
-#     def make_dataset(self, samples_per_epoch, is_train=True):
-#         if self.graph_family == "grid":
-#             if is_train:
-#                 graph_kwargs = self.train_graph_kwargs
-#             else:
-#                 graph_kwargs = self.val_graph_kwargs
-#             ds = GridGraphDataset(sample_per_epoch=samples_per_epoch, **graph_kwargs)
-#         else:
-#             raise NotImplementedError
-#         return ds

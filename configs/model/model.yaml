@@ -8,7 +8,7 @@ graph_ae:
     num_layers: 4
     vae: true
     encoder:
-      n: ${model.graph_ae.hparams.input_size}
+      graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
       num_node_features: 16
       num_edge_features: 0
       graph_encoder_num_heads: ${model.graph_ae.hparams.num_heads}
@@ -29,7 +29,7 @@ graph_ae:
     bottle_neck_encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
       emb_dim: 32 # zwiekszyl latent 
-      vae: true
+      vae: ${model.graph_ae.hparams.vae}
 
     bottle_neck_decoder:
       emb_dim: 32
@@ -45,14 +45,16 @@ graph_ae:
       num_permutations: 8
       grid_size: 6
       tau: 1.0
+      break_symmetry_scale: 0.01
 
 critic:
   _target_: "src.models.components.model.Critic"
   hparams:
     kld_loss_scale: 0.001
     perm_loss_scale: 0.01
-    property_loss_scale: 0.01
-    vae: true
+    contrastive_loss_scale: 0.01
+    temperature: 0.07
+    vae: ${model.graph_ae.hparams.vae}
 
 optimizer:
   _target_: torch.optim.Adam
@@ -61,7 +63,8 @@ optimizer:
   weight_decay: 0.0
 
 scheduler:
-  batch_size: ${data.batch_size}
+  batch_size: ${data.hparams.batch_size}
+  warmup: 0.1
 
 compile: false
 

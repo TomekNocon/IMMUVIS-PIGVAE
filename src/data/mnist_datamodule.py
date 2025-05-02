@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import torch
 from lightning import LightningDataModule
@@ -11,8 +11,6 @@ from src.data.components.graphs_datamodules import (
     GridGraphDataset,
     DenseGraphDataLoader,
     DualOutputTransform,
-    SIZE,
-    PATCH_SIZE,
 )
 
 
@@ -63,12 +61,7 @@ class MNISTDataModule(LightningDataModule):
 
     def __init__(
         self,
-        data_dir: str = "data/",
-        train_val_test_split: Tuple[int, int, int] = (55_000, 5_000, 10_000),
-        batch_size: int = 64,
-        num_workers: int = 0,
-        pin_memory: bool = False,
-        grid_size: int = 6,
+        hparams
     ) -> None:
         """Initialize a `MNISTDataModule`.
 
@@ -87,19 +80,19 @@ class MNISTDataModule(LightningDataModule):
         self.base_transforms = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,)),
-            transforms.Resize((SIZE, SIZE)),
+            transforms.Resize((hparams.size, hparams.size)),
             add_channel,
         ])
         
         self.aug_transforms = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,)),
-            transforms.Resize((SIZE, SIZE)),
+            transforms.Resize((hparams.size, hparams.size)),
             add_channel,
-            ImageAugmentations(prob=0.5),
+            ImageAugmentations(prob=hparams.augmentation_prob),
         ])
         
-        self.patch_transform = SplitPatches(PATCH_SIZE)
+        self.patch_transform = SplitPatches(hparams.patch_size)
 
         self.dual_transforms = DualOutputTransform(
             self.base_transforms, 
@@ -107,12 +100,17 @@ class MNISTDataModule(LightningDataModule):
             self.patch_transform
         )
 
-
         self.data_train: Optional[Dataset] = None
         self.data_val: Optional[Dataset] = None
         self.data_test: Optional[Dataset] = None
-
-        self.batch_size_per_device = batch_size
+        self.batch_size = hparams.batch_size
+        self.batch_size_per_device = self.batch_size
+        self.data_dir = hparams.data_dir
+        self.train_val_test_split = hparams.train_val_test_split
+        self.grid_size = hparams.grid_size
+        self.num_workers= hparams.num_workers
+        self.pin_memory= hparams.pin_memory
+        self.is_contrastive = hparams.is_contrastive
 
     @property
     def num_classes(self) -> int:
@@ -130,8 +128,8 @@ class MNISTDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        MNIST(self.hparams.data_dir, train=True, download=True)
-        MNIST(self.hparams.data_dir, train=False, download=True)
+        MNIST(self.data_dir, train=True, download=True)
+        MNIST(self.data_dir, train=False, download=True)
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -145,26 +143,26 @@ class MNISTDataModule(LightningDataModule):
         """
         # Divide batch size by the number of devices.
         if self.trainer is not None:
-            if self.hparams.batch_size % self.trainer.world_size != 0:
+            if self.batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(
-                    f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
+                    f"Batch size ({self.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
                 )
             self.batch_size_per_device = (
-                self.hparams.batch_size // self.trainer.world_size
+                self.batch_size // self.trainer.world_size
             )
 
         # load and split datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
             trainset = MNIST(
-                self.hparams.data_dir, train=True, transform=self.dual_transforms
+                self.data_dir, train=True, transform=self.dual_transforms
             )
             testset = MNIST(
-                self.hparams.data_dir, train=False, transform=self.dual_transforms
+                self.data_dir, train=False, transform=self.dual_transforms
             )
             dataset = ConcatDataset(datasets=[trainset, testset])
             self.data_train, self.data_val, self.data_test = random_split(
                 dataset=dataset,
-                lengths=self.hparams.train_val_test_split,
+                lengths=self.train_val_test_split,
                 generator=torch.Generator().manual_seed(42),
             )
 
@@ -174,14 +172,14 @@ class MNISTDataModule(LightningDataModule):
         :return: The train dataloader.
         """
         train_dataset = GridGraphDataset(
-            grid_size=self.hparams.grid_size, dataset=self.data_train, channels=[0]
+            grid_size=self.grid_size, dataset=self.data_train, channels=[0]
         )
 
         return DenseGraphDataLoader(
             dataset=train_dataset,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
+            batch_size=self.batch_size_per_device if not self.is_contrastive else self.batch_size_per_device // 2,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
             persistent_workers=True,
         )
 
@@ -191,14 +189,15 @@ class MNISTDataModule(LightningDataModule):
         :return: The validation dataloader.
         """
         val_dataset = GridGraphDataset(
-            grid_size=self.hparams.grid_size, dataset=self.data_val, channels=[0]
+            grid_size=self.grid_size, dataset=self.data_val, channels=[0]
         )
+        
 
         return DenseGraphDataLoader(
             dataset=val_dataset,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
+            batch_size=self.batch_size_per_device if not self.is_contrastive else self.batch_size_per_device // 2,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
             persistent_workers=True,
         )
 
@@ -208,14 +207,14 @@ class MNISTDataModule(LightningDataModule):
         :return: The test dataloader.
         """
         test_dataset = GridGraphDataset(
-            grid_size=self.hparams.grid_size, dataset=self.data_test, channels=[0]
+            grid_size=self.grid_size, dataset=self.data_test, channels=[0]
         )
 
         return DenseGraphDataLoader(
             dataset=test_dataset,
-            batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
+            batch_size=self.batch_size_per_device if not self.is_contrastive else self.batch_size_per_device // 2,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
             persistent_workers=True,
         )
 

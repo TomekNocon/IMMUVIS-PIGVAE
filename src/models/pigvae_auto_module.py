@@ -13,9 +13,6 @@ rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
 
 # https://stackoverflow.com/questions/65807601/output-prediction-of-pytorch-lightning-model
 
-DATASET_LEN = 2_000
-
-
 class PLGraphAE(L.LightningModule):
     """Example of a `LightningModule`.
 
@@ -68,8 +65,8 @@ class PLGraphAE(L.LightningModule):
         self.perms = []
 
     def forward(self, graph, training):
-        graph_pred, perm, mu, logvar = self.graph_ae(graph, training)
-        return graph_pred, perm, mu, logvar
+        graph_emb, graph_pred, perm, mu, logvar = self.graph_ae(graph, training)
+        return graph_emb, graph_pred, perm, mu, logvar
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -94,14 +91,14 @@ class PLGraphAE(L.LightningModule):
     def training_step(
         self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
-        graph_pred, perm, mu, logvar = self(
+        graph_emb, graph_pred, perm, mu, logvar = self(
             graph=graph,
             training=True,
         )
         loss = self.critic(
+            graph_emb = graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
-            perm=perm,
             mu=mu,
             logvar=logvar,
         )
@@ -113,7 +110,7 @@ class PLGraphAE(L.LightningModule):
         pass
 
     def validation_step(self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
-        graph_pred, perm, mu, logvar = self(
+        graph_emb, graph_pred, perm, mu, logvar = self(
             graph=graph,
             training=True,
         )
@@ -123,21 +120,21 @@ class PLGraphAE(L.LightningModule):
         batch_size = graph_pred.node_features.shape[0]
 
         metrics_soft = self.critic.evaluate(
+            graph_emb = graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
-            perm=perm,
             mu=mu,
             logvar=logvar,
             prefix="val",
         )
-        graph_pred, perm, mu, logvar = self(
+        graph_emb, graph_pred, perm, mu, logvar = self(
             graph=graph,
             training=False,
         )
         metrics_hard = self.critic.evaluate(
+            graph_emb = graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
-            perm=perm,
             mu=mu,
             logvar=logvar,
             prefix="val_hard",
@@ -172,11 +169,6 @@ class PLGraphAE(L.LightningModule):
             .squeeze()
             .numpy()
         )
-        # p = (self.perms[0].detach()
-        #     .cpu()
-        #     .squeeze()
-        #     .numpy()
-        # )
         p = (
             torch.concat([self.perms[0], self.perms[1]], dim= 0)
             .detach()
@@ -241,7 +233,7 @@ class PLGraphAE(L.LightningModule):
         # Calculate total training steps based on the actual number of batches
         # This is more accurate than using a fixed DATASET_LEN
         num_training_steps = self.trainer.estimated_stepping_batches
-        num_warmup_steps = int(0.1 * num_training_steps)  # 10% warmup is a common choice
+        num_warmup_steps = int(self.hparams.scheduler.warmup * num_training_steps)  # 10% warmup is a common choice
 
         lr_scheduler = get_cosine_schedule_with_warmup(
             optimizer,

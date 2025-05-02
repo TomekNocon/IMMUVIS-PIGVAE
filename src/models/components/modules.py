@@ -22,8 +22,6 @@ class GraphAE(torch.nn.Module):
         self.encoder = GraphEncoder(hparams.encoder)
         self.bottle_neck_encoder = BottleNeckEncoder(hparams.bottle_neck_encoder)
         self.bottle_neck_decoder = BottleNeckDecoder(hparams.bottle_neck_decoder)
-        # self.property_predictor = PropertyPredictor(hparams.property_predictor)
-        # self.permuter = Permuter(hparams.permuter)
         self.permuter = SimplePermuter(hparams.permuter)
         self.decoder = GraphDecoder(hparams.decoder)
 
@@ -40,19 +38,12 @@ class GraphAE(torch.nn.Module):
         return graph_emb, node_features, mu, logvar
 
     def decode(self, graph_emb, perm, mask=None):
-        # props = self.property_predictor(graph_emb).squeeze()
-        # if mask is None:
-        #     num_nodes = torch.round(props * STD_NUM_NODES + MEAN_NUM_NODES).long()
-        #     mask = torch.arange(max(num_nodes)).type_as(num_nodes).unsqueeze(
-        #         0
-        #     ) < num_nodes.unsqueeze(1)
         graph_emb = self.bottle_neck_decoder(graph_emb)
         node_logits, edge_logits = self.decoder(
             graph_emb=graph_emb, perm=perm, mask=mask
         )
         graph_pred = DenseGraphBatch(
             node_features=node_logits,
-            out_node_features=torch.tensor([]),
             edge_features=edge_logits,
             mask=mask,
             properties=torch.tensor([]),
@@ -63,8 +54,7 @@ class GraphAE(torch.nn.Module):
         graph_emb, node_features, mu, logvar = self.encode(graph=graph)
         perm = self.permuter(node_features, mask=graph.mask, hard=not training)
         graph_pred = self.decode(graph_emb, perm, graph.mask)
-        return graph_pred, perm, mu, logvar
-
+        return graph_emb, graph_pred, perm, mu, logvar
 
 class GraphEncoder(torch.nn.Module):
     def __init__(self, hparams):
@@ -80,10 +70,6 @@ class GraphEncoder(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_encoder_ppf_hidden_dim,
             num_layers=hparams.graph_encoder_num_layers,
         )
-        # message_input_dim = (
-        #     2 * (hparams.graph_encoder_hidden_dim) + hparams.num_edge_features
-        # )
-        # self.fc_in = Linear(message_input_dim, hparams.graph_encoder_hidden_dim)
         self.fc_in = Linear(
             hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim
         )
@@ -102,22 +88,10 @@ class GraphEncoder(torch.nn.Module):
         node_features, edge_features, mask = self.add_emb_node_and_feature(
             node_features, edge_features, mask
         )
-        # edge_mask = mask.unsqueeze(1) * mask.unsqueeze(2)
-        # _, num_nodes = node_features.size(0), node_features.size(1)
-        # node_features_combined = torch.cat(
-        #     (
-        #         node_features.unsqueeze(2).repeat(1, 1, num_nodes, 1),
-        #         node_features.unsqueeze(1).repeat_interleave(num_nodes, dim=1),
-        #     ),
-        #     dim=-1,
-        # )
-        # x = node_features_combined
-        x = node_features
-        x = self.layer_norm(self.dropout(self.fc_in(x)))
+        x = self.layer_norm(self.dropout(self.fc_in(node_features)))
         return x, mask  # edge_mask
 
     def read_out_message_matrix(self, x):
-        # node_features = torch.diagonal(x, dim1=1, dim2=2).transpose(1, 2)
         node_features = x
         graph_emb, node_features = node_features[:, 0], node_features[:, 1:]
         return graph_emb, node_features
@@ -130,12 +104,10 @@ class GraphEncoder(torch.nn.Module):
         graph_emb, node_features = self.read_out_message_matrix(x)
 
         return graph_emb, node_features
-
-
 class GraphDecoder(torch.nn.Module):
     def __init__(self, hparams):
         super().__init__()
-        self.posiotional_embedding = PositionalEncoding(
+        self.positional_embedding = PositionalEncoding(
             hparams.graph_decoder_pos_emb_dim
         )
         self.graph_transformer = Transformer(
@@ -144,11 +116,6 @@ class GraphDecoder(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=hparams.graph_decoder_num_layers,
         )
-        # message_input_dim = (
-        #     hparams.graph_decoder_hidden_dim
-        #     + 2 * hparams.graph_decoder_pos_emb_dim
-        # )
-        # self.fc_in = Linear(message_input_dim, hparams.graph_decoder_hidden_dim)
         self.fc_in = Linear(
             hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim
         )
@@ -161,34 +128,21 @@ class GraphDecoder(torch.nn.Module):
     def init_message_matrix(self, graph_emb, perm, num_nodes):
         batch_size = graph_emb.size(0)
 
-        pos_emb = self.posiotional_embedding(batch_size, num_nodes)
+        pos_emb = self.positional_embedding(batch_size, num_nodes)
         if perm is not None:
             pos_emb = torch.matmul(perm, pos_emb)
-            # pos_emb = (1 - 0.5) * pos_emb + 0.5 * torch.matmul(perm, pos_emb)
-        # pos_emb_combined = torch.cat(
-        #     (
-        #         pos_emb.unsqueeze(2).repeat(1, 1, num_nodes, 1),
-        #         pos_emb.unsqueeze(1).repeat_interleave(num_nodes, dim=1),
-        #     ),
-        #     dim=-1,
-        # )
-        # x = graph_emb.unsqueeze(1).unsqueeze(1).expand(-1, num_nodes,
-        # num_nodes, -1)
         x = graph_emb.unsqueeze(1).expand(-1, num_nodes, -1)
-        # x = torch.cat((x, pos_emb_combined), dim=-1)
         x = x + pos_emb
         x = self.layer_norm(self.dropout(self.fc_in(x)))
         return x
 
     def read_out_message_matrix(self, x):
-        # node_features = torch.diagonal(x, dim1=1, dim2=2).transpose(1, 2)
         node_features = x
         node_features = self.node_fc_out(node_features)
         edge_features = torch.tensor([])
         return node_features, edge_features
 
     def forward(self, graph_emb, perm, mask):
-        # edge_mask = mask.unsqueeze(1) * mask.unsqueeze(2)
         edge_mask = mask
         x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
         x = self.graph_transformer(x, mask=edge_mask)
@@ -210,7 +164,6 @@ class GraphDecoder(torch.nn.Module):
 class Permuter(torch.nn.Module):
     def __init__(self, hparams):
         super().__init__()
-        # self.scoring_fc = Linear(hparams.graph_decoder_hidden_dim, 1)
         self.scoring_fc = torch.nn.Sequential(
             Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim),
             torch.nn.ReLU(),
@@ -237,7 +190,6 @@ class Permuter(torch.nn.Module):
             gumbel_noise = -torch.log(-torch.log(torch.rand_like(perm)))
             perm = (perm + gumbel_noise).argmax(dim=-1)
             perm = torch.nn.functional.one_hot(perm, num_classes=perm.size(-1)).float()
-        # perm = torch.eye(36).repeat(batch, 1, 1)
         return perm
 
     def mask_perm(self, perm, mask):
@@ -295,10 +247,11 @@ class SimplePermuter(torch.nn.Module):
         predefined_permutations = self.create_predefine_permutations(hparams.grid_size)
         # Predefined permutation matrices (B, num_permutations, N, N)
         self.register_buffer("predefined_permutations", predefined_permutations)
+        self.break_symmetry_scale = hparams.break_symmetry_scale 
 
     def forward(self, node_features, mask, hard=False, tau=1.0):
         # Add noise to break symmetry
-        node_features = node_features + torch.randn_like(node_features) * 0.01
+        node_features = node_features + torch.randn_like(node_features) * self.break_symmetry_scale
 
         # Score each permutation option
         scores = self.scoring_fc(node_features).mean(dim=1)  # (B, num_permutations)
@@ -361,8 +314,6 @@ class SimplePermuter(torch.nn.Module):
     def permute_node_features(node_features, perm):
         """Apply the permutation to node features."""
         return torch.matmul(perm, node_features)
-
-
 class BottleNeckEncoder(torch.nn.Module):
     def __init__(self, hparams):
         super().__init__()
@@ -388,8 +339,6 @@ class BottleNeckEncoder(torch.nn.Module):
             return x, mu, logvar
         else:
             return x, None, None
-
-
 class BottleNeckDecoder(torch.nn.Module):
     def __init__(self, hparams):
         self.d_in = hparams.emb_dim
@@ -401,22 +350,3 @@ class BottleNeckDecoder(torch.nn.Module):
         x = self.w(x)
         return x
 
-
-# class PropertyPredictor(torch.nn.Module):
-#     def __init__(self, hparams):
-#         super().__init__()
-#         d_in = hparams.emb_dim
-#         d_hid = hparams.property_predictor_hidden_dim
-#         d_out = hparams.num_properties
-#         self.w_1 = Linear(d_in, d_hid)
-#         self.w_2 = Linear(d_hid, d_hid)
-#         self.w_3 = Linear(d_hid, d_out)
-#         self.layer_norm1 = LayerNorm(d_hid)
-#         self.layer_norm2 = LayerNorm(d_hid)
-#         self.dropout = Dropout(0.1)
-
-#     def forward(self, x):
-#         x = self.layer_norm1(self.dropout(relu(self.w_1(x))))
-#         x = self.layer_norm2(self.dropout(relu(self.w_2(x))))
-#         x = self.w_3(x)
-#         return x
