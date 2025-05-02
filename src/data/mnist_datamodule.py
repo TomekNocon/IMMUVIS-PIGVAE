@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional
 
 import torch
+from omegaconf import DictConfig
 from lightning import LightningDataModule
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 from torchvision.datasets import MNIST
@@ -59,10 +60,7 @@ class MNISTDataModule(LightningDataModule):
         https://lightning.ai/docs/pytorch/latest/data/datamodule.html
     """
 
-    def __init__(
-        self,
-        hparams
-    ) -> None:
+    def __init__(self, hparams: DictConfig) -> None:
         """Initialize a `MNISTDataModule`.
 
         :param data_dir: The data directory. Defaults to `"data/"`.
@@ -76,28 +74,30 @@ class MNISTDataModule(LightningDataModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
-        
-        self.base_transforms = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
-            transforms.Resize((hparams.size, hparams.size)),
-            add_channel,
-        ])
-        
-        self.aug_transforms = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
-            transforms.Resize((hparams.size, hparams.size)),
-            add_channel,
-            ImageAugmentations(prob=hparams.augmentation_prob),
-        ])
-        
+
+        self.base_transforms = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+                transforms.Resize((hparams.size, hparams.size)),
+                add_channel,
+            ]
+        )
+
+        self.aug_transforms = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+                transforms.Resize((hparams.size, hparams.size)),
+                add_channel,
+                ImageAugmentations(prob=hparams.augmentation_prob),
+            ]
+        )
+
         self.patch_transform = SplitPatches(hparams.patch_size)
 
         self.dual_transforms = DualOutputTransform(
-            self.base_transforms, 
-            self.aug_transforms,
-            self.patch_transform
+            self.base_transforms, self.aug_transforms, self.patch_transform
         )
 
         self.data_train: Optional[Dataset] = None
@@ -108,8 +108,8 @@ class MNISTDataModule(LightningDataModule):
         self.data_dir = hparams.data_dir
         self.train_val_test_split = hparams.train_val_test_split
         self.grid_size = hparams.grid_size
-        self.num_workers= hparams.num_workers
-        self.pin_memory= hparams.pin_memory
+        self.num_workers = hparams.num_workers
+        self.pin_memory = hparams.pin_memory
         self.is_contrastive = hparams.is_contrastive
 
     @property
@@ -147,18 +147,12 @@ class MNISTDataModule(LightningDataModule):
                 raise RuntimeError(
                     f"Batch size ({self.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
                 )
-            self.batch_size_per_device = (
-                self.batch_size // self.trainer.world_size
-            )
+            self.batch_size_per_device = self.batch_size // self.trainer.world_size
 
         # load and split datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
-            trainset = MNIST(
-                self.data_dir, train=True, transform=self.dual_transforms
-            )
-            testset = MNIST(
-                self.data_dir, train=False, transform=self.dual_transforms
-            )
+            trainset = MNIST(self.data_dir, train=True, transform=self.dual_transforms)
+            testset = MNIST(self.data_dir, train=False, transform=self.dual_transforms)
             dataset = ConcatDataset(datasets=[trainset, testset])
             self.data_train, self.data_val, self.data_test = random_split(
                 dataset=dataset,
@@ -177,7 +171,9 @@ class MNISTDataModule(LightningDataModule):
 
         return DenseGraphDataLoader(
             dataset=train_dataset,
-            batch_size=self.batch_size_per_device if not self.is_contrastive else self.batch_size_per_device // 2,
+            batch_size=self.batch_size_per_device
+            if not self.is_contrastive
+            else self.batch_size_per_device // 2,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=True,
@@ -191,11 +187,12 @@ class MNISTDataModule(LightningDataModule):
         val_dataset = GridGraphDataset(
             grid_size=self.grid_size, dataset=self.data_val, channels=[0]
         )
-        
 
         return DenseGraphDataLoader(
             dataset=val_dataset,
-            batch_size=self.batch_size_per_device if not self.is_contrastive else self.batch_size_per_device // 2,
+            batch_size=self.batch_size_per_device
+            if not self.is_contrastive
+            else self.batch_size_per_device // 2,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=True,
@@ -212,7 +209,9 @@ class MNISTDataModule(LightningDataModule):
 
         return DenseGraphDataLoader(
             dataset=test_dataset,
-            batch_size=self.batch_size_per_device if not self.is_contrastive else self.batch_size_per_device // 2,
+            batch_size=self.batch_size_per_device
+            if not self.is_contrastive
+            else self.batch_size_per_device // 2,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=True,
@@ -243,7 +242,7 @@ class MNISTDataModule(LightningDataModule):
         pass
 
 
-def add_channel(x):
+def add_channel(x: torch.Tensor) -> torch.Tensor:
     return x.unsqueeze(0)
 
 

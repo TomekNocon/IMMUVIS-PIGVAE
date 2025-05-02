@@ -14,7 +14,14 @@ adapted from https://github.com/jadore801120/attention-is-all-you-need-pytorch
 
 
 class Transformer(nn.Module):
-    def __init__(self, hidden_dim, num_heads, ppf_hidden_dim, num_layers, dropout=0.1):
+    def __init__(
+        self,
+        hidden_dim: int,
+        num_heads: int,
+        ppf_hidden_dim: int,
+        num_layers: int,
+        dropout: float = 0.1,
+    ):
         super().__init__()
         self.num_layers = num_layers
         self.ppf_hidden_dim = ppf_hidden_dim  # TBDeleted
@@ -30,7 +37,7 @@ class Transformer(nn.Module):
 
         # self.head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
-    def forward(self, x, mask):
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         # output = self.embedding_layer(input_ids)
 
         for block in self.blocks:
@@ -60,7 +67,7 @@ class TransformerBlock(nn.Module):
 
     """
 
-    def __init__(self, hidden_dim, n_head, dropout):
+    def __init__(self, hidden_dim: torch.Tensor, n_head: torch.Tensor, dropout: float):
         super().__init__()
         self.attention_layer = SelfAttention(n_head, hidden_dim, dropout)
         self.feed_forward_layer = FeedForward(
@@ -99,7 +106,7 @@ class TransformerBlock(nn.Module):
     #     h = x + self.attention(self.attention_norm(x), freqs_cis)
     #     return h + self.feed_forward(self.ffn_norm(h))
 
-    def forward(self, x, attention_mask):
+    def forward(self, x: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         out_attention = self.attention_layer(self.attention_norm(x), attention_mask)
         x = x + out_attention
 
@@ -151,7 +158,7 @@ class FeedForward(nn.Module):
 
         self.dropout = torch.nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.w2(F.silu(self.w1(x)) * self.w3(x))
         x = self.dropout(x)
         return x
@@ -163,7 +170,7 @@ class FeedForward(nn.Module):
 
 
 class SelfAttention(torch.nn.Module):
-    def __init__(self, n_head, hidden_dim, dropout=0.1):
+    def __init__(self, n_head: int, hidden_dim: int, dropout: float = 0.1):
         super().__init__()
 
         self.n_head = n_head
@@ -173,7 +180,7 @@ class SelfAttention(torch.nn.Module):
         self.output_projection = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, mask):
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         # x: b x nn x nn x dv
         batch_size, num_nodes = x.size(0), x.size(1)
         projected = self.input_projection(x)

@@ -1,7 +1,10 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 
-def restore_tensor(a, bs, c, h, w, patch_size):
+def restore_tensor(
+    a: np.array, bs: int, c: int, h: int, w: int, patch_size: int
+) -> np.array:
     # Step 1: Reshape a to match the patch grid layout
     a = a.view(bs, -1, c, patch_size, patch_size)
     # a -> (B, num_patches, C, patch_size, patch_size)
@@ -26,7 +29,7 @@ def restore_tensor(a, bs, c, h, w, patch_size):
     return x_reconstructed
 
 
-def plot_images(images, n_images: int):
+def plot_images(images: np.array, n_images: int) -> plt.figure:
     fig, axes = plt.subplots(1, n_images, figsize=(15, 6))
     for idx, ax in enumerate(axes.flat):
         ax.imshow(images[idx], cmap="gray")

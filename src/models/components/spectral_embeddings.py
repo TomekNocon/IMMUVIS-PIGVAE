@@ -26,7 +26,7 @@ class CustomSpectralEmbedding(nn.Module):
         x = x + embbeding
         return self.dropout(x)
 
-    def compute_eigen(self, L):
+    def compute_eigen(self, L: np.array) -> torch.Tensor:
         eigenvals, eigenvecs = np.linalg.eigh(L)
         sorted_eigenvecs = eigenvecs[:, np.argsort(eigenvals)]
         sorted_eigenvecs = torch.tensor(sorted_eigenvecs, dtype=torch.float32)

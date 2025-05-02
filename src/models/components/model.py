@@ -1,6 +1,12 @@
 import torch
-from src.models.components.losses import GraphReconstructionLoss, KLDLoss, ContrastiveLoss
+from src.models.components.losses import (
+    GraphReconstructionLoss,
+    KLDLoss,
+    ContrastiveLoss,
+)
 from omegaconf import DictConfig
+from src.data.components.graphs_datamodules import DenseGraphBatch
+from typing import Dict, Any, Optional
 
 import os
 import rootutils
@@ -19,14 +25,19 @@ class Critic(torch.nn.Module):
         self.contrastive_loss = ContrastiveLoss(temperature=hparams.temperature)
         self.kld_loss = KLDLoss()
 
-    def forward(self, graph_emb, graph_true, graph_pred, mu, logvar):
+    def forward(
+        self,
+        graph_emb: torch.Tensor,
+        graph_true: DenseGraphBatch,
+        graph_pred: DenseGraphBatch,
+        mu: torch.Tensor,
+        logvar: torch.Tensor,
+    ) -> Dict[str, Any]:
         recon_loss = self.reconstruction_loss(
             graph_true=graph_true, graph_pred=graph_pred
         )
         contrastive_loss = self.contrastive_loss(graph_emb)
-        loss = {
-            **recon_loss,  "contrastive_loss": contrastive_loss
-        }
+        loss = {**recon_loss, "contrastive_loss": contrastive_loss}
         loss["loss"] = loss["loss"] + self.gamma * contrastive_loss
         if self.vae:
             kld_loss = self.kld_loss(mu, logvar)
@@ -34,9 +45,17 @@ class Critic(torch.nn.Module):
             loss["loss"] = loss["loss"] + self.alpha * kld_loss
         return loss
 
-    def evaluate(self,graph_emb, graph_true, graph_pred, mu, logvar, prefix=None):
+    def evaluate(
+        self,
+        graph_emb: torch.Tensor,
+        graph_true: DenseGraphBatch,
+        graph_pred: DenseGraphBatch,
+        mu: torch.Tensor,
+        logvar: torch.Tensor,
+        prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
         loss = self(
-            graph_emb = graph_emb,
+            graph_emb=graph_emb,
             graph_true=graph_true,
             graph_pred=graph_pred,
             mu=mu,

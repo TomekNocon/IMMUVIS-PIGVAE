@@ -1,17 +1,20 @@
-from typing import Tuple
+from typing import Tuple, Dict, Any, Callable
 
 import torch
 import lightning as L
 from models.components.warmups import get_cosine_schedule_with_warmup
 from models.components.plot import restore_tensor, plot_images
 import wandb
+from src.data.components.graphs_datamodules import DenseGraphBatch
 
 import os
 import rootutils
+
 rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
 
 
 # https://stackoverflow.com/questions/65807601/output-prediction-of-pytorch-lightning-model
+
 
 class PLGraphAE(L.LightningModule):
     """Example of a `LightningModule`.
@@ -64,7 +67,7 @@ class PLGraphAE(L.LightningModule):
         self.validation_step_outputs = []
         self.perms = []
 
-    def forward(self, graph, training):
+    def forward(self, graph: DenseGraphBatch, training: bool) -> Tuple:
         graph_emb, graph_pred, perm, mu, logvar = self.graph_ae(graph, training)
         return graph_emb, graph_pred, perm, mu, logvar
 
@@ -88,15 +91,13 @@ class PLGraphAE(L.LightningModule):
         """
         pass
 
-    def training_step(
-        self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> torch.Tensor:
+    def training_step(self, graph: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
         graph_emb, graph_pred, perm, mu, logvar = self(
             graph=graph,
             training=True,
         )
         loss = self.critic(
-            graph_emb = graph_emb,
+            graph_emb=graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
             mu=mu,
@@ -109,7 +110,7 @@ class PLGraphAE(L.LightningModule):
         "Lightning hook that is called when a training epoch ends."
         pass
 
-    def validation_step(self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int):
+    def validation_step(self, graph: DenseGraphBatch, batch_idx: int) -> Dict[str, Any]:
         graph_emb, graph_pred, perm, mu, logvar = self(
             graph=graph,
             training=True,
@@ -120,7 +121,7 @@ class PLGraphAE(L.LightningModule):
         batch_size = graph_pred.node_features.shape[0]
 
         metrics_soft = self.critic.evaluate(
-            graph_emb = graph_emb,
+            graph_emb=graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
             mu=mu,
@@ -132,7 +133,7 @@ class PLGraphAE(L.LightningModule):
             training=False,
         )
         metrics_hard = self.critic.evaluate(
-            graph_emb = graph_emb,
+            graph_emb=graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
             mu=mu,
@@ -170,12 +171,12 @@ class PLGraphAE(L.LightningModule):
             .numpy()
         )
         p = (
-            torch.concat([self.perms[0], self.perms[1]], dim= 0)
+            torch.concat([self.perms[0], self.perms[1]], dim=0)
             .detach()
             .cpu()
             .squeeze()
             .numpy()
-            )
+        )
         wandb.log(
             {
                 "Prediction": wandb.Image(
@@ -184,9 +185,7 @@ class PLGraphAE(L.LightningModule):
                 "Ground Truth": wandb.Image(
                     plot_images(gt_img, n_images=10), caption="Ground Truth"
                 ),
-                "Perms": wandb.Image(
-                    plot_images(p, n_images=10), caption="Perms"
-                ),
+                "Perms": wandb.Image(plot_images(p, n_images=10), caption="Perms"),
             }
         )
         self.validation_step_outputs.clear()
@@ -220,7 +219,7 @@ class PLGraphAE(L.LightningModule):
         #     self.net = torch.compile(self.net)
         pass
 
-    def configure_optimizers(self):
+    def configure_optimizers(self) -> Tuple:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
         Normally you'd need one. But in the case of GANs or similar you might have multiple.
 
@@ -233,7 +232,9 @@ class PLGraphAE(L.LightningModule):
         # Calculate total training steps based on the actual number of batches
         # This is more accurate than using a fixed DATASET_LEN
         num_training_steps = self.trainer.estimated_stepping_batches
-        num_warmup_steps = int(self.hparams.scheduler.warmup * num_training_steps)  # 10% warmup is a common choice
+        num_warmup_steps = int(
+            self.hparams.scheduler.warmup * num_training_steps
+        )  # 10% warmup is a common choice
 
         lr_scheduler = get_cosine_schedule_with_warmup(
             optimizer,
@@ -244,7 +245,13 @@ class PLGraphAE(L.LightningModule):
         scheduler = {"scheduler": lr_scheduler, "interval": "step", "frequency": 1}
         return [optimizer], [scheduler]
 
-    def optimizer_step(self, epoch, batch_idx, optimizer, optimizer_closure):
+    def optimizer_step(
+        self,
+        epoch: int,
+        batch_idx: int,
+        optimizer: torch.optim.Optimizer,
+        optimizer_closure: Callable[[], None],
+    ) -> None:
         optimizer.step(closure=optimizer_closure)
         optimizer.zero_grad()
 

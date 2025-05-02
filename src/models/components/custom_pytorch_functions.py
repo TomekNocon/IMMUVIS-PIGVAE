@@ -1,18 +1,19 @@
 import torch
 import math
+from typing import Optional
 
 
 # Efficient implementation equivalent to the following:
 # https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
 def scaled_dot_product_attention(
-    query,
-    key,
-    value,
-    attn_mask=None,
-    dropout_p=0.0,
-    is_causal=False,
-    scale=None,
-    enable_gqa=False,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    attn_mask: Optional[torch.Tensor] = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: Optional[float] = None,
+    enable_gqa: bool = False,
 ) -> torch.Tensor:
     L, S = query.size(-2), key.size(-2)
     scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
@@ -60,10 +61,10 @@ class RMSNorm(torch.nn.Module):
         self.eps = eps
         self.weight = torch.nn.Parameter(torch.ones(hidden_dim))
 
-    def _norm(self, x: torch.Tensor):
+    def _norm(self, x: torch.Tensor) -> torch.Tensor:
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
 

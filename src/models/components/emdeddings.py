@@ -3,7 +3,7 @@ import numpy as np
 
 
 class PositionalEncoding(torch.nn.Module):
-    def __init__(self, d_hid, n_position=200):
+    def __init__(self, d_hid: int, n_position: int = 200):
         super(PositionalEncoding, self).__init__()
 
         # Not a parameter
@@ -11,7 +11,9 @@ class PositionalEncoding(torch.nn.Module):
             "pos_table", self._get_sinusoid_encoding_table(n_position, d_hid)
         )
 
-    def _get_sinusoid_encoding_table(self, n_position, d_hid):
+    def _get_sinusoid_encoding_table(
+        self, n_position: int, d_hid: int
+    ) -> torch.FloatTensor:
         """Sinusoid position encoding table"""
         # TODO: make it with torch instead of numpy
 
@@ -29,19 +31,19 @@ class PositionalEncoding(torch.nn.Module):
 
         return torch.FloatTensor(sinusoid_table).unsqueeze(0)
 
-    def forward(self, batch_size, num_nodes):
+    def forward(self, batch_size: int, num_nodes: int) -> torch.FloatTensor:
         x = self.pos_table[:, :num_nodes].clone().detach()
         x = x.expand(batch_size, -1, -1)
         return x
 
 
 class EmbeddingLayer(torch.nn.Module):
-    def __init__(self, vocab_size, embed_dim, max_len):
+    def __init__(self, vocab_size: int, embed_dim: int, max_len: int):
         super(EmbeddingLayer, self).__init__()
         self.token_embedding = torch.nn.Embedding(vocab_size, embed_dim)
         self.position_embedding = torch.nn.Embedding(max_len, embed_dim)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (batch_size, seq_len)
         seq_len = x.size(1)
         positions = (

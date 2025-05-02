@@ -16,6 +16,7 @@ from lightning.pytorch.utilities.model_helpers import is_overridden
 
 # https://github.com/Lightning-AI/pytorch-lightning/blob/master/examples/fabric/build_your_own_trainer/trainer.py
 
+
 class MyCustomTrainer:
     def __init__(
         self,
