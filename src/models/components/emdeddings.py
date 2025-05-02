@@ -1,7 +1,6 @@
 import torch
-import numpy as np
-
-
+import math
+import torch.nn as nn
 class PositionalEncoding(torch.nn.Module):
     def __init__(self, d_hid: int, n_position: int = 200):
         super(PositionalEncoding, self).__init__()
@@ -11,25 +10,13 @@ class PositionalEncoding(torch.nn.Module):
             "pos_table", self._get_sinusoid_encoding_table(n_position, d_hid)
         )
 
-    def _get_sinusoid_encoding_table(
-        self, n_position: int, d_hid: int
-    ) -> torch.FloatTensor:
-        """Sinusoid position encoding table"""
-        # TODO: make it with torch instead of numpy
-
-        def get_position_angle_vec(position):
-            return [
-                position / np.power(10000, 2 * (hid_j // 2) / d_hid)
-                for hid_j in range(d_hid)
-            ]
-
-        sinusoid_table = np.array(
-            [get_position_angle_vec(pos_i) for pos_i in range(n_position)]
-        )
-        sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])  # dim 2i
-        sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])  # dim 2i+1
-
-        return torch.FloatTensor(sinusoid_table).unsqueeze(0)
+    def _get_sinusoid_encoding_table(self, n_position: int, d_hid: int) -> torch.FloatTensor:
+        position = torch.arange(0, n_position, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_hid, 2).float() * (-math.log(10000.0) / d_hid))
+        table = torch.zeros(n_position, d_hid)
+        table[:, 0::2] = torch.sin(position * div_term)
+        table[:, 1::2] = torch.cos(position * div_term)
+        return table.unsqueeze(0)
 
     def forward(self, batch_size: int, num_nodes: int) -> torch.FloatTensor:
         x = self.pos_table[:, :num_nodes].clone().detach()
@@ -37,11 +24,11 @@ class PositionalEncoding(torch.nn.Module):
         return x
 
 
-class EmbeddingLayer(torch.nn.Module):
+class EmbeddingLayer(nn.Module):
     def __init__(self, vocab_size: int, embed_dim: int, max_len: int):
         super(EmbeddingLayer, self).__init__()
-        self.token_embedding = torch.nn.Embedding(vocab_size, embed_dim)
-        self.position_embedding = torch.nn.Embedding(max_len, embed_dim)
+        self.token_embedding = nn.Embedding(vocab_size, embed_dim)
+        self.position_embedding = nn.Embedding(max_len, embed_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (batch_size, seq_len)

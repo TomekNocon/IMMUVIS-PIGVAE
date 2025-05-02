@@ -2,10 +2,8 @@ import torch
 from typing import Tuple, Optional
 from torch.nn import Linear, LayerNorm, Dropout
 from torch.nn.functional import pad
-from src.models.components.custom_graph_transformer import (
-    Transformer,
-    PositionalEncoding,
-)
+from src.models.components.custom_graph_transformer import Transformer
+from src.models.components.emdeddings import PositionalEncoding
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.spectral_embeddings import NetworkXSpectralEmbedding
 
