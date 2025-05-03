@@ -1,6 +1,8 @@
 import torch
 import math
 import torch.nn as nn
+
+
 class PositionalEncoding(torch.nn.Module):
     def __init__(self, d_hid: int, n_position: int = 200):
         super(PositionalEncoding, self).__init__()
@@ -10,9 +12,13 @@ class PositionalEncoding(torch.nn.Module):
             "pos_table", self._get_sinusoid_encoding_table(n_position, d_hid)
         )
 
-    def _get_sinusoid_encoding_table(self, n_position: int, d_hid: int) -> torch.FloatTensor:
+    def _get_sinusoid_encoding_table(
+        self, n_position: int, d_hid: int
+    ) -> torch.FloatTensor:
         position = torch.arange(0, n_position, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_hid, 2).float() * (-math.log(10000.0) / d_hid))
+        div_term = torch.exp(
+            torch.arange(0, d_hid, 2).float() * (-math.log(10000.0) / d_hid)
+        )
         table = torch.zeros(n_position, d_hid)
         table[:, 0::2] = torch.sin(position * div_term)
         table[:, 1::2] = torch.cos(position * div_term)

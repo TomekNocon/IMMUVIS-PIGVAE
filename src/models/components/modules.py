@@ -2,10 +2,12 @@ import torch
 from typing import Tuple, Optional
 from torch.nn import Linear, LayerNorm, Dropout
 from torch.nn.functional import pad
-from src.models.components.custom_graph_transformer import Transformer
+# from src.models.components.custom_graph_transformer import Transformer
+from src.models.components.llama_graph_transformer import Transformer
 from src.models.components.emdeddings import PositionalEncoding
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.spectral_embeddings import NetworkXSpectralEmbedding
+from src.models.components.rotary_embedding import RotaryEmbedding, LLamaRotaryEmbedding
 
 from omegaconf import DictConfig
 
@@ -130,12 +132,14 @@ class GraphDecoder(torch.nn.Module):
         self.positional_embedding = PositionalEncoding(
             hparams.graph_decoder_pos_emb_dim
         )
+        # self.rope = LLamaRotaryEmbedding(dim=64)
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_decoder_hidden_dim,
             num_heads=hparams.graph_decoder_num_heads,
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=hparams.graph_decoder_num_layers,
             dropout=hparams.dropout,
+            # rope = LLamaRotaryEmbedding(64)
         )
         self.fc_in = Linear(
             hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim
@@ -150,11 +154,12 @@ class GraphDecoder(torch.nn.Module):
         self, graph_emb: torch.Tensor, perm: torch.Tensor, num_nodes: int
     ) -> torch.Tensor:
         batch_size = graph_emb.size(0)
-
+        x = graph_emb.unsqueeze(1).expand(-1, num_nodes, -1)
+        # if not self.rope:
         pos_emb = self.positional_embedding(batch_size, num_nodes)
         if perm is not None:
             pos_emb = torch.matmul(perm, pos_emb)
-        x = graph_emb.unsqueeze(1).expand(-1, num_nodes, -1)
+        
         x = x + pos_emb
         x = self.layer_norm(self.dropout(self.fc_in(x)))
         return x
@@ -170,6 +175,8 @@ class GraphDecoder(torch.nn.Module):
     ) -> Tuple[torch.Tensor]:
         edge_mask = mask
         x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
+        # if self.rope:
+        #     self.graph_transformer.perm = perm
         x = self.graph_transformer(x, mask=edge_mask)
         node_features, edge_features = self.read_out_message_matrix(x)
         return node_features, edge_features
@@ -364,16 +371,18 @@ class BottleNeckEncoder(torch.nn.Module):
         self.d_in = hparams.graph_encoder_hidden_dim
         self.d_out = hparams.emb_dim
         self.vae = hparams.vae
-        self.relu = torch.nn.ReLU()
-        self.gelu = torch.nn.GELU()
-        self.silu = torch.nn.SiLU()
+        self.activation = {
+            "relu": torch.nn.ReLU(),
+            "gelu": torch.nn.GELU(),
+            "silu": torch.nn.SiLU()
+        }[hparams.activation.lower()]
         if self.vae:
             self.w = Linear(self.d_in, 2 * self.d_out)
         else:
             self.w = Linear(self.d_in, self.d_out)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor]:
-        x = self.w(self.relu(x))
+        x = self.w(self.activation(x))
         if self.vae:
             mu = x[:, : self.d_out]
             logvar = x[:, self.d_out :]

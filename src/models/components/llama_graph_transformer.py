@@ -30,7 +30,7 @@ class Transformer(nn.Module):
         # )
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(hidden_dim, num_heads, dropout)
+                TransformerBlock(hidden_dim, num_heads, dropout, num_layers)
                 for _ in range(num_layers)
             ]
         )
@@ -67,19 +67,24 @@ class TransformerBlock(nn.Module):
 
     """
 
-    def __init__(self, hidden_dim: torch.Tensor, n_head: torch.Tensor, dropout: float):
+    def __init__(self, 
+                 hidden_dim: torch.Tensor, 
+                 n_head: torch.Tensor, 
+                 dropout: float,
+                 num_layers: Optional[int] = None
+                 ):
         super().__init__()
         self.attention_layer = SelfAttention(n_head, hidden_dim, dropout)
         self.feed_forward_layer = FeedForward(
             hidden_dim=hidden_dim,
-            ffn_hidden_dim=4 * hidden_dim,
-            multiple_of=32,
+            ffn_hidden_dim=hidden_dim, # I put the same since this is computed in feed forward layer
+            multiple_of=32, # fine tune that
             ffn_dim_multiplier=None,
         )
 
         self.attention_norm = RMSNorm(hidden_dim=hidden_dim, eps=1e-5)
         self.ffn_norm = RMSNorm(hidden_dim=hidden_dim, eps=1e-5)
-        self.num_layers = 4  # change that so you can pass by params
+        self.num_layers = num_layers
 
         # if model_args.depth_init:
         #     self.weight_init_std = 0.02 / (2 * (self.layer_id + 1)) ** 0.5
@@ -146,11 +151,11 @@ class FeedForward(nn.Module):
         ffn_dim_multiplier: Optional[float] = None,
     ):
         super().__init__()
-        hidden_dim = int(2 * hidden_dim / 3)
+        ffn_hidden_dim = int(2 * ffn_hidden_dim / 3)
         # custom dim factor multiplier
         if ffn_dim_multiplier is not None:
-            hidden_dim = int(ffn_dim_multiplier * hidden_dim)
-        hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
+            ffn_hidden_dim = int(ffn_dim_multiplier * ffn_hidden_dim)
+        ffn_hidden_dim = multiple_of * ((ffn_hidden_dim + multiple_of - 1) // multiple_of)
 
         self.w1 = nn.Linear(hidden_dim, ffn_hidden_dim, bias=False)
         self.w2 = nn.Linear(ffn_hidden_dim, hidden_dim, bias=False)
@@ -170,7 +175,7 @@ class FeedForward(nn.Module):
 
 
 class SelfAttention(torch.nn.Module):
-    def __init__(self, n_head: int, hidden_dim: int, dropout: float = 0.1):
+    def __init__(self, n_head: int, hidden_dim: int, dropout: float):
         super().__init__()
 
         self.n_head = n_head
@@ -188,23 +193,16 @@ class SelfAttention(torch.nn.Module):
         device = x.device
 
         q_chunk, k_chunk, v_chunk = torch.chunk(projected, chunks=3, dim=-1)
-        query = q_chunk.view(batch_size, num_nodes, num_nodes, self.n_head, -1).permute(
-            0, 3, 1, 2, 4
-        )
-        key = k_chunk.view(batch_size, num_nodes, num_nodes, self.n_head, -1).permute(
-            0, 3, 2, 1, 4
-        )
-        value = v_chunk.view(batch_size, num_nodes, num_nodes, self.n_head, -1).permute(
-            0, 3, 2, 1, 4
-        )
+        query = q_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        key = k_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        value = v_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
 
-        attn_mask = mask.masked_fill(
-            torch.eye(num_nodes, num_nodes, device=device).bool(), 0
-        )
-        attn_mask = attn_mask.unsqueeze(1).expand(-1, num_nodes, -1, -1)
-        attn_mask = attn_mask * (
-            torch.eye(num_nodes, num_nodes, device=device) == 0
-        ).bool().unsqueeze(0).unsqueeze(-2).expand(-1, -1, num_nodes, -1)
+        attn_mask = mask.to(device)
+
+        attn_mask = attn_mask.unsqueeze(1).unsqueeze(
+            2
+        )  # Shape: (batch_size, 1, 1, num_nodes)
+        attn_mask = attn_mask.expand(-1, self.n_head, num_nodes, -1)
 
         # with torch.nn.attention.sdpa_kernel(
         #     [
@@ -214,14 +212,14 @@ class SelfAttention(torch.nn.Module):
         #     ]
         # ):
 
-        attention_output = scaled_dot_product_attention(
+        attention_output = F.scaled_dot_product_attention(
             query=query,
             key=key,
             value=value,
             attn_mask=attn_mask,
             is_causal=False,
         )
-        attention_output = attention_output.permute(0, 2, 3, 1, 4).contiguous()
+        
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
         output = self.dropout(output)
         return output

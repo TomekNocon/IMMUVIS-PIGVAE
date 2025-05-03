@@ -33,6 +33,7 @@ graph_ae:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
       emb_dim: 32 # zwiekszyl latent 
       vae: ${model.graph_ae.hparams.vae}
+      activation: silu
 
     bottle_neck_decoder:
       emb_dim: 32
@@ -54,7 +55,7 @@ critic:
   _target_: "src.models.components.model.Critic"
   hparams:
     kld_loss_scale: 0.001
-    perm_loss_scale: 0.01
+    perm_loss_scale: 0.1
     contrastive_loss_scale: 0.01
     temperature: 0.07
     vae: ${model.graph_ae.hparams.vae}

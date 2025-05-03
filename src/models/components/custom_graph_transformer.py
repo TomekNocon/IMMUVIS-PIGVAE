@@ -21,6 +21,8 @@ class Transformer(nn.Module):
         ppf_hidden_dim: int,
         num_layers: int,
         dropout: float = 0.1,
+        # rope: Optional[BaseRotaryEmbedding] = None,
+        # perm: Optional[torch.Tensor] = None
     ):
         super().__init__()
         self.num_layers = num_layers
@@ -30,7 +32,9 @@ class Transformer(nn.Module):
         # )
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(hidden_dim, num_heads, dropout)
+                TransformerBlock(hidden_dim, num_heads, dropout, 
+                                #  rope, perm
+                                 )
                 for _ in range(num_layers)
             ]
         )
@@ -55,9 +59,19 @@ class Transformer(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, hidden_dim: torch.Tensor, n_head: torch.Tensor, dropout: float):
+    def __init__(
+        self,
+        hidden_dim: torch.Tensor,
+        n_head: torch.Tensor,
+        dropout: float,
+        num_layers: Optional[int] = None
+        # rope: Optional[BaseRotaryEmbedding] = None,
+        # perm: Optional[torch.Tensor] = None
+    ):
         super().__init__()
-        self.attention_layer = SelfAttention(n_head, hidden_dim, dropout)
+        self.attention_layer = SelfAttention(n_head, hidden_dim, dropout, 
+                                            #  rope, perm
+                                             )
         self.feed_forward_layer = FeedForward(hidden_dim, dropout)
 
     def forward(self, x: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
@@ -99,7 +113,12 @@ def FeedForward(hidden_size: int, dropout: float) -> nn.Sequential:
 
 class SelfAttention(torch.nn.Module):
     def __init__(
-        self, n_head: torch.Tensor, hidden_dim: torch.Tensor, dropout: float, rope: Optional[BaseRotaryEmbedding] = None
+        self,
+        n_head: torch.Tensor,
+        hidden_dim: torch.Tensor,
+        dropout: float,
+        # rope: Optional[BaseRotaryEmbedding] = None,
+        # perm: Optional[torch.Tensor] = None
     ):
         super().__init__()
 
@@ -110,7 +129,8 @@ class SelfAttention(torch.nn.Module):
         self.input_projection = nn.Linear(hidden_dim, 3 * hidden_dim, bias=False)
         self.output_projection = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
-        self.rope = rope
+        # self.rope = rope
+        # self.perm = perm
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         # x: b x nn x nn x dv
@@ -124,11 +144,10 @@ class SelfAttention(torch.nn.Module):
         query = q_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         key = k_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         value = v_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-        
-        if self.rope:
-            query = self.rope.rotate_queries_or_keys(query)
-            key = self.rope.rotate_queries_or_keys(key)
-            
+        # if self.rope:
+        #     query = self.rope.rotate_queries_or_keys(query)
+        #     key = self.rope.rotate_queries_or_keys(key)
+
         attn_mask = mask.to(device)
 
         attn_mask = attn_mask.unsqueeze(1).unsqueeze(
@@ -153,6 +172,8 @@ class SelfAttention(torch.nn.Module):
         )
 
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
+        # if self.rope and self.perm:
+        #     output = torch.matmul(self.perm, output)
         output = self.dropout(output)
         return output
 
