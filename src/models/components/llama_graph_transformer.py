@@ -4,7 +4,6 @@ import torch.nn.functional as F
 
 # from torch.nn.attention import SDPBackend
 from typing import Optional
-from src.models.components.custom_pytorch_functions import scaled_dot_product_attention
 from src.models.components.custom_pytorch_functions import RMSNorm
 
 
@@ -67,18 +66,19 @@ class TransformerBlock(nn.Module):
 
     """
 
-    def __init__(self, 
-                 hidden_dim: torch.Tensor, 
-                 n_head: torch.Tensor, 
-                 dropout: float,
-                 num_layers: Optional[int] = None
-                 ):
+    def __init__(
+        self,
+        hidden_dim: torch.Tensor,
+        n_head: torch.Tensor,
+        dropout: float,
+        num_layers: Optional[int] = None,
+    ):
         super().__init__()
         self.attention_layer = SelfAttention(n_head, hidden_dim, dropout)
         self.feed_forward_layer = FeedForward(
             hidden_dim=hidden_dim,
-            ffn_hidden_dim=hidden_dim, # I put the same since this is computed in feed forward layer
-            multiple_of=32, # fine tune that
+            ffn_hidden_dim=hidden_dim,  # I put the same since this is computed in feed forward layer
+            multiple_of=32,  # fine tune that
             ffn_dim_multiplier=None,
         )
 
@@ -155,7 +155,9 @@ class FeedForward(nn.Module):
         # custom dim factor multiplier
         if ffn_dim_multiplier is not None:
             ffn_hidden_dim = int(ffn_dim_multiplier * ffn_hidden_dim)
-        ffn_hidden_dim = multiple_of * ((ffn_hidden_dim + multiple_of - 1) // multiple_of)
+        ffn_hidden_dim = multiple_of * (
+            (ffn_hidden_dim + multiple_of - 1) // multiple_of
+        )
 
         self.w1 = nn.Linear(hidden_dim, ffn_hidden_dim, bias=False)
         self.w2 = nn.Linear(ffn_hidden_dim, hidden_dim, bias=False)
@@ -219,7 +221,7 @@ class SelfAttention(torch.nn.Module):
             attn_mask=attn_mask,
             is_causal=False,
         )
-        
+
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
         output = self.dropout(output)
         return output

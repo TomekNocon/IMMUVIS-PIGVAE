@@ -68,8 +68,10 @@ class PLGraphAE(L.LightningModule):
         self.perms = []
 
     def forward(self, graph: DenseGraphBatch, training: bool) -> Tuple:
-        graph_emb, graph_pred, perm, mu, logvar = self.graph_ae(graph, training)
-        return graph_emb, graph_pred, perm, mu, logvar
+        graph_emb, graph_pred, soft_probs, perm, mu, logvar = self.graph_ae(
+            graph, training
+        )
+        return graph_emb, graph_pred, soft_probs, perm, mu, logvar
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -92,7 +94,7 @@ class PLGraphAE(L.LightningModule):
         pass
 
     def training_step(self, graph: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
-        graph_emb, graph_pred, perm, mu, logvar = self(
+        graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph,
             training=True,
         )
@@ -100,6 +102,7 @@ class PLGraphAE(L.LightningModule):
             graph_emb=graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
+            soft_probs=soft_probs,
             mu=mu,
             logvar=logvar,
         )
@@ -111,7 +114,7 @@ class PLGraphAE(L.LightningModule):
         pass
 
     def validation_step(self, graph: DenseGraphBatch, batch_idx: int) -> Dict[str, Any]:
-        graph_emb, graph_pred, perm, mu, logvar = self(
+        graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph,
             training=True,
         )
@@ -124,11 +127,12 @@ class PLGraphAE(L.LightningModule):
             graph_emb=graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
+            soft_probs=soft_probs,
             mu=mu,
             logvar=logvar,
             prefix="val",
         )
-        graph_emb, graph_pred, perm, mu, logvar = self(
+        graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph,
             training=False,
         )
@@ -136,6 +140,7 @@ class PLGraphAE(L.LightningModule):
             graph_emb=graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
+            soft_probs=soft_probs,
             mu=mu,
             logvar=logvar,
             prefix="val_hard",

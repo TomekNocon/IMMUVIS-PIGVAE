@@ -6,7 +6,6 @@ from typing import Optional
 
 # from torch.nn.attention import SDPBackend
 from collections import OrderedDict
-from src.models.components.rotary_embedding import BaseRotaryEmbedding
 
 """
 adapted from https://github.com/jadore801120/attention-is-all-you-need-pytorch
@@ -32,9 +31,12 @@ class Transformer(nn.Module):
         # )
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(hidden_dim, num_heads, dropout, 
-                                #  rope, perm
-                                 )
+                TransformerBlock(
+                    hidden_dim,
+                    num_heads,
+                    dropout,
+                    #  rope, perm
+                )
                 for _ in range(num_layers)
             ]
         )
@@ -64,14 +66,17 @@ class TransformerBlock(nn.Module):
         hidden_dim: torch.Tensor,
         n_head: torch.Tensor,
         dropout: float,
-        num_layers: Optional[int] = None
+        num_layers: Optional[int] = None,
         # rope: Optional[BaseRotaryEmbedding] = None,
         # perm: Optional[torch.Tensor] = None
     ):
         super().__init__()
-        self.attention_layer = SelfAttention(n_head, hidden_dim, dropout, 
-                                            #  rope, perm
-                                             )
+        self.attention_layer = SelfAttention(
+            n_head,
+            hidden_dim,
+            dropout,
+            #  rope, perm
+        )
         self.feed_forward_layer = FeedForward(hidden_dim, dropout)
 
     def forward(self, x: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:

@@ -73,3 +73,15 @@ class ContrastiveLoss(torch.nn.Module):
         loss = loss.mean()
 
         return loss
+
+
+class PermutationLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, probs: torch.Tensor):
+        # logits: (batch_size, num_classes)
+        avg_probs = probs.mean(dim=0)  # (num_classes,)
+        log_avg_probs = torch.log(avg_probs + 1e-12)
+        entropy = -torch.sum(avg_probs * log_avg_probs)  # scalar
+        return -entropy  # negative entropy to maximize it

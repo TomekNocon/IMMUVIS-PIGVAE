@@ -3,6 +3,7 @@ from src.models.components.losses import (
     GraphReconstructionLoss,
     KLDLoss,
     ContrastiveLoss,
+    PermutationLoss,
 )
 from omegaconf import DictConfig
 from src.data.components.graphs_datamodules import DenseGraphBatch
@@ -18,18 +19,20 @@ class Critic(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.alpha = hparams.kld_loss_scale
-        # self.beta = hparams.perm_loss_scale
+        self.beta = hparams.perm_loss_scale
         self.gamma = hparams.contrastive_loss_scale
         self.vae = hparams.vae
         self.reconstruction_loss = GraphReconstructionLoss()
         self.contrastive_loss = ContrastiveLoss(temperature=hparams.temperature)
         self.kld_loss = KLDLoss()
+        self.permutation_loss = PermutationLoss()
 
     def forward(
         self,
         graph_emb: torch.Tensor,
         graph_true: DenseGraphBatch,
         graph_pred: DenseGraphBatch,
+        soft_probs: torch.Tensor,
         mu: torch.Tensor,
         logvar: torch.Tensor,
     ) -> Dict[str, Any]:
@@ -37,8 +40,15 @@ class Critic(torch.nn.Module):
             graph_true=graph_true, graph_pred=graph_pred
         )
         contrastive_loss = self.contrastive_loss(graph_emb)
-        loss = {**recon_loss, "contrastive_loss": contrastive_loss}
-        loss["loss"] = loss["loss"] + self.gamma * contrastive_loss
+        permutation_loss = self.permutation_loss(soft_probs)
+        loss = {
+            **recon_loss,
+            "contrastive_loss": contrastive_loss,
+            "permutation_loss": permutation_loss,
+        }
+        loss["loss"] = (
+            loss["loss"] + self.beta * permutation_loss + self.gamma * contrastive_loss
+        )
         if self.vae:
             kld_loss = self.kld_loss(mu, logvar)
             loss["kld_loss"] = kld_loss
@@ -50,6 +60,7 @@ class Critic(torch.nn.Module):
         graph_emb: torch.Tensor,
         graph_true: DenseGraphBatch,
         graph_pred: DenseGraphBatch,
+        soft_probs: torch.Tensor,
         mu: torch.Tensor,
         logvar: torch.Tensor,
         prefix: Optional[str] = None,
@@ -58,6 +69,7 @@ class Critic(torch.nn.Module):
             graph_emb=graph_emb,
             graph_true=graph_true,
             graph_pred=graph_pred,
+            soft_probs=soft_probs,
             mu=mu,
             logvar=logvar,
         )

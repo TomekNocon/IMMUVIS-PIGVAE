@@ -2,12 +2,12 @@ import torch
 from typing import Tuple, Optional
 from torch.nn import Linear, LayerNorm, Dropout
 from torch.nn.functional import pad
+
 # from src.models.components.custom_graph_transformer import Transformer
 from src.models.components.llama_graph_transformer import Transformer
 from src.models.components.emdeddings import PositionalEncoding
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.spectral_embeddings import NetworkXSpectralEmbedding
-from src.models.components.rotary_embedding import RotaryEmbedding, LLamaRotaryEmbedding
 
 from omegaconf import DictConfig
 
@@ -55,9 +55,12 @@ class GraphAE(torch.nn.Module):
 
     def forward(self, graph: DenseGraphBatch, training: bool) -> Tuple:
         graph_emb, node_features, mu, logvar = self.encode(graph=graph)
-        perm = self.permuter(node_features, mask=graph.mask, hard=not training)
+        perm, context, soft_probs = self.permuter(
+            node_features, mask=graph.mask, hard=not training
+        )
+        graph_emb += context
         graph_pred = self.decode(graph_emb, perm, graph.mask)
-        return graph_emb, graph_pred, perm, mu, logvar
+        return graph_emb, graph_pred, soft_probs, perm, mu, logvar
 
 
 class GraphEncoder(torch.nn.Module):
@@ -122,7 +125,6 @@ class GraphEncoder(torch.nn.Module):
         x, edge_mask = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=edge_mask)
         graph_emb, node_features = self.read_out_message_matrix(x)
-
         return graph_emb, node_features
 
 
@@ -159,7 +161,7 @@ class GraphDecoder(torch.nn.Module):
         pos_emb = self.positional_embedding(batch_size, num_nodes)
         if perm is not None:
             pos_emb = torch.matmul(perm, pos_emb)
-        
+
         x = x + pos_emb
         x = self.layer_norm(self.dropout(self.fc_in(x)))
         return x
@@ -182,16 +184,18 @@ class GraphDecoder(torch.nn.Module):
         return node_features, edge_features
 
 
-# class TemperatureScheduler:
-#     def __init__(self, hparams):
-#         self.initial_tau = hparams.initial_tau
-#         self.final_tau = hparams.final_tau
-#         self.num_epochs = hparams.num_epochs
+class TemperatureScheduler:
+    def __init__(self, hparams):
+        self.initial_tau = hparams.initial_tau
+        self.final_tau = hparams.final_tau
+        self.num_epochs = hparams.num_epochs
 
-#     def get_tau(self, epoch):
-#         # Exponential decay
-#         tau = self.initial_tau * (self.final_tau / self.initial_tau) ** (epoch / self.num_epochs)
-#         return tau
+    def get_tau(self, epoch):
+        # Exponential decay
+        tau = self.initial_tau * (self.final_tau / self.initial_tau) ** (
+            epoch / self.num_epochs
+        )
+        return tau
 
 
 class Permuter(torch.nn.Module):
@@ -283,6 +287,7 @@ class SimplePermuter(torch.nn.Module):
         self.scoring_fc = torch.nn.Linear(
             hparams.graph_decoder_hidden_dim, hparams.num_permutations
         )
+        self.perm_context = torch.nn.Linear(hparams.num_permutations, hparams.emb_dim)
         predefined_permutations = self.create_predefine_permutations(hparams.grid_size)
         # Predefined permutation matrices (B, num_permutations, N, N)
         self.register_buffer("predefined_permutations", predefined_permutations)
@@ -302,13 +307,14 @@ class SimplePermuter(torch.nn.Module):
 
         # Score each permutation option
         scores = self.scoring_fc(node_features).mean(dim=1)  # (B, num_permutations)
+        context = self.perm_context(scores)
 
         # Softmax over scores to get probabilities for each permutation
-        probs = torch.softmax(scores / tau, dim=-1)  # (B, num_permutations)
+        soft_probs = torch.softmax(scores / tau, dim=-1)  # (B, num_permutations)
         # Hard selection using Gumbel-Softmax (discrete but differentiable)
-        one_hot = torch.zeros_like(probs)
-        one_hot.scatter_(1, probs.argmax(dim=-1, keepdim=True), 1.0)
-        probs = (one_hot - probs).detach() + probs
+        one_hot = torch.zeros_like(soft_probs)
+        one_hot.scatter_(1, soft_probs.argmax(dim=-1, keepdim=True), 1.0)
+        probs = (one_hot - soft_probs).detach() + soft_probs
 
         # Combine predefined permutations with the probabilities
         # Shape: (B, N, N) = (B, num_permutations, N, N) * (B, num_permutations, 1, 1)
@@ -318,7 +324,7 @@ class SimplePermuter(torch.nn.Module):
         # Shape: (B, N, N) = (B, num_permutations, 1, 1) * (num_permutations, N, N) -> sum over 8
         perm = torch.sum(probs * self.predefined_permutations, dim=1)  # (B, N, N)
 
-        return perm
+        return perm, context, soft_probs
 
     def _permutation_matrix_90(self, n: int) -> torch.Tensor:
         indices = torch.arange(n * n).reshape(n, n)
@@ -374,7 +380,7 @@ class BottleNeckEncoder(torch.nn.Module):
         self.activation = {
             "relu": torch.nn.ReLU(),
             "gelu": torch.nn.GELU(),
-            "silu": torch.nn.SiLU()
+            "silu": torch.nn.SiLU(),
         }[hparams.activation.lower()]
         if self.vae:
             self.w = Linear(self.d_in, 2 * self.d_out)
