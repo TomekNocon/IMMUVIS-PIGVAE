@@ -2,8 +2,9 @@ from typing import Tuple, Dict, Any, Callable
 
 import torch
 import lightning as L
+import matplotlib.pyplot as plt
 from models.components.warmups import get_cosine_schedule_with_warmup
-from models.components.plot import restore_tensor, plot_images
+from models.components.plot import restore_tensor, plot_images, plot_pca
 import wandb
 from src.data.components.graphs_datamodules import DenseGraphBatch
 
@@ -127,7 +128,7 @@ class PLGraphAE(L.LightningModule):
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph, training=True, tau=tau
         )
-        self.perms.append(perm[:5, :, :])
+        self.perms.append(perm)
         outputs = {"prediction": graph_pred, "ground_truth": graph}
         self.validation_step_outputs.append(outputs)
         batch_size = graph_pred.node_features.shape[0]
@@ -155,7 +156,7 @@ class PLGraphAE(L.LightningModule):
             logvar=logvar,
             prefix="val_hard",
         )
-        metrics = {**metrics_soft, **metrics_hard}
+        metrics = {**metrics_soft, **metrics_hard, "tau": tau, "beta": beta}
         self.log_dict(
             metrics,
             sync_dist=False,
@@ -168,41 +169,57 @@ class PLGraphAE(L.LightningModule):
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
         # Log one example to W&B
-        pred = self.validation_step_outputs[0]["prediction"].node_features
-        gt = self.validation_step_outputs[0]["ground_truth"].node_features
-        batch_size = pred.shape[0]
-        pred_img = (
-            restore_tensor(pred, batch_size, 1, 24, 24, 4)
+        predictions = self.validation_step_outputs[0]["prediction"].node_features
+        ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
+        perms = self.perms[0]
+
+        subset_predictions = torch.cat(
+            [predictions[:5, :, :], predictions[32:37, :, :]], dim=0
+        )
+        subset_ground_truths = torch.cat(
+            [ground_truths[:5, :, :], ground_truths[32:37, :, :]], dim=0
+        )
+        subset_perms = torch.cat([perms[:5, :, :], perms[32:37, :, :]], dim=0)
+        subset_batch_size = subset_predictions.shape[0]
+        batch_size = predictions.shape[0]
+        pred_imgs = (
+            restore_tensor(subset_predictions, subset_batch_size, 1, 24, 24, 4)
             .detach()
             .cpu()
             .squeeze()
             .numpy()
         )
-        gt_img = (
-            restore_tensor(gt, batch_size, 1, 24, 24, 4)
+        ground_truth_imgs = (
+            restore_tensor(subset_ground_truths, subset_batch_size, 1, 24, 24, 4)
             .detach()
             .cpu()
             .squeeze()
             .numpy()
         )
-        p = (
-            torch.concat([self.perms[0], self.perms[1]], dim=0)
+        permutations = subset_perms.detach().cpu().squeeze().numpy()
+        pca_predictions = (
+            restore_tensor(predictions, batch_size, 1, 24, 24, 4)
             .detach()
             .cpu()
             .squeeze()
             .numpy()
         )
+        fig_prediction = plot_images(pred_imgs, n_images=10)
+        fig_ground_truth = plot_images(ground_truth_imgs, n_images=10)
+        fig_perms = plot_images(permutations, n_images=10)
+        fig_pca = plot_pca(pca_predictions)
         wandb.log(
             {
-                "Prediction": wandb.Image(
-                    plot_images(pred_img, n_images=10), caption="Predicted Image"
-                ),
-                "Ground Truth": wandb.Image(
-                    plot_images(gt_img, n_images=10), caption="Ground Truth"
-                ),
-                "Perms": wandb.Image(plot_images(p, n_images=10), caption="Perms"),
+                "Prediction": wandb.Image(fig_prediction, caption="Predicted Image"),
+                "Ground Truth": wandb.Image(fig_ground_truth, caption="Ground Truth"),
+                "Perms": wandb.Image(fig_perms, caption="Perms"),
+                "PCA": wandb.Image(fig_pca, caption="PCA"),
             }
         )
+        plt.close(fig_prediction)
+        plt.close(fig_ground_truth)
+        plt.close(fig_perms)
+        plt.close(fig_pca)
         self.validation_step_outputs.clear()
         self.perms.clear()
 

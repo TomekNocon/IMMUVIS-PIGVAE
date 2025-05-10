@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.decomposition import PCA
 
 
 def restore_tensor(
@@ -29,10 +30,28 @@ def restore_tensor(
     return x_reconstructed
 
 
-def plot_images(images: np.array, n_images: int) -> plt.figure:
+def plot_images(images: np.array, n_images: int) -> plt.Figure:
     fig, axes = plt.subplots(1, n_images, figsize=(15, 6))
     for idx, ax in enumerate(axes.flat):
         ax.imshow(images[idx], cmap="gray")
         ax.set_title(f"Image {idx}")
         ax.axis("off")
+    return fig
+
+
+def plot_pca(images: np.array) -> plt.Figure:
+    batch_flat = images.reshape(images.shape[0], -1)
+    # Step 2: Run PCA
+    pca = PCA(n_components=2)  # choose desired number of components
+    batch_pca = pca.fit_transform(batch_flat)  # shape: [64, 2]
+
+    # Create plot
+    fig = plt.figure(figsize=(8, 6))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.scatter(batch_pca[:, 0], batch_pca[:, 1], c="skyblue", edgecolors="k")
+    ax.set_xlabel("Principal Component 1")
+    ax.set_ylabel("Principal Component 2")
+    ax.set_title("PCA of Image Batch")
+    ax.grid(True)
+
     return fig

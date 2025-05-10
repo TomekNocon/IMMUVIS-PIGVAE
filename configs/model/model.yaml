@@ -63,8 +63,8 @@ temperature_scheduler:
 entropy_weight_scheduler:
   _target_: "src.models.components.schedulers.EntropyWeightScheduler"
   hparams:
-    initial_weight: 0.5
-    final_weight: 0.1
+    initial_weight: 0.1
+    final_weight: 0.01
     mode: exponential
     num_epochs: ${trainer.max_epochs}
     start_epoch: ${trainer.min_epochs}

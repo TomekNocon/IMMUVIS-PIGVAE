@@ -2,6 +2,7 @@ import torch
 
 from omegaconf import DictConfig
 
+
 class TemperatureScheduler(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
@@ -16,7 +17,8 @@ class TemperatureScheduler(torch.nn.Module):
         )
         tau = max(self.final_tau, tau)
         return tau
-    
+
+
 class EntropyWeightScheduler(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
@@ -28,7 +30,9 @@ class EntropyWeightScheduler(torch.nn.Module):
     def forward(self, epoch: int) -> float:
         t = min(epoch, self.total_epochs)
         if self.mode == "linear":
-            return self.initial_weight * (1 - t / self.total_epochs) + self.final_weight * (t / self.total_epochs)
+            return self.initial_weight * (
+                1 - t / self.total_epochs
+            ) + self.final_weight * (t / self.total_epochs)
         elif self.mode == "exponential":
             ratio = self.final_weight / self.initial_weight
             return self.initial_weight * (ratio ** (t / self.total_epochs))
