@@ -53,6 +53,8 @@ class PLGraphAE(L.LightningModule):
         self,
         graph_ae: torch.nn.Module,
         critic: torch.nn.Module,
+        temperature_scheduler: torch.nn.Module,
+        entropy_weight_scheduler: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
@@ -60,16 +62,20 @@ class PLGraphAE(L.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["graph_ae"])
         self.save_hyperparameters(ignore=["critic"])
+        self.save_hyperparameters(ignore=["temperature_scheduler"])
+        self.save_hyperparameters(ignore=["entropy_weight_scheduler"])
         self.save_hyperparameters(logger=False)
         self.graph_ae = graph_ae
         self.critic = critic
+        self.temperature_scheduler = temperature_scheduler
+        self.entropy_weight_scheduler = entropy_weight_scheduler
         self.automatic_optimization = True
         self.validation_step_outputs = []
         self.perms = []
 
-    def forward(self, graph: DenseGraphBatch, training: bool) -> Tuple:
+    def forward(self, graph: DenseGraphBatch, training: bool, tau: float) -> Tuple:
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self.graph_ae(
-            graph, training
+            graph, training, tau
         )
         return graph_emb, graph_pred, soft_probs, perm, mu, logvar
 
@@ -94,15 +100,17 @@ class PLGraphAE(L.LightningModule):
         pass
 
     def training_step(self, graph: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
+        tau = self.temperature_scheduler(self.current_epoch)
+        beta = self.entropy_weight_scheduler(self.current_epoch)
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
-            graph=graph,
-            training=True,
+            graph=graph, training=True, tau=tau
         )
         loss = self.critic(
             graph_emb=graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
             soft_probs=soft_probs,
+            beta=beta,
             mu=mu,
             logvar=logvar,
         )
@@ -114,9 +122,10 @@ class PLGraphAE(L.LightningModule):
         pass
 
     def validation_step(self, graph: DenseGraphBatch, batch_idx: int) -> Dict[str, Any]:
+        tau = self.temperature_scheduler(self.current_epoch)
+        beta = self.entropy_weight_scheduler(self.current_epoch)
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
-            graph=graph,
-            training=True,
+            graph=graph, training=True, tau=tau
         )
         self.perms.append(perm[:5, :, :])
         outputs = {"prediction": graph_pred, "ground_truth": graph}
@@ -128,19 +137,20 @@ class PLGraphAE(L.LightningModule):
             graph_true=graph,
             graph_pred=graph_pred,
             soft_probs=soft_probs,
+            beta=beta,
             mu=mu,
             logvar=logvar,
             prefix="val",
         )
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
-            graph=graph,
-            training=False,
+            graph=graph, training=False, tau=1.0
         )
         metrics_hard = self.critic.evaluate(
             graph_emb=graph_emb,
             graph_true=graph,
             graph_pred=graph_pred,
             soft_probs=soft_probs,
+            beta=0.0,
             mu=mu,
             logvar=logvar,
             prefix="val_hard",

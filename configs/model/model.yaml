@@ -6,6 +6,7 @@ graph_ae:
     input_size: 256
     num_heads: 4
     num_layers: 4
+    emb_dim: 32
     vae: true
     dropout: 0.1
     encoder:
@@ -31,16 +32,16 @@ graph_ae:
 
     bottle_neck_encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
-      emb_dim: 32 # zwiekszyl latent 
+      emb_dim: ${model.graph_ae.hparams.emb_dim} 
       vae: ${model.graph_ae.hparams.vae}
       activation: silu
 
     bottle_neck_decoder:
-      emb_dim: 32
+      emb_dim: ${model.graph_ae.hparams.emb_dim}
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
 
     property_predictor:
-      emb_dim: 32
+      emb_dim: ${model.graph_ae.hparams.emb_dim}
       property_predictor_hidden_dim: ${model.graph_ae.hparams.input_size}
       num_properties: 1
 
@@ -48,9 +49,25 @@ graph_ae:
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
       num_permutations: 8
       grid_size: 6
-      tau: 1.0
       break_symmetry_scale: 0.01
-      emb_dim: 32
+      emb_dim: ${model.graph_ae.hparams.emb_dim}
+    
+temperature_scheduler:
+  _target_: "src.models.components.schedulers.TemperatureScheduler"
+  hparams:
+    initial_tau: 1.0
+    final_tau: 0.1
+    num_epochs: ${trainer.max_epochs}
+    start_epoch: ${trainer.min_epochs}
+
+entropy_weight_scheduler:
+  _target_: "src.models.components.schedulers.EntropyWeightScheduler"
+  hparams:
+    initial_weight: 0.5
+    final_weight: 0.1
+    mode: exponential
+    num_epochs: ${trainer.max_epochs}
+    start_epoch: ${trainer.min_epochs}
 
 critic:
   _target_: "src.models.components.model.Critic"

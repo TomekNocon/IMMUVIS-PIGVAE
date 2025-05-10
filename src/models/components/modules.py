@@ -53,10 +53,12 @@ class GraphAE(torch.nn.Module):
         )
         return graph_pred
 
-    def forward(self, graph: DenseGraphBatch, training: bool) -> Tuple:
+    def forward(
+        self, graph: DenseGraphBatch, training: bool, tau: float = 1.0
+    ) -> Tuple:
         graph_emb, node_features, mu, logvar = self.encode(graph=graph)
         perm, context, soft_probs = self.permuter(
-            node_features, mask=graph.mask, hard=not training
+            node_features, mask=graph.mask, hard=not training, tau=tau
         )
         graph_emb += context
         graph_pred = self.decode(graph_emb, perm, graph.mask)
@@ -184,20 +186,6 @@ class GraphDecoder(torch.nn.Module):
         return node_features, edge_features
 
 
-class TemperatureScheduler:
-    def __init__(self, hparams):
-        self.initial_tau = hparams.initial_tau
-        self.final_tau = hparams.final_tau
-        self.num_epochs = hparams.num_epochs
-
-    def get_tau(self, epoch):
-        # Exponential decay
-        tau = self.initial_tau * (self.final_tau / self.initial_tau) ** (
-            epoch / self.num_epochs
-        )
-        return tau
-
-
 class Permuter(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
@@ -296,9 +284,9 @@ class SimplePermuter(torch.nn.Module):
     def forward(
         self,
         node_features: torch.Tensor,
+        tau: float,
         mask: torch.Tensor,
         hard: bool = False,
-        tau: float = 1.0,
     ) -> torch.Tensor:
         # Add noise to break symmetry
         node_features = (
