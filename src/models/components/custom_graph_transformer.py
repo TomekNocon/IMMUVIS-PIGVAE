@@ -3,6 +3,7 @@ import math
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional
+from src.models.components.rotary_embedding import BaseRotaryEmbedding
 
 # from torch.nn.attention import SDPBackend
 from collections import OrderedDict
@@ -20,8 +21,7 @@ class Transformer(nn.Module):
         ppf_hidden_dim: int,
         num_layers: int,
         dropout: float = 0.1,
-        # rope: Optional[BaseRotaryEmbedding] = None,
-        # perm: Optional[torch.Tensor] = None
+        rope: Optional[BaseRotaryEmbedding] = None,
     ):
         super().__init__()
         self.num_layers = num_layers
@@ -31,15 +31,11 @@ class Transformer(nn.Module):
         # )
         self.blocks = nn.ModuleList(
             [
-                TransformerBlock(
-                    hidden_dim,
-                    num_heads,
-                    dropout,
-                    #  rope, perm
-                )
+                TransformerBlock(hidden_dim, num_heads, dropout, rope)
                 for _ in range(num_layers)
             ]
         )
+        self.rope = rope
 
         # self.head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
@@ -59,6 +55,10 @@ class Transformer(nn.Module):
         self.attention.init_weights(self.weight_init_std)
         self.feed_forward.init_weights(self.weight_init_std)
 
+    @property
+    def is_rope(self) -> bool:
+        return self.rope is not None
+
 
 class TransformerBlock(nn.Module):
     def __init__(
@@ -67,16 +67,10 @@ class TransformerBlock(nn.Module):
         n_head: torch.Tensor,
         dropout: float,
         num_layers: Optional[int] = None,
-        # rope: Optional[BaseRotaryEmbedding] = None,
-        # perm: Optional[torch.Tensor] = None
+        rope: Optional[BaseRotaryEmbedding] = None,
     ):
         super().__init__()
-        self.attention_layer = SelfAttention(
-            n_head,
-            hidden_dim,
-            dropout,
-            #  rope, perm
-        )
+        self.attention_layer = SelfAttention(n_head, hidden_dim, dropout, rope)
         self.feed_forward_layer = FeedForward(hidden_dim, dropout)
 
     def forward(self, x: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
@@ -122,8 +116,7 @@ class SelfAttention(torch.nn.Module):
         n_head: torch.Tensor,
         hidden_dim: torch.Tensor,
         dropout: float,
-        # rope: Optional[BaseRotaryEmbedding] = None,
-        # perm: Optional[torch.Tensor] = None
+        rope: Optional[BaseRotaryEmbedding] = None,
     ):
         super().__init__()
 
@@ -134,7 +127,7 @@ class SelfAttention(torch.nn.Module):
         self.input_projection = nn.Linear(hidden_dim, 3 * hidden_dim, bias=False)
         self.output_projection = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
-        # self.rope = rope
+        self.rope = rope
         # self.perm = perm
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -149,9 +142,9 @@ class SelfAttention(torch.nn.Module):
         query = q_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         key = k_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         value = v_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-        # if self.rope:
-        #     query = self.rope.rotate_queries_or_keys(query)
-        #     key = self.rope.rotate_queries_or_keys(key)
+        if self.rope:
+            query = self.rope.rotate_queries_or_keys(query)
+            key = self.rope.rotate_queries_or_keys(key)
 
         attn_mask = mask.to(device)
 
@@ -177,8 +170,6 @@ class SelfAttention(torch.nn.Module):
         )
 
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
-        # if self.rope and self.perm:
-        #     output = torch.matmul(self.perm, output)
         output = self.dropout(output)
         return output
 

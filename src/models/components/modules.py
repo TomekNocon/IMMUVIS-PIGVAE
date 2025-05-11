@@ -8,6 +8,7 @@ from src.models.components.llama_graph_transformer import Transformer
 from src.models.components.emdeddings import PositionalEncoding
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.spectral_embeddings import NetworkXSpectralEmbedding
+from src.models.components.rotary_embedding import LLamaRotaryEmbedding
 
 from omegaconf import DictConfig
 
@@ -143,7 +144,7 @@ class GraphDecoder(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=hparams.graph_decoder_num_layers,
             dropout=hparams.dropout,
-            # rope = LLamaRotaryEmbedding(64)
+            rope=LLamaRotaryEmbedding(64),
         )
         self.fc_in = Linear(
             hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim
@@ -154,6 +155,11 @@ class GraphDecoder(torch.nn.Module):
         self.dropout = Dropout(hparams.dropout)
         self.layer_norm = LayerNorm(hparams.graph_decoder_hidden_dim)
 
+        if not self.graph_transformer.is_rope:
+            self.embedding = torch.nn.Embedding(
+                num_embeddings=200, embedding_dim=hparams.graph_decoder_hidden_dim
+            )
+
     def init_message_matrix(
         self, graph_emb: torch.Tensor, perm: torch.Tensor, num_nodes: int
     ) -> torch.Tensor:
@@ -163,6 +169,10 @@ class GraphDecoder(torch.nn.Module):
         pos_emb = self.positional_embedding(batch_size, num_nodes)
         if perm is not None:
             pos_emb = torch.matmul(perm, pos_emb)
+
+        if not self.graph_transformer.is_rope:
+            positions = torch.arange(x.shape[1], device=x.device).unsqueeze(0)
+            x = x + self.embedding(positions)
 
         x = x + pos_emb
         x = self.layer_norm(self.dropout(self.fc_in(x)))

@@ -247,9 +247,8 @@ class PLGraphAE(L.LightningModule):
 
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
-        # if self.hparams.compile and stage == "fit":
-        #     self.net = torch.compile(self.net)
-        pass
+        if self.hparams.compile and stage == "fit":
+            self.graph_ae = torch.compile(self.graph_ae)
 
     def configure_optimizers(self) -> Tuple:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
@@ -286,6 +285,13 @@ class PLGraphAE(L.LightningModule):
     ) -> None:
         optimizer.step(closure=optimizer_closure)
         optimizer.zero_grad()
+
+    def predict_step(self, batch: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
+        self.eval()
+        with torch.no_grad():
+            tau = 1.0  # or any fixed temperature you want at inference
+            graph_emb, *_ = self(graph=batch, training=False, tau=tau)
+            return graph_emb
 
 
 if __name__ == "__main__":
