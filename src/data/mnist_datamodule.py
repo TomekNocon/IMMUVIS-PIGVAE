@@ -84,20 +84,34 @@ class MNISTDataModule(LightningDataModule):
             ]
         )
 
-        self.aug_transforms = transforms.Compose(
+        self.aug_transforms_train = transforms.Compose(
             [
                 transforms.ToTensor(),
                 transforms.Normalize((0.1307,), (0.3081,)),
                 transforms.Resize((hparams.size, hparams.size)),
                 add_channel,
-                ImageAugmentations(prob=hparams.augmentation_prob),
+                ImageAugmentations(prob=hparams.augmentation_prob,  is_validation=True),
+            ]
+        )
+        
+        self.aug_transforms_val = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,)),
+                transforms.Resize((hparams.size, hparams.size)),
+                add_channel,
+                ImageAugmentations(prob=hparams.augmentation_prob, is_validation=True),
             ]
         )
 
         self.patch_transform = SplitPatches(hparams.patch_size)
 
-        self.dual_transforms = DualOutputTransform(
-            self.base_transforms, self.aug_transforms, self.patch_transform
+        self.dual_transforms_train = DualOutputTransform(
+            self.base_transforms, self.aug_transforms_train, self.patch_transform
+        )
+        
+        self.dual_transforms_val = DualOutputTransform(
+            self.base_transforms, self.aug_transforms_val, self.patch_transform
         )
 
         self.data_train: Optional[Dataset] = None
@@ -142,6 +156,7 @@ class MNISTDataModule(LightningDataModule):
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
         # Divide batch size by the number of devices.
+        # TODO: do the transforms only for train and validation
         if self.trainer is not None:
             if self.batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(
@@ -151,12 +166,20 @@ class MNISTDataModule(LightningDataModule):
 
         # load and split datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
-            trainset = MNIST(self.data_dir, train=True, transform=self.dual_transforms)
-            testset = MNIST(self.data_dir, train=False, transform=self.dual_transforms)
-            dataset = ConcatDataset(datasets=[trainset, testset])
-            self.data_train, self.data_val, self.data_test = random_split(
-                dataset=dataset,
-                lengths=self.train_val_test_split,
+            trainset = MNIST(self.data_dir, train=True, transform=self.dual_transforms_train)
+            testset = MNIST(self.data_dir, train=False, transform=self.dual_transforms_val)
+            train_ratio, val_ratio, test_ratio = self.train_val_test_split
+            size_testset = len(testset)
+            size_trainset = len(trainset)
+            self.data_train, self.data_test = random_split(
+                dataset=trainset,
+                lengths=[train_ratio, size_trainset - train_ratio],
+                generator=torch.Generator().manual_seed(42),
+            )
+            # dataset = ConcatDataset(datasets=[trainset, testset])
+            self.data_val, _ = random_split(
+                dataset=testset,
+                lengths=[val_ratio, size_testset - val_ratio],
                 generator=torch.Generator().manual_seed(42),
             )
 
@@ -176,7 +199,7 @@ class MNISTDataModule(LightningDataModule):
             else self.batch_size_per_device // 2,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=True,
+            persistent_workers=self.num_workers > 0,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -195,7 +218,7 @@ class MNISTDataModule(LightningDataModule):
             else self.batch_size_per_device // 2,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=True,
+            persistent_workers=self.num_workers > 0,
         )
 
     def test_dataloader(self) -> DataLoader[Any]:
@@ -214,7 +237,7 @@ class MNISTDataModule(LightningDataModule):
             else self.batch_size_per_device // 2,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=True,
+            persistent_workers=self.num_workers > 0,
         )
 
     def teardown(self, stage: Optional[str] = None) -> None:

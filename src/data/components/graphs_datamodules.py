@@ -10,53 +10,34 @@ import networkx as nx
 
 
 class ImageAugmentations(nn.Module):
-    """Class to handle image augmentations"""
+    """Apply one of 8 possible dihedral (rotation + flip) augmentations"""
 
-    def __init__(self, prob: float):
+    def __init__(self, prob: float, is_validation: bool = False):
         super().__init__()
         self.prob = prob
-
-    @staticmethod
-    def rotate_90(img: torch.Tensor) -> torch.Tensor:
-        """Rotate image by 90 degrees clockwise"""
-        return torch.rot90(img, k=1, dims=[-2, -1])
-
-    @staticmethod
-    def rotate_180(img: torch.Tensor) -> torch.Tensor:
-        """Rotate image by 180 degrees"""
-        return torch.rot90(img, k=2, dims=[-2, -1])
-
-    @staticmethod
-    def rotate_270(img: torch.Tensor) -> torch.Tensor:
-        """Rotate image by 270 degrees clockwise (or 90 counter-clockwise)"""
-        return torch.rot90(img, k=3, dims=[-2, -1])
-
-    @staticmethod
-    def horizontal_flip(img: torch.Tensor) -> torch.Tensor:
-        """Flip image horizontally"""
-        return TF.hflip(img)
-
-    @staticmethod
-    def vertical_flip(img: torch.Tensor) -> torch.Tensor:
-        """Flip image vertically"""
-        return TF.vflip(img)
+        self.is_validation = is_validation
 
     def forward(self, img: torch.Tensor) -> torch.Tensor:
-        """Apply a random augmentation with a certain probability"""
+        
+        if self.is_validation:
+            aug_list = []
+            aug_list.append(TF.hflip(img)) 
+            for k in range(1, 4):  # rotations: 0, 90, 180, 270 degrees
+                rotated = torch.rot90(img, k=k, dims=[-2, -1])
+                aug_list.append(rotated)                    # no flip
+                aug_list.append(TF.hflip(rotated))          # with horizontal flip
+            return torch.stack(aug_list, dim=0).squeeze(1)  # shape: [8, C, H, W]
+        
         if random.random() < self.prob:
-            aug_type = random.choice(["rot90", "rot180", "rot270", "hflip", "vflip"])
+            # Choose a transformation from 0 to 7
+            idx = random.randint(0, 7)
+            rotation_k = idx % 4         # 0, 1, 2, 3 --> 0°, 90°, 180°, 270°
+            do_hflip = idx >= 4          # 4-7 include horizontal flip
 
-            if aug_type == "rot90":
-                return ImageAugmentations.rotate_90(img)
-            elif aug_type == "rot180":
-                return ImageAugmentations.rotate_180(img)
-            elif aug_type == "rot270":
-                return ImageAugmentations.rotate_270(img)
-            elif aug_type == "hflip":
-                return ImageAugmentations.horizontal_flip(img)
-            elif aug_type == "vflip":
-                return ImageAugmentations.vertical_flip(img)
-
+            if rotation_k > 0:
+                img = torch.rot90(img, k=rotation_k, dims=[-2, -1])
+            if do_hflip:
+                img = TF.hflip(img)
         return img
 
 
@@ -176,9 +157,12 @@ class DenseGraphBatch:
         contrastive_node_features = torch.cat(
             [out_node_features, in_node_features], dim=0
         )
+        batch_size = contrastive_node_features.size(0)
         edge_features = torch.tensor(edge_features)
         mask = torch.cat(mask, dim=0)
-        mask = torch.cat([mask, mask], dim=0)
+        batch_size_mask = mask.size(0)
+        factor = int(batch_size / batch_size_mask)
+        mask = mask.repeat_interleave(factor, dim=0)
         props = torch.cat(props, dim=0)
         batch = DenseGraphBatch(
             node_features=contrastive_node_features,

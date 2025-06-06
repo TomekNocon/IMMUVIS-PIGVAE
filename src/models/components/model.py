@@ -4,6 +4,7 @@ from src.models.components.losses import (
     KLDLoss,
     ContrastiveLoss,
     PermutationLoss,
+    PermutaionMatrixLoss
 )
 from omegaconf import DictConfig
 from src.data.components.graphs_datamodules import DenseGraphBatch
@@ -23,7 +24,7 @@ class Critic(torch.nn.Module):
         self.gamma = hparams.contrastive_loss_scale
         self.vae = hparams.vae
         self.reconstruction_loss = GraphReconstructionLoss()
-        self.contrastive_loss = ContrastiveLoss(temperature=hparams.temperature)
+        self.contrastive_loss = ContrastiveLoss(temperature=hparams.temperature, num_aug_per_sample=hparams.num_aug_per_sample)
         self.kld_loss = KLDLoss()
         self.permutation_loss = PermutationLoss()
 
@@ -32,16 +33,17 @@ class Critic(torch.nn.Module):
         graph_emb: torch.Tensor,
         graph_true: DenseGraphBatch,
         graph_pred: DenseGraphBatch,
-        soft_probs: torch.Tensor,
         beta: float,
         mu: torch.Tensor,
         logvar: torch.Tensor,
+        soft_probs: Optional[torch.Tensor] = None,
+        perm: Optional[torch.Tensor] = None
     ) -> Dict[str, Any]:
         recon_loss = self.reconstruction_loss(
             graph_true=graph_true, graph_pred=graph_pred
         )
         contrastive_loss = self.contrastive_loss(graph_emb)
-        permutation_loss = self.permutation_loss(soft_probs)
+        permutation_loss = self.permutation_loss(soft_probs if soft_probs is not None else perm)
         loss = {
             **recon_loss,
             "contrastive_loss": contrastive_loss,
@@ -61,17 +63,19 @@ class Critic(torch.nn.Module):
         graph_emb: torch.Tensor,
         graph_true: DenseGraphBatch,
         graph_pred: DenseGraphBatch,
-        soft_probs: torch.Tensor,
         beta: float,
         mu: torch.Tensor,
         logvar: torch.Tensor,
         prefix: Optional[str] = None,
+        soft_probs: Optional[torch.Tensor] = None,
+        perm: Optional[torch.Tensor] = None
     ) -> Dict[str, Any]:
         loss = self(
             graph_emb=graph_emb,
             graph_true=graph_true,
             graph_pred=graph_pred,
             soft_probs=soft_probs,
+            perm=perm,
             beta=beta,
             mu=mu,
             logvar=logvar,

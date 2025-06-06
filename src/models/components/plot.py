@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.decomposition import PCA
+from collections import defaultdict
 
 
 def restore_tensor(
@@ -30,28 +31,66 @@ def restore_tensor(
     return x_reconstructed
 
 
-def plot_images(images: np.array, n_images: int) -> plt.Figure:
-    fig, axes = plt.subplots(1, n_images, figsize=(15, 6))
-    for idx, ax in enumerate(axes.flat):
-        ax.imshow(images[idx], cmap="gray")
+# def plot_images(images: np.array, n_images: int) -> plt.Figure:
+#     fig, axes = plt.subplots(1, n_images, figsize=(15, 6))
+#     for idx, ax in enumerate(axes.flat):
+#         ax.imshow(images[idx], cmap="gray")
+#         ax.set_title(f"Image {idx}")
+#         ax.axis("off")
+#     return fig
+
+def reshape_images_array(images: np.ndarray, n_rows: int, n_cols: int) -> np.ndarray:
+    new_images = []
+    for idx in range(n_rows):
+        new_images.append(images[idx])
+        temp = images[idx * n_cols + n_rows - idx: (idx + 1) * n_cols + n_rows - 1 - idx]
+        for img in temp:
+            new_images.append(img)
+    return np.array(new_images)
+
+def plot_images_all_perm(images: np.ndarray, n_rows: int, n_cols: int) -> plt.Figure:
+    assert images.shape[0] >= n_rows * n_cols, "Not enough images to fill the grid."
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
+    axes = axes.flatten()  # Flatten in case of multiple rows
+    new_images = reshape_images_array(images, n_rows, n_cols)
+    
+    for idx, img in enumerate(new_images):
+        ax = axes[idx]
+        ax.imshow(img, cmap="gray")
         ax.set_title(f"Image {idx}")
         ax.axis("off")
+        
     return fig
 
 
-def plot_pca(images: np.array) -> plt.Figure:
-    batch_flat = images.reshape(images.shape[0], -1)
+def plot_pca(images: np.array, targets: np.array, n_rows: int, n_cols: int) -> plt.Figure:
+    new_images = reshape_images_array(images, n_rows, n_cols)
+    counter = defaultdict(int)
+    new_targets = []
+    for val in targets:
+        counter[int(val)] += 1
+        new_targets.append(f"{val.item()}-{counter[int(val)]}")
+    new_targets = np.repeat(new_targets, n_cols)
+
+    batch_flat = new_images.reshape(new_images.shape[0], -1)
     # Step 2: Run PCA
     pca = PCA(n_components=2)  # choose desired number of components
     batch_pca = pca.fit_transform(batch_flat)  # shape: [64, 2]
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    if new_targets is not None:
+        classes = np.unique(new_targets)
+        cmap = plt.cm.get_cmap("tab10", len(classes))
 
-    # Create plot
-    fig = plt.figure(figsize=(8, 6))
-    ax = fig.add_subplot(1, 1, 1)
-    ax.scatter(batch_pca[:, 0], batch_pca[:, 1], c="skyblue", edgecolors="k")
-    ax.set_xlabel("Principal Component 1")
-    ax.set_ylabel("Principal Component 2")
-    ax.set_title("PCA of Image Batch")
-    ax.grid(True)
+        for idx, cls in enumerate(classes):
+            mask = new_targets == cls
+            ax.scatter(batch_pca[mask, 0], batch_pca[mask, 1],
+                       label=str(cls), color=cmap(idx), edgecolors='k')
+        ax.legend(title="Class")
+        ax.set_xlabel("Principal Component 1")
+        ax.set_ylabel("Principal Component 2")
+        ax.set_title("PCA of Image Batch")
+        ax.grid(True)
 
     return fig

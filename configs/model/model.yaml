@@ -76,6 +76,7 @@ critic:
     perm_loss_scale: 0.5
     contrastive_loss_scale: 0.01
     temperature: 0.07
+    num_aug_per_sample: 8
     vae: ${model.graph_ae.hparams.vae}
 
 optimizer:

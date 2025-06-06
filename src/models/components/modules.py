@@ -206,12 +206,21 @@ class Permuter(torch.nn.Module):
             torch.nn.ReLU(),
             Linear(hparams.graph_decoder_hidden_dim, 1),
         )
-        self.tau = hparams.tau
+        self.perm_context = torch.nn.Sequential(
+            Linear(hparams.grid_size**2, hparams.emb_dim),
+            torch.nn.LayerNorm(hparams.emb_dim),
+            torch.nn.ReLU()
+            )
+        self.break_symmetry_scale = hparams.break_symmetry_scale
 
     def score(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         scores = self.scoring_fc(x)
 
-        fill_value = scores.min().item() - 1
+        if mask.sum() == 0:
+            fill_value = -1e6
+        else:
+            fill_value = scores.min().item() - 1
+
         scores = scores.masked_fill(mask.unsqueeze(-1) == 0, fill_value)
         return scores
 
@@ -219,12 +228,10 @@ class Permuter(torch.nn.Module):
         scores_sorted = scores.sort(descending=True, dim=1)[0]
         pairwise_diff = (scores.transpose(1, 2) - scores_sorted).abs().neg() / tau
         perm = pairwise_diff.softmax(-1)
-
         if hard:
-            # Gumbel-Softmax trick for hard selection
-            gumbel_noise = -torch.log(-torch.log(torch.rand_like(perm)))
-            perm = (perm + gumbel_noise).argmax(dim=-1)
-            perm = torch.nn.functional.one_hot(perm, num_classes=perm.size(-1)).float()
+            perm_ = torch.zeros_like(perm, device=perm.device)
+            perm_.scatter_(-1, perm.topk(1, -1)[1], value=1)
+            perm = (perm_ - perm).detach() + perm
         return perm
 
     def mask_perm(self, perm: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -241,18 +248,26 @@ class Permuter(torch.nn.Module):
         return perm
 
     def forward(
-        self, node_features: torch.Tensor, mask: torch.Tensor, hard: bool = False
+        self,
+        node_features: torch.Tensor,
+        tau: float,
+        mask: torch.Tensor,
+        hard: bool = False,
     ) -> torch.Tensor:
         # add noise to break symmetry
         device = node_features.device
-        node_features = node_features + torch.randn_like(node_features) * 0.01
+        node_features = (
+            node_features + torch.randn_like(node_features) * self.break_symmetry_scale
+        )
         mask = mask.to(device)
         scores = self.score(node_features, mask)
+        context = scores.squeeze(-1) 
+        context = self.perm_context(context)
 
-        perm = self.soft_sort(scores, hard, self.tau)
+        perm = self.soft_sort(scores, hard, tau)
         perm = perm.transpose(2, 1)
         perm = self.mask_perm(perm, mask)
-        return perm
+        return perm, context, None
 
     @staticmethod
     def permute_node_features(

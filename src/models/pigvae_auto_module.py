@@ -4,7 +4,7 @@ import torch
 import lightning as L
 import matplotlib.pyplot as plt
 from models.components.warmups import get_cosine_schedule_with_warmup
-from models.components.plot import restore_tensor, plot_images, plot_pca
+from models.components.plot import restore_tensor, plot_images_all_perm, plot_pca
 import wandb
 from src.data.components.graphs_datamodules import DenseGraphBatch
 
@@ -111,6 +111,7 @@ class PLGraphAE(L.LightningModule):
             graph_true=graph,
             graph_pred=graph_pred,
             soft_probs=soft_probs,
+            perm=perm,
             beta=beta,
             mu=mu,
             logvar=logvar,
@@ -138,6 +139,7 @@ class PLGraphAE(L.LightningModule):
             graph_true=graph,
             graph_pred=graph_pred,
             soft_probs=soft_probs,
+            perm=perm,
             beta=beta,
             mu=mu,
             logvar=logvar,
@@ -151,6 +153,7 @@ class PLGraphAE(L.LightningModule):
             graph_true=graph,
             graph_pred=graph_pred,
             soft_probs=soft_probs,
+            perm=perm,
             beta=0.0,
             mu=mu,
             logvar=logvar,
@@ -171,15 +174,17 @@ class PLGraphAE(L.LightningModule):
         # Log one example to W&B
         predictions = self.validation_step_outputs[0]["prediction"].node_features
         ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
+        targets = self.validation_step_outputs[0]["ground_truth"].y
         perms = self.perms[0]
 
         subset_predictions = torch.cat(
-            [predictions[:5, :, :], predictions[32:37, :, :]], dim=0
+            [predictions[:5, :, :], predictions[32:67, :, :]], dim=0
         )
+        subset_targets = targets[:5].to(torch.int)
         subset_ground_truths = torch.cat(
-            [ground_truths[:5, :, :], ground_truths[32:37, :, :]], dim=0
+            [ground_truths[:5, :, :], ground_truths[32:67, :, :]], dim=0
         )
-        subset_perms = torch.cat([perms[:5, :, :], perms[32:37, :, :]], dim=0)
+        subset_perms = torch.cat([perms[:5, :, :], perms[32:67, :, :]], dim=0)
         subset_batch_size = subset_predictions.shape[0]
         batch_size = predictions.shape[0]
         pred_imgs = (
@@ -198,16 +203,16 @@ class PLGraphAE(L.LightningModule):
         )
         permutations = subset_perms.detach().cpu().squeeze().numpy()
         pca_predictions = (
-            restore_tensor(predictions, batch_size, 1, 24, 24, 4)
+            restore_tensor(subset_predictions, subset_batch_size, 1, 24, 24, 4)
             .detach()
             .cpu()
             .squeeze()
             .numpy()
         )
-        fig_prediction = plot_images(pred_imgs, n_images=10)
-        fig_ground_truth = plot_images(ground_truth_imgs, n_images=10)
-        fig_perms = plot_images(permutations, n_images=10)
-        fig_pca = plot_pca(pca_predictions)
+        fig_prediction = plot_images_all_perm(pred_imgs, n_rows=5, n_cols=8)
+        fig_ground_truth = plot_images_all_perm(ground_truth_imgs, n_rows=5, n_cols=8)
+        fig_perms = plot_images_all_perm(permutations, n_rows=5, n_cols=8)
+        fig_pca = plot_pca(pca_predictions, subset_targets, n_rows=5, n_cols=8)
         wandb.log(
             {
                 "Prediction": wandb.Image(fig_prediction, caption="Predicted Image"),
