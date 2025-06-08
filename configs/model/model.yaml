@@ -6,7 +6,7 @@ graph_ae:
     input_size: 256
     num_heads: 4
     num_layers: 4
-    emb_dim: 32
+    emb_dim: 64
     vae: true
     dropout: 0.1
     encoder:
@@ -51,6 +51,7 @@ graph_ae:
       grid_size: 6
       break_symmetry_scale: 0.01
       emb_dim: ${model.graph_ae.hparams.emb_dim}
+      turn_off: false
     
 temperature_scheduler:
   _target_: "src.models.components.schedulers.TemperatureScheduler"

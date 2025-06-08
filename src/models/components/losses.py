@@ -74,6 +74,7 @@ class KLDLoss(torch.nn.Module):
 
 #         return loss
 
+
 class ContrastiveLoss(torch.nn.Module):
     def __init__(self, temperature: float = 0.07, num_aug_per_sample: int = 8):
         super().__init__()
@@ -86,44 +87,32 @@ class ContrastiveLoss(torch.nn.Module):
         N = features.shape[0]
         samples_per_group = 1 + self.num_aug_per_sample
         batch_size = N // samples_per_group  # number of original images
-        n_cols = batch_size * self.num_aug_per_sample
-        # Step 1: Assign group IDs for each feature (e.g., 0 for original 1 + augs, 1 for original 2 + augs, etc.)
-        group_ids = torch.arange(batch_size).repeat_interleave(self.num_aug_per_sample).to(features.device)
-        # # Step 2: Construct binary label matrix — same group => 1, different group => 0
-        labels = (group_ids.unsqueeze(0) == group_ids.unsqueeze(1)).float()
-        labels = labels.to(features.device)
-        # Row indices: [0, 1, 2] → shape [3, 1]
-        row_indices = torch.arange(batch_size).unsqueeze(1)
-        # Column indices: [0, 1, 2, 3, 4, 5] → shape [1, 6]
-        col_indices = torch.arange(n_cols).unsqueeze(0)
-        # Compute mask: True where column index is in the block range for the row
-        mask = (col_indices >= row_indices * self.num_aug_per_sample) & (col_indices < (row_indices + 1) * self.num_aug_per_sample)
-        # Convert boolean mask to float
-        up = mask.float()
-        up = up.to(features.device)
-        left = up.T
-        left = torch.cat([torch.eye(batch_size).to(features.device), left])
-        labels = torch.cat([up, labels], dim=0)
-        labels = torch.cat([left, labels], dim=1)
-      
-        # # Step 3: Remove self-similarity (diagonal elements)
-        mask = torch.eye(N, dtype=torch.bool).to(features.device)
-        labels = labels[~mask].view(labels.shape[0], -1)
-        # # Step 4: Similarity matrix
-        similarity_matrix = torch.matmul(features, features.T)
-        similarity_matrix = similarity_matrix[~mask].view(
-            similarity_matrix.shape[0], -1
+        labels = torch.cat(
+            [torch.arange(batch_size) for _ in range(samples_per_group)], dim=0
         )
+        label_matrix = (labels.unsqueeze(0) == labels.unsqueeze(1)).bool()
+        label_matrix = label_matrix.to(features.device)
+        # # Step 4: Similarity matrix
+        sim = torch.matmul(features, features.T)  # [N, N]
+        sim = sim / self.temperature
 
-        # # Step 5: Contrastive loss computation
-        positives = similarity_matrix[labels.bool()].view(N, -1)  # [N, num_positives_per_sample]
-        negatives = similarity_matrix[~labels.bool()].view(N, -1)
-        positives = - torch.logsumexp(positives / self.temperature, dim=1)  # [N]
-        negatives = torch.logsumexp(negatives / self.temperature, dim=1)  # [N]
+        # Mask out self-similarity
+        mask = torch.eye(N, dtype=torch.bool, device=features.device)
+        sim.masked_fill_(mask, float("-inf"))  # ignore diagonal
 
-        loss = positives + negatives
-        loss = loss.mean() / 8
-        return loss
+        # Extract positives and negatives
+        pos_mask = label_matrix & ~mask  # positives without self
+        neg_mask = ~label_matrix  # everything else
+
+        pos_sim = sim.masked_fill(~pos_mask, float("-inf"))
+        neg_sim = sim.masked_fill(~neg_mask, float("-inf"))
+
+        # Compute loss
+        pos_term = torch.logsumexp(pos_sim, dim=1)  # [N]
+        neg_term = torch.logsumexp(neg_sim, dim=1)  # [N]
+        loss = -pos_term + neg_term
+
+        return loss.mean()
 
 
 class PermutationLoss(torch.nn.Module):
@@ -131,6 +120,8 @@ class PermutationLoss(torch.nn.Module):
         super().__init__()
 
     def forward(self, probs: torch.Tensor):
+        if probs is None:
+            return 0
         # logits: (batch_size, num_classes)
         avg_probs = probs.mean(dim=0)  # (num_classes,)
         log_avg_probs = torch.log(avg_probs + 1e-12)
@@ -152,6 +143,8 @@ class PermutaionMatrixLoss(torch.nn.Module):
         return e
 
     def forward(self, perm: torch.Tensor, eps: float = 10e-8) -> torch.Tensor:
+        if not perm:
+            return 0
         # print(perm.shape)
         perm = perm + eps
         entropy_col = self.entropy(perm, axis=1, normalize=False)

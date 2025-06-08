@@ -5,12 +5,13 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 import torchvision.transforms.functional as TF
 import torchvision.transforms as T
-import random
 import networkx as nx
 
 
 class ImageAugmentations(nn.Module):
     """Apply one of 8 possible dihedral (rotation + flip) augmentations"""
+
+    NUM_PERM = 8
 
     def __init__(self, prob: float, is_validation: bool = False):
         super().__init__()
@@ -18,27 +19,18 @@ class ImageAugmentations(nn.Module):
         self.is_validation = is_validation
 
     def forward(self, img: torch.Tensor) -> torch.Tensor:
-        
+        aug_list = []
+        aug_list.append(TF.hflip(img))
+        for k in range(1, 4):  # rotations: 0, 90, 180, 270 degrees
+            rotated = torch.rot90(img, k=k, dims=[-2, -1])
+            aug_list.append(rotated)  # no flip
+            aug_list.append(TF.hflip(rotated))  # with horizontal flip
+        aug_list = torch.stack(aug_list, dim=0).squeeze(1)
         if self.is_validation:
-            aug_list = []
-            aug_list.append(TF.hflip(img)) 
-            for k in range(1, 4):  # rotations: 0, 90, 180, 270 degrees
-                rotated = torch.rot90(img, k=k, dims=[-2, -1])
-                aug_list.append(rotated)                    # no flip
-                aug_list.append(TF.hflip(rotated))          # with horizontal flip
-            return torch.stack(aug_list, dim=0).squeeze(1)  # shape: [8, C, H, W]
-        
-        if random.random() < self.prob:
-            # Choose a transformation from 0 to 7
-            idx = random.randint(0, 7)
-            rotation_k = idx % 4         # 0, 1, 2, 3 --> 0°, 90°, 180°, 270°
-            do_hflip = idx >= 4          # 4-7 include horizontal flip
-
-            if rotation_k > 0:
-                img = torch.rot90(img, k=rotation_k, dims=[-2, -1])
-            if do_hflip:
-                img = TF.hflip(img)
-        return img
+            return aug_list
+        return aug_list[
+            torch.randperm(self.NUM_PERM - 1)
+        ]  # shuffle during traininghape: [7, C, H, W]
 
 
 class DualOutputTransform:
@@ -152,7 +144,9 @@ class DenseGraphBatch:
             in_node_features.append(augmented_embedding)
             out_node_features.append(original_embedding)
             mask.append((torch.arange(max_num_nodes) < num_nodes).unsqueeze(0))
-        in_node_features = torch.cat(in_node_features, dim=0)
+        in_node_features = torch.stack(in_node_features, dim=1)
+        _, _, _, emd_dim = in_node_features.shape
+        in_node_features = in_node_features.view(-1, num_nodes, emd_dim)
         out_node_features = torch.cat(out_node_features, dim=0)
         contrastive_node_features = torch.cat(
             [out_node_features, in_node_features], dim=0

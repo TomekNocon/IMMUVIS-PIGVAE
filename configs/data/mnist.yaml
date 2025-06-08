@@ -10,3 +10,4 @@ hparams:
   patch_size: 4
   augmentation_prob: 1.0
   is_contrastive: True
+  num_aug_per_sample: 8

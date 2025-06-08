@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 import torch
 from omegaconf import DictConfig
 from lightning import LightningDataModule
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision.datasets import MNIST
 from torchvision.transforms import transforms
 from src.data.components.graphs_datamodules import (
@@ -90,10 +90,10 @@ class MNISTDataModule(LightningDataModule):
                 transforms.Normalize((0.1307,), (0.3081,)),
                 transforms.Resize((hparams.size, hparams.size)),
                 add_channel,
-                ImageAugmentations(prob=hparams.augmentation_prob,  is_validation=True),
+                ImageAugmentations(prob=hparams.augmentation_prob),
             ]
         )
-        
+
         self.aug_transforms_val = transforms.Compose(
             [
                 transforms.ToTensor(),
@@ -109,7 +109,7 @@ class MNISTDataModule(LightningDataModule):
         self.dual_transforms_train = DualOutputTransform(
             self.base_transforms, self.aug_transforms_train, self.patch_transform
         )
-        
+
         self.dual_transforms_val = DualOutputTransform(
             self.base_transforms, self.aug_transforms_val, self.patch_transform
         )
@@ -125,6 +125,7 @@ class MNISTDataModule(LightningDataModule):
         self.num_workers = hparams.num_workers
         self.pin_memory = hparams.pin_memory
         self.is_contrastive = hparams.is_contrastive
+        self.num_aug_per_sample = hparams.num_aug_per_sample
 
     @property
     def num_classes(self) -> int:
@@ -166,8 +167,12 @@ class MNISTDataModule(LightningDataModule):
 
         # load and split datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
-            trainset = MNIST(self.data_dir, train=True, transform=self.dual_transforms_train)
-            testset = MNIST(self.data_dir, train=False, transform=self.dual_transforms_val)
+            trainset = MNIST(
+                self.data_dir, train=True, transform=self.dual_transforms_train
+            )
+            testset = MNIST(
+                self.data_dir, train=False, transform=self.dual_transforms_val
+            )
             train_ratio, val_ratio, test_ratio = self.train_val_test_split
             size_testset = len(testset)
             size_trainset = len(trainset)
@@ -196,7 +201,7 @@ class MNISTDataModule(LightningDataModule):
             dataset=train_dataset,
             batch_size=self.batch_size_per_device
             if not self.is_contrastive
-            else self.batch_size_per_device // 2,
+            else self.batch_size_per_device // self.num_aug_per_sample,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
@@ -215,7 +220,7 @@ class MNISTDataModule(LightningDataModule):
             dataset=val_dataset,
             batch_size=self.batch_size_per_device
             if not self.is_contrastive
-            else self.batch_size_per_device // 2,
+            else self.batch_size_per_device // self.num_aug_per_sample,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
@@ -234,7 +239,7 @@ class MNISTDataModule(LightningDataModule):
             dataset=test_dataset,
             batch_size=self.batch_size_per_device
             if not self.is_contrastive
-            else self.batch_size_per_device // 2,
+            else self.batch_size_per_device // self.num_aug_per_sample,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,

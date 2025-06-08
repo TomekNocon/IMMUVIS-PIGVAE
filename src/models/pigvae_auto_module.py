@@ -1,10 +1,16 @@
 from typing import Tuple, Dict, Any, Callable
 
 import torch
+import numpy as np
 import lightning as L
 import matplotlib.pyplot as plt
 from models.components.warmups import get_cosine_schedule_with_warmup
-from models.components.plot import restore_tensor, plot_images_all_perm, plot_pca
+from models.components.plot import (
+    restore_tensor,
+    plot_images_all_perm,
+    plot_pca,
+    plot_pca_plotly,
+)
 import wandb
 from src.data.components.graphs_datamodules import DenseGraphBatch
 
@@ -129,7 +135,8 @@ class PLGraphAE(L.LightningModule):
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph, training=True, tau=tau
         )
-        self.perms.append(perm)
+        if perm is not None:
+            self.perms.append(perm)
         outputs = {"prediction": graph_pred, "ground_truth": graph}
         self.validation_step_outputs.append(outputs)
         batch_size = graph_pred.node_features.shape[0]
@@ -175,8 +182,12 @@ class PLGraphAE(L.LightningModule):
         predictions = self.validation_step_outputs[0]["prediction"].node_features
         ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
         targets = self.validation_step_outputs[0]["ground_truth"].y
-        perms = self.perms[0]
-
+        if self.perms:
+            perms = self.perms[0]
+            subset_perms = torch.cat([perms[:5, :, :], perms[32:67, :, :]], dim=0)
+            permutations = subset_perms.detach().cpu().squeeze().numpy()
+        else:
+            permutations = np.array([])
         subset_predictions = torch.cat(
             [predictions[:5, :, :], predictions[32:67, :, :]], dim=0
         )
@@ -184,7 +195,7 @@ class PLGraphAE(L.LightningModule):
         subset_ground_truths = torch.cat(
             [ground_truths[:5, :, :], ground_truths[32:67, :, :]], dim=0
         )
-        subset_perms = torch.cat([perms[:5, :, :], perms[32:67, :, :]], dim=0)
+
         subset_batch_size = subset_predictions.shape[0]
         batch_size = predictions.shape[0]
         pred_imgs = (
@@ -201,7 +212,6 @@ class PLGraphAE(L.LightningModule):
             .squeeze()
             .numpy()
         )
-        permutations = subset_perms.detach().cpu().squeeze().numpy()
         pca_predictions = (
             restore_tensor(subset_predictions, subset_batch_size, 1, 24, 24, 4)
             .detach()
@@ -209,15 +219,25 @@ class PLGraphAE(L.LightningModule):
             .squeeze()
             .numpy()
         )
+        print(pred_imgs.shape)
         fig_prediction = plot_images_all_perm(pred_imgs, n_rows=5, n_cols=8)
         fig_ground_truth = plot_images_all_perm(ground_truth_imgs, n_rows=5, n_cols=8)
         fig_perms = plot_images_all_perm(permutations, n_rows=5, n_cols=8)
         fig_pca = plot_pca(pca_predictions, subset_targets, n_rows=5, n_cols=8)
+        fig_pca_plotly = plot_pca_plotly(
+            pca_predictions, subset_targets, n_rows=5, n_cols=8
+        )
+        path_to_plotly_html = "./plotly_figure.html"
+        fig_pca_plotly.write_html(path_to_plotly_html, auto_play=False)
+        table = wandb.Table(columns=["plotly_figure"])
+        table.add_data(wandb.Html(path_to_plotly_html))
         wandb.log(
             {
                 "Prediction": wandb.Image(fig_prediction, caption="Predicted Image"),
                 "Ground Truth": wandb.Image(fig_ground_truth, caption="Ground Truth"),
-                "Perms": wandb.Image(fig_perms, caption="Perms"),
+                "Perms": wandb.Image(fig_perms, caption="Perms")
+                if self.perms
+                else None,
                 "PCA": wandb.Image(fig_pca, caption="PCA"),
             }
         )

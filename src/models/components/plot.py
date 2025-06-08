@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.decomposition import PCA
 from collections import defaultdict
+import plotly.express as px
+import pandas as pd
 
 
 def restore_tensor(
@@ -39,32 +41,40 @@ def restore_tensor(
 #         ax.axis("off")
 #     return fig
 
+
 def reshape_images_array(images: np.ndarray, n_rows: int, n_cols: int) -> np.ndarray:
     new_images = []
     for idx in range(n_rows):
         new_images.append(images[idx])
-        temp = images[idx * n_cols + n_rows - idx: (idx + 1) * n_cols + n_rows - 1 - idx]
+        temp = images[
+            idx * n_cols + n_rows - idx : (idx + 1) * n_cols + n_rows - 1 - idx
+        ]
         for img in temp:
             new_images.append(img)
     return np.array(new_images)
 
+
 def plot_images_all_perm(images: np.ndarray, n_rows: int, n_cols: int) -> plt.Figure:
+    if not len(images):
+        return
     assert images.shape[0] >= n_rows * n_cols, "Not enough images to fill the grid."
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
     axes = axes.flatten()  # Flatten in case of multiple rows
     new_images = reshape_images_array(images, n_rows, n_cols)
-    
+
     for idx, img in enumerate(new_images):
         ax = axes[idx]
         ax.imshow(img, cmap="gray")
         ax.set_title(f"Image {idx}")
         ax.axis("off")
-        
+
     return fig
 
 
-def plot_pca(images: np.array, targets: np.array, n_rows: int, n_cols: int) -> plt.Figure:
+def plot_pca(
+    images: np.array, targets: np.array, n_rows: int, n_cols: int
+) -> plt.Figure:
     new_images = reshape_images_array(images, n_rows, n_cols)
     counter = defaultdict(int)
     new_targets = []
@@ -77,7 +87,7 @@ def plot_pca(images: np.array, targets: np.array, n_rows: int, n_cols: int) -> p
     # Step 2: Run PCA
     pca = PCA(n_components=2)  # choose desired number of components
     batch_pca = pca.fit_transform(batch_flat)  # shape: [64, 2]
-    
+
     fig, ax = plt.subplots(figsize=(8, 6))
     if new_targets is not None:
         classes = np.unique(new_targets)
@@ -85,12 +95,62 @@ def plot_pca(images: np.array, targets: np.array, n_rows: int, n_cols: int) -> p
 
         for idx, cls in enumerate(classes):
             mask = new_targets == cls
-            ax.scatter(batch_pca[mask, 0], batch_pca[mask, 1],
-                       label=str(cls), color=cmap(idx), edgecolors='k')
+            ax.scatter(
+                batch_pca[mask, 0],
+                batch_pca[mask, 1],
+                label=str(cls),
+                color=cmap(idx),
+                edgecolors="k",
+            )
         ax.legend(title="Class")
         ax.set_xlabel("Principal Component 1")
         ax.set_ylabel("Principal Component 2")
         ax.set_title("PCA of Image Batch")
         ax.grid(True)
 
+    return fig
+
+
+def plot_pca_plotly(images: np.array, targets: np.array, n_rows: int, n_cols: int):
+    # Reshape images into grid format (assuming you already have this helper)
+    new_images = reshape_images_array(images, n_rows, n_cols)
+    counter = defaultdict(int)
+    rotations = [
+        "identity",
+        "hflip",
+        "90",
+        "90-hflip",
+        "180",
+        "180-hflip",
+        "270",
+        "270-hflip",
+    ] * n_rows
+    new_targets = []
+
+    for val in targets:
+        counter[int(val)] += 1
+        new_targets.append(f"{val.item()}-{counter[int(val)]}")
+    new_targets = np.repeat(new_targets, n_cols)
+
+    # Flatten images for PCA
+    batch_flat = new_images.reshape(new_images.shape[0], -1)
+    pca = PCA(n_components=2)
+    batch_pca = pca.fit_transform(batch_flat)
+
+    # Create DataFrame for Plotly
+    df = pd.DataFrame(batch_pca, columns=["PC1", "PC2"])
+    df["Label"] = new_targets
+    df["Rotations"] = rotations
+
+    # Plotly scatter plot
+    fig = px.scatter(
+        df,
+        x="PC1",
+        y="PC2",
+        color="Label",
+        title="PCA of Image Batch",
+        labels={"Label": "Target"},
+        opacity=0.7,
+        hover_data=["Rotations"],
+    )
     return fig

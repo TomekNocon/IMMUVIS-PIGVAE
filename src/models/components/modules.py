@@ -61,7 +61,8 @@ class GraphAE(torch.nn.Module):
         perm, context, soft_probs = self.permuter(
             node_features, mask=graph.mask, hard=not training, tau=tau
         )
-        graph_emb += context
+        if context is not None:
+            graph_emb += context
         graph_pred = self.decode(graph_emb, perm, graph.mask)
         return graph_emb, graph_pred, soft_probs, perm, mu, logvar
 
@@ -209,8 +210,8 @@ class Permuter(torch.nn.Module):
         self.perm_context = torch.nn.Sequential(
             Linear(hparams.grid_size**2, hparams.emb_dim),
             torch.nn.LayerNorm(hparams.emb_dim),
-            torch.nn.ReLU()
-            )
+            torch.nn.ReLU(),
+        )
         self.break_symmetry_scale = hparams.break_symmetry_scale
 
     def score(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -261,7 +262,7 @@ class Permuter(torch.nn.Module):
         )
         mask = mask.to(device)
         scores = self.score(node_features, mask)
-        context = scores.squeeze(-1) 
+        context = scores.squeeze(-1)
         context = self.perm_context(context)
 
         perm = self.soft_sort(scores, hard, tau)
@@ -297,6 +298,7 @@ class Permuter(torch.nn.Module):
 class SimplePermuter(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
+        self.turn_off = hparams.turn_off
         self.scoring_fc = torch.nn.Linear(
             hparams.graph_decoder_hidden_dim, hparams.num_permutations
         )
@@ -314,6 +316,10 @@ class SimplePermuter(torch.nn.Module):
         hard: bool = False,
     ) -> torch.Tensor:
         # Add noise to break symmetry
+
+        if self.turn_off:
+            return None, None, None
+
         node_features = (
             node_features + torch.randn_like(node_features) * self.break_symmetry_scale
         )
