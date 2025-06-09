@@ -86,9 +86,9 @@ class ContrastiveLoss(torch.nn.Module):
         features = F.normalize(features, dim=-1)
         N = features.shape[0]
         samples_per_group = 1 + self.num_aug_per_sample
-        batch_size = N // samples_per_group  # number of original images
+        original_batch_size = N // samples_per_group  # number of original images
         labels = torch.cat(
-            [torch.arange(batch_size) for _ in range(samples_per_group)], dim=0
+            [torch.arange(original_batch_size) for _ in range(samples_per_group)], dim=0
         )
         label_matrix = (labels.unsqueeze(0) == labels.unsqueeze(1)).bool()
         label_matrix = label_matrix.to(features.device)
@@ -145,7 +145,6 @@ class PermutaionMatrixLoss(torch.nn.Module):
     def forward(self, perm: torch.Tensor, eps: float = 10e-8) -> torch.Tensor:
         if not perm:
             return 0
-        # print(perm.shape)
         perm = perm + eps
         entropy_col = self.entropy(perm, axis=1, normalize=False)
         entropy_row = self.entropy(perm, axis=2, normalize=False)

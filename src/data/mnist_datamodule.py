@@ -199,9 +199,7 @@ class MNISTDataModule(LightningDataModule):
 
         return DenseGraphDataLoader(
             dataset=train_dataset,
-            batch_size=self.batch_size_per_device
-            if not self.is_contrastive
-            else self.batch_size_per_device // self.num_aug_per_sample,
+            batch_size=self.batch_size_per_device,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
@@ -215,12 +213,10 @@ class MNISTDataModule(LightningDataModule):
         val_dataset = GridGraphDataset(
             grid_size=self.grid_size, dataset=self.data_val, channels=[0]
         )
-
+        
         return DenseGraphDataLoader(
             dataset=val_dataset,
-            batch_size=self.batch_size_per_device
-            if not self.is_contrastive
-            else self.batch_size_per_device // self.num_aug_per_sample,
+            batch_size=self.batch_size_per_device,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
@@ -237,9 +233,7 @@ class MNISTDataModule(LightningDataModule):
 
         return DenseGraphDataLoader(
             dataset=test_dataset,
-            batch_size=self.batch_size_per_device
-            if not self.is_contrastive
-            else self.batch_size_per_device // self.num_aug_per_sample,
+            batch_size=self.batch_size_per_device,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,

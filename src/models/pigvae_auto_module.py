@@ -219,7 +219,6 @@ class PLGraphAE(L.LightningModule):
             .squeeze()
             .numpy()
         )
-        print(pred_imgs.shape)
         fig_prediction = plot_images_all_perm(pred_imgs, n_rows=5, n_cols=8)
         fig_ground_truth = plot_images_all_perm(ground_truth_imgs, n_rows=5, n_cols=8)
         fig_perms = plot_images_all_perm(permutations, n_rows=5, n_cols=8)
