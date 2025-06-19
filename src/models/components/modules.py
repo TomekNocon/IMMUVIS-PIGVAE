@@ -125,6 +125,7 @@ class GraphEncoder(torch.nn.Module):
         mask: torch.Tensor,
     ) -> Tuple[torch.Tensor]:
         node_features = self.spectral_embeddings(node_features)
+        node_features = node_features.to('mps')
         node_features = self.projection_in(node_features)
         x, edge_mask = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=edge_mask)

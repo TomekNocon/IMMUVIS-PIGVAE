@@ -179,25 +179,28 @@ class PLGraphAE(L.LightningModule):
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
         # Log one example to W&B
+        n_examples = 10
         predictions = self.validation_step_outputs[0]["prediction"].node_features
         ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
         targets = self.validation_step_outputs[0]["ground_truth"].y
+        batch_size = predictions.shape[0] // 8
+        base_idx = np.arange(8) * batch_size
+        idx = []
+        for i in range(n_examples):
+            idx.append(base_idx + i)
+        idx_to_show = np.stack(idx, axis=0).flatten()
+        
         if self.perms:
             perms = self.perms[0]
-            subset_perms = torch.cat([perms[:5, :, :], perms[32:67, :, :]], dim=0)
+            subset_perms = perms[idx_to_show, :, :]
             permutations = subset_perms.detach().cpu().squeeze().numpy()
         else:
             permutations = np.array([])
-        subset_predictions = torch.cat(
-            [predictions[:5, :, :], predictions[32:67, :, :]], dim=0
-        )
-        subset_targets = targets[:5].to(torch.int)
-        subset_ground_truths = torch.cat(
-            [ground_truths[:5, :, :], ground_truths[32:67, :, :]], dim=0
-        )
+        subset_predictions = predictions[idx_to_show, :, :]
+        subset_targets = targets[:n_examples].to(torch.int)
+        subset_ground_truths = ground_truths[idx_to_show, :, :]
 
         subset_batch_size = subset_predictions.shape[0]
-        batch_size = predictions.shape[0]
         pred_imgs = (
             restore_tensor(subset_predictions, subset_batch_size, 1, 24, 24, 4)
             .detach()
@@ -219,12 +222,12 @@ class PLGraphAE(L.LightningModule):
             .squeeze()
             .numpy()
         )
-        fig_prediction = plot_images_all_perm(pred_imgs, n_rows=5, n_cols=8)
-        fig_ground_truth = plot_images_all_perm(ground_truth_imgs, n_rows=5, n_cols=8)
-        fig_perms = plot_images_all_perm(permutations, n_rows=5, n_cols=8)
-        fig_pca = plot_pca(pca_predictions, subset_targets, n_rows=5, n_cols=8)
+        fig_prediction = plot_images_all_perm(pred_imgs, n_rows=n_examples, n_cols=8)
+        fig_ground_truth = plot_images_all_perm(ground_truth_imgs, n_rows=n_examples, n_cols=8)
+        fig_perms = plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
+        fig_pca = plot_pca(pca_predictions, subset_targets, n_rows=n_examples, n_cols=8)
         fig_pca_plotly = plot_pca_plotly(
-            pca_predictions, subset_targets, n_rows=5, n_cols=8
+            pca_predictions, subset_targets, n_rows=n_examples, n_cols=8
         )
         path_to_plotly_html = "./plotly_figure.html"
         fig_pca_plotly.write_html(path_to_plotly_html, auto_play=False)

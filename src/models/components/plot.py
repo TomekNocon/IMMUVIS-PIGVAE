@@ -61,9 +61,9 @@ def plot_images_all_perm(images: np.ndarray, n_rows: int, n_cols: int) -> plt.Fi
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
     axes = axes.flatten()  # Flatten in case of multiple rows
-    new_images = reshape_images_array(images, n_rows, n_cols)
+    # new_images = reshape_images_array(images, n_rows, n_cols)
 
-    for idx, img in enumerate(new_images):
+    for idx, img in enumerate(images):
         ax = axes[idx]
         ax.imshow(img, cmap="gray")
         ax.set_title(f"Image {idx}")
@@ -75,7 +75,7 @@ def plot_images_all_perm(images: np.ndarray, n_rows: int, n_cols: int) -> plt.Fi
 def plot_pca(
     images: np.array, targets: np.array, n_rows: int, n_cols: int
 ) -> plt.Figure:
-    new_images = reshape_images_array(images, n_rows, n_cols)
+    # new_images = reshape_images_array(images, n_rows, n_cols)
     counter = defaultdict(int)
     new_targets = []
     for val in targets:
@@ -83,7 +83,7 @@ def plot_pca(
         new_targets.append(f"{val.item()}-{counter[int(val)]}")
     new_targets = np.repeat(new_targets, n_cols)
 
-    batch_flat = new_images.reshape(new_images.shape[0], -1)
+    batch_flat = images.reshape(images.shape[0], -1)
     # Step 2: Run PCA
     pca = PCA(n_components=2)  # choose desired number of components
     batch_pca = pca.fit_transform(batch_flat)  # shape: [64, 2]
@@ -113,7 +113,7 @@ def plot_pca(
 
 def plot_pca_plotly(images: np.array, targets: np.array, n_rows: int, n_cols: int):
     # Reshape images into grid format (assuming you already have this helper)
-    new_images = reshape_images_array(images, n_rows, n_cols)
+    # new_images = reshape_images_array(images, n_rows, n_cols)
     counter = defaultdict(int)
     rotations = [
         "identity",
@@ -133,7 +133,7 @@ def plot_pca_plotly(images: np.array, targets: np.array, n_rows: int, n_cols: in
     new_targets = np.repeat(new_targets, n_cols)
 
     # Flatten images for PCA
-    batch_flat = new_images.reshape(new_images.shape[0], -1)
+    batch_flat = images.reshape(images.shape[0], -1)
     pca = PCA(n_components=2)
     batch_pca = pca.fit_transform(batch_flat)
 
