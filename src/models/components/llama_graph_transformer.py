@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import networkx as nx
+import math
 
 # from torch.nn.attention import SDPBackend
 from typing import Optional
@@ -40,11 +42,11 @@ class Transformer(nn.Module):
 
         # self.head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, is_encoder: bool, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         # output = self.embedding_layer(input_ids)
 
         for block in self.blocks:
-            x = block(x, mask)
+            x = block(x, is_encoder, mask)
 
         output = x
         # output = self.head(output)
@@ -120,8 +122,8 @@ class TransformerBlock(nn.Module):
     #     h = x + self.attention(self.attention_norm(x), freqs_cis)
     #     return h + self.feed_forward(self.ffn_norm(h))
 
-    def forward(self, x: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-        out_attention = self.attention_layer(self.attention_norm(x), attention_mask)
+    def forward(self, x: torch.Tensor, is_encoder: bool, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        out_attention = self.attention_layer(self.attention_norm(x), is_encoder, attention_mask)
         x = x + out_attention
 
         out_feed_forward = self.feed_forward_layer(self.ffn_norm(x))
@@ -203,7 +205,7 @@ class SelfAttention(torch.nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.rope = rope
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, is_encoder: bool = True, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         # x: b x nn x nn x dv
         batch_size, num_nodes = x.size(0), x.size(1)
         projected = self.input_projection(x)
@@ -218,12 +220,15 @@ class SelfAttention(torch.nn.Module):
             query = self.rope.rotate_queries_or_keys(query)
             key = self.rope.rotate_queries_or_keys(key)
 
-        attn_mask = mask.to(device)
-
-        attn_mask = attn_mask.unsqueeze(1).unsqueeze(
-            2
-        )  # Shape: (batch_size, 1, 1, num_nodes)
-        attn_mask = attn_mask.expand(-1, self.n_head, num_nodes, -1)
+        if mask is None:
+            attn_mask = get_neighborhood_mask(num_nodes, is_encoder)
+        else:
+            attn_mask = mask
+        attn_mask = attn_mask.to(device)
+        # attn_mask = attn_mask.unsqueeze(1).unsqueeze(
+        #     2
+        # )  # Shape: (batch_size, 1, 1, num_nodes)
+        # attn_mask = attn_mask.expand(-1, self.n_head, num_nodes, -1)
 
         # with torch.nn.attention.sdpa_kernel(
         #     [
@@ -232,7 +237,6 @@ class SelfAttention(torch.nn.Module):
         #         SDPBackend.MATH,
         #     ]
         # ):
-
         attention_output = F.scaled_dot_product_attention(
             query=query,
             key=key,
@@ -244,3 +248,18 @@ class SelfAttention(torch.nn.Module):
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
         output = self.dropout(output)
         return output
+
+
+def get_neighborhood_mask(num_nodes: int, is_encoder: bool):
+    if is_encoder:
+        n = num_nodes - 1
+    else:
+        n = num_nodes
+    n = int(math.sqrt(n))
+    G = nx.grid_2d_graph(n, n)
+    A = torch.tensor(nx.to_numpy_array(G))
+    mask = A + torch.eye(A.shape[0]) 
+    if is_encoder:
+        mask = F.pad(mask, (1, 0, 1, 0), value=1)
+    mask = mask.bool()
+    return  mask

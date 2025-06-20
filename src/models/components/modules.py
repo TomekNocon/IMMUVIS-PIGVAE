@@ -123,12 +123,13 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
+        device: str = 'mps'
     ) -> Tuple[torch.Tensor]:
         node_features = self.spectral_embeddings(node_features)
-        node_features = node_features.to('mps')
+        node_features = node_features.to(device)
         node_features = self.projection_in(node_features)
-        x, edge_mask = self.init_message_matrix(node_features, edge_features, mask)
-        x = self.graph_transformer(x, mask=edge_mask)
+        x, _ = self.init_message_matrix(node_features, edge_features, mask)
+        x = self.graph_transformer(x, mask=None, is_encoder=True)
         graph_emb, node_features = self.read_out_message_matrix(x)
         return graph_emb, node_features
 
@@ -189,11 +190,10 @@ class GraphDecoder(torch.nn.Module):
     def forward(
         self, graph_emb: torch.Tensor, perm: torch.Tensor, mask: torch.Tensor
     ) -> Tuple[torch.Tensor]:
-        edge_mask = mask
         x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
         # if self.rope:
         #     self.graph_transformer.perm = perm
-        x = self.graph_transformer(x, mask=edge_mask)
+        x = self.graph_transformer(x, mask=None, is_encoder=False)
         node_features, edge_features = self.read_out_message_matrix(x)
         return node_features, edge_features
 
