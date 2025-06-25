@@ -1,29 +1,29 @@
-import torch
 import pandas as pd
-import lie_derivatives as lD
-import torch.nn.functional as F
+import models.components.metrics.lie_derivatives as lD
 
-def get_equivariance_metrics(model, minibatch):
-    x, y = minibatch
-    if torch.cuda.is_available():
-        model = model.cuda()
-        x, y = x.cuda(), y.cuda()
-
-    model = model.eval()
-
-    model_probs = lambda x: F.softmax(model(x), dim=-1)
-
+def get_equivariance_metrics(model, graph):
+   
     errs = {
-        "trans_x_deriv": lD.translation_lie_deriv(model_probs, x, axis="x"),
-        "trans_y_deriv": lD.translation_lie_deriv(model_probs, x, axis="y"),
-        "rot_deriv": lD.rotation_lie_deriv(model_probs, x),
-        "shear_x_deriv": lD.shear_lie_deriv(model_probs, x, axis="x"),
-        "shear_y_deriv": lD.shear_lie_deriv(model_probs, x, axis="y"),
-        "stretch_x_deriv": lD.stretch_lie_deriv(model_probs, x, axis="x"),
-        "stretch_y_deriv": lD.stretch_lie_deriv(model_probs, x, axis="y"),
-        "saturate_err": lD.saturate_lie_deriv(model_probs, x),
+        "trans_x_deriv": lD.translation_x(model, graph),
+        "trans_y_deriv": lD.translation_y(model, graph),
+        "rot_deriv": lD.rotation(model, graph),
+        "shear_x_deriv": lD.shear_x(model, graph),
+        "shear_y_deriv": lD.shear_y(model, graph),
+        "stretch_x_deriv": lD.stretch_x(model, graph),
+        "stretch_y_deriv": lD.stretch_y(model, graph),
+        "saturate_err": lD.saturate(model, graph),
     }
-    
-    metrics = {x: pd.Series(errs[x].abs().cpu().data.numpy().mean(-1)) for x in errs}
-    df = pd.DataFrame.from_dict(metrics)
-    return df
+    metrics = {
+    x: {
+        "mean": errs[x].abs().mean().item(),
+        "norm": errs[x].abs().norm(p=2).item() / errs[x].numel()
+    }
+    for x in errs
+    }
+    flat_metrics = {
+        f"{x}_deriv_{k}": v
+        for x in metrics
+        for k, v in metrics[x].items()
+    }
+    # df = pd.DataFrame.from_dict(metrics, orient="index")
+    return flat_metrics

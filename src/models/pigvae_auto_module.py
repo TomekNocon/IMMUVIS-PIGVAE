@@ -11,6 +11,9 @@ from models.components.plot import (
     plot_pca,
     plot_pca_plotly,
 )
+
+import models.components.metrics.lie_equivariance as lE
+
 import wandb
 from src.data.components.graphs_datamodules import DenseGraphBatch
 
@@ -166,7 +169,9 @@ class PLGraphAE(L.LightningModule):
             logvar=logvar,
             prefix="val_hard",
         )
-        metrics = {**metrics_soft, **metrics_hard, "tau": tau, "beta": beta}
+        sample_graph = graph.take_sample(16)
+        lie_metrics = lE.get_equivariance_metrics(self, sample_graph)
+        metrics = {**metrics_soft, **metrics_hard, **lie_metrics, "tau": tau, "beta": beta}
         self.log_dict(
             metrics,
             sync_dist=False,

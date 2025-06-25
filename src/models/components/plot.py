@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import torch
 import numpy as np
 from sklearn.decomposition import PCA
 from collections import defaultdict
@@ -7,7 +8,7 @@ import pandas as pd
 
 
 def restore_tensor(
-    a: np.array, bs: int, c: int, h: int, w: int, patch_size: int
+    a: np.array, bs: int, c: int, h: int, w: int, patch_size: int, to_tensor: bool = False
 ) -> np.array:
     # Step 1: Reshape a to match the patch grid layout
     a = a.view(bs, -1, c, patch_size, patch_size)
@@ -29,6 +30,8 @@ def restore_tensor(
 
     x_reconstructed = x_reconstructed.view(bs, c, h, w)
     # x_reconstructed -> (B, C, H, W)
+    if to_tensor:
+        x_reconstructed = torch.tensor(x_reconstructed)
 
     return x_reconstructed
 

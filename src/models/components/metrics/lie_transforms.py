@@ -158,11 +158,11 @@ def stretch(img, x, axis="x"):
     where x is a fractional stretch factor.
     """
     affineMatrices = torch.zeros(img.shape[0], 2, 3).to(img.device)
-
+    x = x.to(img.device)
     # Set both diagonal entries to preserve the image unless stretched
     affineMatrices[:, 0, 0] = 1.0
     affineMatrices[:, 1, 1] = 1.0
-
+    
     if axis == "x":
         affineMatrices[:, 0, 0] *= (1 + x)  # stretch x-axis
     else:
@@ -189,5 +189,50 @@ def scale(img, s):
 
 def saturate(img, t):
     img = img.clone()
+    t = t.to(img.device)
     img *= 1 + t
     return img
+
+
+def patch_tensor(
+    x: torch.Tensor, patch_size: int
+) -> np.array:
+        # x -> B c h w
+        # bs, c, h, w = x.shape
+        bs, c, h, w = x.shape
+        x = torch.nn.Unfold(kernel_size=patch_size, stride=patch_size)(x)
+        # x -> B (c*p*p) L
+        # Reshaping into the shape we want
+        a = x.view(bs, c, patch_size, patch_size, -1).permute(0, 4, 1, 2, 3)
+        a = a.view(bs, -1, c * patch_size * patch_size)
+        # a -> ( B no.of patches c p p )
+        return a
+    
+def restore_tensor(
+    a: np.array, bs: int, c: int, h: int, w: int, patch_size: int, to_tensor: bool = False
+) -> np.array:
+    # Step 1: Reshape a to match the patch grid layout
+    a = a.view(bs, -1, c, patch_size, patch_size)
+    # a -> (B, num_patches, C, patch_size, patch_size)
+
+    # Step 2: Reshape back to (B, C, H, W) by folding the patches
+    # Calculate the grid size (L) which is the number of patches in each row and column
+    grid_size = int(
+        a.size(1) ** 0.5
+    )  # Assumes square grid (height = width for the patches)
+
+    # Unfold back into the original image size
+    a = a.view(bs, grid_size, grid_size, c, patch_size, patch_size)
+    # a -> (B, grid_size, grid_size, C, patch_size, patch_size)
+
+    # Step 3: Permute and reshape to get back to the image format (B, C, H, W)
+    x_reconstructed = a.permute(0, 3, 1, 4, 2, 5).contiguous()
+    # x_reconstructed -> (B, C, grid_size, patch_size, grid_size, patch_size)
+
+    x_reconstructed = x_reconstructed.view(bs, c, h, w)
+    # x_reconstructed -> (B, C, H, W)
+    # if to_tensor:
+    #     x_reconstructed = x_reconstructed.clone()
+
+
+    return x_reconstructed

@@ -125,7 +125,7 @@ class GraphEncoder(torch.nn.Module):
         mask: torch.Tensor,
         device: str = 'mps'
     ) -> Tuple[torch.Tensor]:
-        node_features = self.spectral_embeddings(node_features)
+        # node_features = self.spectral_embeddings(node_features)
         node_features = node_features.to(device)
         node_features = self.projection_in(node_features)
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
@@ -147,7 +147,7 @@ class GraphDecoder(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=hparams.graph_decoder_num_layers,
             dropout=hparams.dropout,
-            rope=LLamaRotaryEmbedding(64),
+            rope=LLamaRotaryEmbedding(hparams.head_dim),
         )
         self.fc_in = Linear(
             hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim
