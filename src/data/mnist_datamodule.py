@@ -178,19 +178,18 @@ class MNISTDataModule(LightningDataModule):
             )
             size_testset = len(testset)
             size_trainset = len(trainset)
-            self.data_train, self.data_val, _ = random_split(
+            self.data_train, _ = random_split(
                 dataset=trainset,
                 lengths=[
                     train_ratio,
-                    val_ratio,
-                    size_trainset - train_ratio - val_ratio,
+                    size_trainset - train_ratio
                 ],
                 generator=torch.Generator().manual_seed(42),
             )
             # dataset = ConcatDataset(datasets=[trainset, testset])
-            self.data_test, _ = random_split(
+            self.data_val, self.data_test, _ = random_split(
                 dataset=testset,
-                lengths=[test_ratio, size_testset - test_ratio],
+                lengths=[val_ratio, test_ratio,  size_testset - val_ratio - test_ratio],
                 generator=torch.Generator().manual_seed(42),
             )
 

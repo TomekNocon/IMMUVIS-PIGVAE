@@ -112,7 +112,7 @@ class DenseGraphBatch:
         self,
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
-        mask: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
         **kwargs,
     ):
         self.node_features = node_features

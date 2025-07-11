@@ -1,5 +1,5 @@
 import torch
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 from torch.nn import Linear, LayerNorm, Dropout
 from torch.nn.functional import pad
 
@@ -24,7 +24,7 @@ class GraphAE(torch.nn.Module):
         self.permuter = SimplePermuter(hparams.permuter)
         self.decoder = GraphDecoder(hparams.decoder)
 
-    def encode(self, graph: DenseGraphBatch) -> Tuple[torch.Tensor]:
+    def encode(self, graph: DenseGraphBatch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         node_features = graph.node_features
         edge_features = graph.edge_features
         mask = graph.mask
@@ -96,7 +96,7 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         node_features = pad(node_features, (0, 0, 1, 0))
         mask = pad(mask, (1, 0), value=1)
         return node_features, edge_features, mask
@@ -106,14 +106,14 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         node_features, edge_features, mask = self.add_emb_node_and_feature(
             node_features, edge_features, mask
         )
         x = self.layer_norm(self.dropout(self.fc_in(node_features)))
         return x, mask  # edge_mask
 
-    def read_out_message_matrix(self, x: torch.Tensor) -> Tuple[torch.Tensor]:
+    def read_out_message_matrix(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         node_features = x
         graph_emb, node_features = node_features[:, 0], node_features[:, 1:]
         return graph_emb, node_features
@@ -124,7 +124,7 @@ class GraphEncoder(torch.nn.Module):
         edge_features: torch.Tensor,
         mask: torch.Tensor,
         device: str = "mps",
-    ) -> Tuple[torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         # node_features = self.spectral_embeddings(node_features)
         node_features = node_features.to(device)
         node_features = self.projection_in(node_features)
@@ -181,7 +181,7 @@ class GraphDecoder(torch.nn.Module):
         x = self.layer_norm(self.dropout(self.fc_in(x)))
         return x
 
-    def read_out_message_matrix(self, x: torch.Tensor) -> Tuple[torch.Tensor]:
+    def read_out_message_matrix(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         node_features = x
         node_features = self.node_fc_out(node_features)
         edge_features = torch.tensor([])
@@ -189,7 +189,7 @@ class GraphDecoder(torch.nn.Module):
 
     def forward(
         self, graph_emb: torch.Tensor, perm: torch.Tensor, mask: torch.Tensor
-    ) -> Tuple[torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
         # if self.rope:
         #     self.graph_transformer.perm = perm
@@ -255,7 +255,7 @@ class Permuter(torch.nn.Module):
         tau: float,
         mask: torch.Tensor,
         hard: bool = False,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Any, None]:
         # add noise to break symmetry
         device = node_features.device
         node_features = (
@@ -315,7 +315,7 @@ class SimplePermuter(torch.nn.Module):
         tau: float,
         mask: torch.Tensor,
         hard: bool = False,
-    ) -> torch.Tensor:
+    ) -> Tuple[Optional[torch.Tensor], Any, Optional[torch.Tensor]]:
         # Add noise to break symmetry
 
         if self.turn_off:
@@ -407,8 +407,13 @@ class BottleNeckEncoder(torch.nn.Module):
         else:
             self.w = Linear(self.d_in, self.d_out)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor]:
+        # Explicit Xavier uniform initialization
+        # torch.nn.init.xavier_uniform_(self.w.weight)
+        # torch.nn.init.zeros_(self.w.bias)
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         x = self.w(self.activation(x))
+        # x = self.activation(self.w(x))
         if self.vae:
             mu = x[:, : self.d_out]
             logvar = x[:, self.d_out :]

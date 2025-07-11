@@ -197,7 +197,7 @@ def saturate(img, t):
     return img
 
 
-def patch_tensor(x: torch.Tensor, patch_size: int) -> np.array:
+def patch_tensor(x: torch.Tensor, patch_size: int) -> torch.Tensor:
     # x -> B c h w
     # bs, c, h, w = x.shape
     bs, c, h, w = x.shape
@@ -211,14 +211,14 @@ def patch_tensor(x: torch.Tensor, patch_size: int) -> np.array:
 
 
 def restore_tensor(
-    a: np.array,
+    a: torch.Tensor,
     bs: int,
     c: int,
     h: int,
     w: int,
     patch_size: int,
     to_tensor: bool = False,
-) -> np.array:
+) -> torch.Tensor:
     # Step 1: Reshape a to match the patch grid layout
     a = a.view(bs, -1, c, patch_size, patch_size)
     # a -> (B, num_patches, C, patch_size, patch_size)

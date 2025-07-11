@@ -4,6 +4,7 @@ from typing import Optional
 import torch
 import numpy as np
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 from collections import defaultdict
 import plotly.express as px
 import pandas as pd
@@ -99,7 +100,9 @@ def plot_pca(
     batch_flat = images.reshape(images.shape[0], -1)
     # Step 2: Run PCA
     pca = PCA(n_components=2)  # choose desired number of components
-    batch_pca = pca.fit_transform(batch_flat)  # shape: [64, 2]
+    batch_pca = pca.fit_transform(batch_flat)
+    scaler = StandardScaler()
+    batch_flat_scaled = scaler.fit_transform(batch_flat)  # shape: [64, 2]
 
     fig, ax = plt.subplots(figsize=(8, 6))
     if new_targets is not None:
@@ -109,8 +112,8 @@ def plot_pca(
         for idx, cls in enumerate(classes):
             mask = new_targets == cls
             ax.scatter(
-                batch_pca[mask, 0],
-                batch_pca[mask, 1],
+                batch_flat_scaled[mask, 0],
+                batch_flat_scaled[mask, 1],
                 label=str(cls),
                 color=cmap(idx),
                 edgecolors="k",

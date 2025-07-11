@@ -172,12 +172,12 @@ class PLGraphAE(L.LightningModule):
             logvar=logvar,
             prefix="val_hard",
         )
-        sample_graph = graph.take_sample(16)
-        lie_metrics = lE.get_equivariance_metrics(self, sample_graph)
+        # sample_graph = graph.take_sample(16)
+        # lie_metrics = lE.get_equivariance_metrics(self, sample_graph)
         metrics = {
             **metrics_soft,
             **metrics_hard,
-            **lie_metrics,
+            # **lie_metrics,
             "tau": tau,
             "beta": beta,
         }
