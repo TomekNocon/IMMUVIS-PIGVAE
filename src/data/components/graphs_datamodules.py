@@ -167,20 +167,21 @@ class DenseGraphBatch:
         if labels:
             batch.y = torch.Tensor(y)
         return batch
-    
+
     def take_sample(self, n) -> DenseGraphBatch:
-        node_features=self.node_features
-        edge_features=self.edge_features
-        mask=self.mask
-        properties=self.properties
-        
+        node_features = self.node_features
+        edge_features = self.edge_features
+        mask = self.mask
+        properties = self.properties
+
         return DenseGraphBatch(
-            node_features = node_features[:n, :, :],
-            edge_features = edge_features[:n],
-            mask = mask[:n, :],
-            properties = properties[:n]
+            node_features=node_features[:n, :, :],
+            edge_features=edge_features[:n],
+            mask=mask[:n, :],
+            properties=properties[:n],
         )
-        
+
+
 def dense_graph_collate_fn(data_list: List[Tuple]) -> DenseGraphBatch:
     return DenseGraphBatch.from_sparse_graph_list(data_list)
 

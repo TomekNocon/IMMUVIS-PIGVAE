@@ -1,4 +1,6 @@
 import matplotlib.pyplot as plt
+import matplotlib.figure as figure
+from typing import Optional
 import torch
 import numpy as np
 from sklearn.decomposition import PCA
@@ -8,8 +10,14 @@ import pandas as pd
 
 
 def restore_tensor(
-    a: np.array, bs: int, c: int, h: int, w: int, patch_size: int, to_tensor: bool = False
-) -> np.array:
+    a: torch.Tensor,
+    bs: int,
+    c: int,
+    h: int,
+    w: int,
+    patch_size: int,
+    to_tensor: bool = False,
+) -> torch.Tensor:
     # Step 1: Reshape a to match the patch grid layout
     a = a.view(bs, -1, c, patch_size, patch_size)
     # a -> (B, num_patches, C, patch_size, patch_size)
@@ -57,7 +65,9 @@ def reshape_images_array(images: np.ndarray, n_rows: int, n_cols: int) -> np.nda
     return np.array(new_images)
 
 
-def plot_images_all_perm(images: np.ndarray, n_rows: int, n_cols: int) -> plt.Figure:
+def plot_images_all_perm(
+    images: np.ndarray, n_rows: int, n_cols: int
+) -> Optional[figure.Figure]:
     if not len(images):
         return
     assert images.shape[0] >= n_rows * n_cols, "Not enough images to fill the grid."
@@ -76,8 +86,8 @@ def plot_images_all_perm(images: np.ndarray, n_rows: int, n_cols: int) -> plt.Fi
 
 
 def plot_pca(
-    images: np.array, targets: np.array, n_rows: int, n_cols: int
-) -> plt.Figure:
+    images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int
+) -> figure.Figure:
     # new_images = reshape_images_array(images, n_rows, n_cols)
     counter = defaultdict(int)
     new_targets = []
@@ -114,7 +124,7 @@ def plot_pca(
     return fig
 
 
-def plot_pca_plotly(images: np.array, targets: np.array, n_rows: int, n_cols: int):
+def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int):
     # Reshape images into grid format (assuming you already have this helper)
     # new_images = reshape_images_array(images, n_rows, n_cols)
     counter = defaultdict(int)

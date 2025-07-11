@@ -2,7 +2,7 @@ _target_: src.data.mnist_datamodule.MNISTDataModule
 hparams:
   data_dir: ${paths.data_dir}
   batch_size: 16 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
-  train_val_test_split: [2_000, 2_00, 67_800]
+  train_val_test_split: [2_000, 2_00, 1_00, 67_700]
   num_workers: 7
   pin_memory: False
   grid_size: 6

@@ -173,18 +173,24 @@ class MNISTDataModule(LightningDataModule):
             testset = MNIST(
                 self.data_dir, train=False, transform=self.dual_transforms_val
             )
-            train_ratio, val_ratio, test_ratio = self.train_val_test_split
+            train_ratio, val_ratio, test_ratio, leftover_ratio = (
+                self.train_val_test_split
+            )
             size_testset = len(testset)
             size_trainset = len(trainset)
-            self.data_train, self.data_test = random_split(
+            self.data_train, self.data_val, _ = random_split(
                 dataset=trainset,
-                lengths=[train_ratio, size_trainset - train_ratio],
+                lengths=[
+                    train_ratio,
+                    val_ratio,
+                    size_trainset - train_ratio - val_ratio,
+                ],
                 generator=torch.Generator().manual_seed(42),
             )
             # dataset = ConcatDataset(datasets=[trainset, testset])
-            self.data_val, _ = random_split(
+            self.data_test, _ = random_split(
                 dataset=testset,
-                lengths=[val_ratio, size_testset - val_ratio],
+                lengths=[test_ratio, size_testset - test_ratio],
                 generator=torch.Generator().manual_seed(42),
             )
 
@@ -193,6 +199,7 @@ class MNISTDataModule(LightningDataModule):
 
         :return: The train dataloader.
         """
+        assert self.data_train is not None
         train_dataset = GridGraphDataset(
             grid_size=self.grid_size, dataset=self.data_train, channels=[0]
         )
@@ -210,10 +217,11 @@ class MNISTDataModule(LightningDataModule):
 
         :return: The validation dataloader.
         """
+        assert self.data_val is not None
         val_dataset = GridGraphDataset(
             grid_size=self.grid_size, dataset=self.data_val, channels=[0]
         )
-        
+
         return DenseGraphDataLoader(
             dataset=val_dataset,
             batch_size=self.batch_size_per_device,
@@ -227,6 +235,7 @@ class MNISTDataModule(LightningDataModule):
 
         :return: The test dataloader.
         """
+        assert self.data_test is not None
         test_dataset = GridGraphDataset(
             grid_size=self.grid_size, dataset=self.data_test, channels=[0]
         )

@@ -3,6 +3,7 @@ import models.components.metrics.lie_transforms as lT
 from functools import wraps
 from typing import Callable, Literal
 
+
 def jvp(f, x, u):
     """Jacobian vector product Df(x)u vs typical autograd VJP vTDF(x).
     Uses two backwards passes: computes (vTDF(x))u and then derivative wrt to v to get DF(x)u"""
@@ -14,41 +15,48 @@ def jvp(f, x, u):
         vJ = torch.autograd.grad(y, [x], [v], create_graph=True)
         Ju = torch.autograd.grad(vJ, [v], [u], create_graph=True)
         return Ju[0]
-    
-    
+
+
 def lie_derivative(
     transform_type: Literal[
-        "translate", 
-        "rotate", 
-        "hyperbolic_rotation", 
+        "translate",
+        "rotate",
+        "hyperbolic_rotation",
         "scale",
         "shear",
         "stretch",
-        "saturate"
+        "saturate",
     ],
     *,
     patch_size: int = 4,
     axis: str = "x",
-    return_scalar: bool = False
+    return_scalar: bool = False,
 ):
     def decorator(transform_fn: Callable):
         @wraps(transform_fn)
         def wrapper(model: Callable, graph):
             batch_size = graph.node_features.shape[0]
-            inp_imgs = lT.restore_tensor(graph.node_features, batch_size, 1, 24, 24, patch_size)
+            inp_imgs = lT.restore_tensor(
+                graph.node_features, batch_size, 1, 24, 24, patch_size
+            )
 
             if not lT.img_like(inp_imgs.shape):
                 return torch.tensor(0.0, device=inp_imgs.device)
 
             def transformed_model(t: torch.Tensor) -> torch.Tensor:
-                transformed_img = transform_fn(inp_imgs, t, axis) if transform_type in ["translate", "shear", "stretch"] \
-                                else transform_fn(inp_imgs, t)
+                transformed_img = (
+                    transform_fn(inp_imgs, t, axis)
+                    if transform_type in ["translate", "shear", "stretch"]
+                    else transform_fn(inp_imgs, t)
+                )
 
                 transformed_graph = lT.patch_tensor(transformed_img, patch_size)
                 graph.node_features = transformed_graph
 
                 _, z, *_ = model(graph, training=False, tau=1.0)
-                z_tensor = lT.restore_tensor(z.node_features, batch_size, 1, 24, 24, patch_size)
+                z_tensor = lT.restore_tensor(
+                    z.node_features, batch_size, 1, 24, 24, patch_size
+                )
 
                 if lT.img_like(z_tensor.shape):
                     if transform_type in ["translate", "shear", "stretch"]:
@@ -63,6 +71,7 @@ def lie_derivative(
             return lie_deriv.norm() if return_scalar else lie_deriv
 
         return wrapper
+
     return decorator
 
 
@@ -70,37 +79,46 @@ def lie_derivative(
 def translation_x(imgs, t, axis):
     return lT.translate(imgs, t, axis)
 
+
 @lie_derivative("translate", axis="y", patch_size=4, return_scalar=False)
 def translation_y(imgs, t, axis):
     return lT.translate(imgs, t, axis)
+
 
 @lie_derivative("rotate", patch_size=4, return_scalar=False)
 def rotation(imgs, t):
     return lT.rotate(imgs, t)
 
+
 @lie_derivative("hyperbolic_rotation", patch_size=4, return_scalar=False)
 def hyperbolic_rotation(imgs, t):
     return lT.hyperbolic_rotate(imgs, t)
+
 
 @lie_derivative("scale", patch_size=4, return_scalar=False)
 def scale(imgs, t):
     return lT.scale(imgs, t)
 
+
 @lie_derivative("shear", axis="x", patch_size=4, return_scalar=False)
 def shear_x(imgs, t, axis):
     return lT.shear(imgs, t, axis)
+
 
 @lie_derivative("shear", axis="y", patch_size=4, return_scalar=False)
 def shear_y(imgs, t, axis):
     return lT.shear(imgs, t, axis)
 
+
 @lie_derivative("stretch", axis="x", patch_size=4, return_scalar=False)
 def stretch_x(imgs, t, axis):
     return lT.stretch(imgs, t, axis)
 
+
 @lie_derivative("stretch", axis="y", patch_size=4, return_scalar=False)
 def stretch_y(imgs, t, axis):
     return lT.stretch(imgs, t, axis)
+
 
 @lie_derivative("saturate", patch_size=4, return_scalar=False)
 def saturate(imgs, t):
@@ -129,7 +147,7 @@ def saturate(imgs, t):
 #         new_graph.node_features = shifted_graph
 #         _, z, _, _, _, _  = model(new_graph, training=False, tau=1.0)
 #         z_restore = lT.restore_tensor(z.node_features, batch_size, 1, 24, 24, patch_size)
-      
+
 #         if lT.img_like(z_restore.shape):
 #             z_restore = lT.translate(z_restore, -t, axis)
 #         # print('zshape',z.shape)
@@ -137,10 +155,10 @@ def saturate(imgs, t):
 
 #     t = torch.zeros(1, requires_grad=True, device=inp_imgs.device)
 #     lie_deriv = jvp(shifted_model, t, torch.ones_like(t, requires_grad=True))
-    
+
 #     if return_scalar:
 #         return lie_deriv.norm()
-    
+
 #     return lie_deriv
 
 

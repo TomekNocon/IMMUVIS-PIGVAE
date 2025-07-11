@@ -123,7 +123,7 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
-        device: str = 'mps'
+        device: str = "mps",
     ) -> Tuple[torch.Tensor]:
         # node_features = self.spectral_embeddings(node_features)
         node_features = node_features.to(device)

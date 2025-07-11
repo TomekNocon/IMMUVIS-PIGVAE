@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+
 def grid_sample(image, optical):
     N, C, IH, IW = image.shape
     _, H, W, _ = optical.shape
@@ -63,6 +64,7 @@ def grid_sample(image, optical):
 
     return out_val
 
+
 def img_like(img_shape):
     bchw = len(img_shape) == 4 and img_shape[-2:] != (1, 1)
     is_square = int(int(np.sqrt(img_shape[1])) + 0.5) ** 2 == img_shape[1]
@@ -74,6 +76,7 @@ def img_like(img_shape):
         and (is_square or is_one_off_square or is_two_off_square)
     )
     return bchw or bnc
+
 
 def num_tokens(img_shape):
     if len(img_shape) == 4 and img_shape[-2:] != (1, 1):
@@ -162,11 +165,11 @@ def stretch(img, x, axis="x"):
     # Set both diagonal entries to preserve the image unless stretched
     affineMatrices[:, 0, 0] = 1.0
     affineMatrices[:, 1, 1] = 1.0
-    
+
     if axis == "x":
-        affineMatrices[:, 0, 0] *= (1 + x)  # stretch x-axis
+        affineMatrices[:, 0, 0] *= 1 + x  # stretch x-axis
     else:
-        affineMatrices[:, 1, 1] *= (1 + x)  # stretch y-axis
+        affineMatrices[:, 1, 1] *= 1 + x  # stretch y-axis
 
     return affine_transform(affineMatrices, img)
 
@@ -194,22 +197,27 @@ def saturate(img, t):
     return img
 
 
-def patch_tensor(
-    x: torch.Tensor, patch_size: int
-) -> np.array:
-        # x -> B c h w
-        # bs, c, h, w = x.shape
-        bs, c, h, w = x.shape
-        x = torch.nn.Unfold(kernel_size=patch_size, stride=patch_size)(x)
-        # x -> B (c*p*p) L
-        # Reshaping into the shape we want
-        a = x.view(bs, c, patch_size, patch_size, -1).permute(0, 4, 1, 2, 3)
-        a = a.view(bs, -1, c * patch_size * patch_size)
-        # a -> ( B no.of patches c p p )
-        return a
-    
+def patch_tensor(x: torch.Tensor, patch_size: int) -> np.array:
+    # x -> B c h w
+    # bs, c, h, w = x.shape
+    bs, c, h, w = x.shape
+    x = torch.nn.Unfold(kernel_size=patch_size, stride=patch_size)(x)
+    # x -> B (c*p*p) L
+    # Reshaping into the shape we want
+    a = x.view(bs, c, patch_size, patch_size, -1).permute(0, 4, 1, 2, 3)
+    a = a.view(bs, -1, c * patch_size * patch_size)
+    # a -> ( B no.of patches c p p )
+    return a
+
+
 def restore_tensor(
-    a: np.array, bs: int, c: int, h: int, w: int, patch_size: int, to_tensor: bool = False
+    a: np.array,
+    bs: int,
+    c: int,
+    h: int,
+    w: int,
+    patch_size: int,
+    to_tensor: bool = False,
 ) -> np.array:
     # Step 1: Reshape a to match the patch grid layout
     a = a.view(bs, -1, c, patch_size, patch_size)
@@ -233,6 +241,5 @@ def restore_tensor(
     # x_reconstructed -> (B, C, H, W)
     # if to_tensor:
     #     x_reconstructed = x_reconstructed.clone()
-
 
     return x_reconstructed

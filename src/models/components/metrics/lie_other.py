@@ -5,16 +5,12 @@ import numpy as np
 
 import lie_transforms as lT
 
+
 # Needs TBC since I need a graph input of this so will see
 def translation_sample_invariance(
-        model,
-        img,
-        model_out,
-        axis='x',
-        repetitions: int = 10,
-        eta=2.0
+    model, img, model_out, axis="x", repetitions: int = 10, eta=2.0
 ):
-    """ Lie derivative of model with respect to translation vector, assumes scalar output """
+    """Lie derivative of model with respect to translation vector, assumes scalar output"""
     shifted_model = lambda t: model(lT.translate(img, t, axis))
     errors = []
     for _ in range(repetitions):
@@ -23,14 +19,11 @@ def translation_sample_invariance(
         errors.append(mse)
     return torch.stack(errors).mean(0).unsqueeze(0)
 
+
 def rotation_sample_invariance(
-        model,
-        img,
-        model_out,
-        repetitions: int = 10,
-        eta=np.pi//16
+    model, img, model_out, repetitions: int = 10, eta=np.pi // 16
 ):
-    """ Lie derivative of model with respect to rotation, assumes scalar output """
+    """Lie derivative of model with respect to rotation, assumes scalar output"""
     rotated_model = lambda theta: model(lT.rotate(img, theta))
     errors = []
     for _ in range(repetitions):
@@ -39,7 +32,10 @@ def rotation_sample_invariance(
         errors.append(mse)
     return torch.stack(errors).mean(0).unsqueeze(0)
 
+
 """TODO: read what this does """
+
+
 def get_equivariance_metrics(model, minibatch, num_probes=20):
     x, y = minibatch
     if torch.cuda.is_available():
@@ -69,10 +65,24 @@ def get_equivariance_metrics(model, minibatch, num_probes=20):
             consistency = (rolled_yhat == yhat).cpu().data.numpy()
             metrics["consistency_y" + str(shift_y)] = pd.Series(consistency)
 
-        
-        metrics['trans_x_sample'] = translation_sample_invariance(model_probs,x,model_out,axis='x').abs().cpu().data.numpy()
-        metrics['trans_y_sample'] = translation_sample_invariance(model_probs,x,model_out,axis='y').abs().cpu().data.numpy()
-        metrics['rotate_sample'] = rotation_sample_invariance(model_probs,x,model_out).abs().cpu().data.numpy()
+        metrics["trans_x_sample"] = (
+            translation_sample_invariance(model_probs, x, model_out, axis="x")
+            .abs()
+            .cpu()
+            .data.numpy()
+        )
+        metrics["trans_y_sample"] = (
+            translation_sample_invariance(model_probs, x, model_out, axis="y")
+            .abs()
+            .cpu()
+            .data.numpy()
+        )
+        metrics["rotate_sample"] = (
+            rotation_sample_invariance(model_probs, x, model_out)
+            .abs()
+            .cpu()
+            .data.numpy()
+        )
 
     df = pd.DataFrame.from_dict(metrics)
     return df

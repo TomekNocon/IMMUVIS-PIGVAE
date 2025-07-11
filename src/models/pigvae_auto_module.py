@@ -66,7 +66,7 @@ class PLGraphAE(L.LightningModule):
         temperature_scheduler: torch.nn.Module,
         entropy_weight_scheduler: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler,
+        scheduler: torch.optim.lr_scheduler._LRScheduler,
         compile: bool,
     ) -> None:
         super().__init__()
@@ -81,6 +81,7 @@ class PLGraphAE(L.LightningModule):
         self.entropy_weight_scheduler = entropy_weight_scheduler
         self.automatic_optimization = True
         self.validation_step_outputs = []
+        self.test_step_outputs = []
         self.perms = []
 
     def forward(self, graph: DenseGraphBatch, training: bool, tau: float) -> Tuple:
@@ -95,9 +96,7 @@ class PLGraphAE(L.LightningModule):
         # so it's worth to make sure validation metrics don't store results from these checks
         pass
 
-    def model_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def model_step(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> None:
         """Perform a single model step on a batch of data.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
@@ -140,7 +139,11 @@ class PLGraphAE(L.LightningModule):
         )
         if perm is not None:
             self.perms.append(perm)
-        outputs = {"prediction": graph_pred, "ground_truth": graph}
+        outputs = {
+            "prediction": graph_pred,
+            "ground_truth": graph,
+            "graph_emb": graph_emb,
+        }
         self.validation_step_outputs.append(outputs)
         batch_size = graph_pred.node_features.shape[0]
 
@@ -171,7 +174,13 @@ class PLGraphAE(L.LightningModule):
         )
         sample_graph = graph.take_sample(16)
         lie_metrics = lE.get_equivariance_metrics(self, sample_graph)
-        metrics = {**metrics_soft, **metrics_hard, **lie_metrics, "tau": tau, "beta": beta}
+        metrics = {
+            **metrics_soft,
+            **metrics_hard,
+            **lie_metrics,
+            "tau": tau,
+            "beta": beta,
+        }
         self.log_dict(
             metrics,
             sync_dist=False,
@@ -187,6 +196,7 @@ class PLGraphAE(L.LightningModule):
         n_examples = 10
         predictions = self.validation_step_outputs[0]["prediction"].node_features
         ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
+        graph_emb = self.validation_step_outputs[0]["graph_emb"]
         targets = self.validation_step_outputs[0]["ground_truth"].y
         batch_size = predictions.shape[0] // 8
         base_idx = np.arange(8) * batch_size
@@ -194,7 +204,7 @@ class PLGraphAE(L.LightningModule):
         for i in range(n_examples):
             idx.append(base_idx + i)
         idx_to_show = np.stack(idx, axis=0).flatten()
-        
+
         if self.perms:
             perms = self.perms[0]
             subset_perms = perms[idx_to_show, :, :]
@@ -204,6 +214,7 @@ class PLGraphAE(L.LightningModule):
         subset_predictions = predictions[idx_to_show, :, :]
         subset_targets = targets[:n_examples].to(torch.int)
         subset_ground_truths = ground_truths[idx_to_show, :, :]
+        subset_graph_emb = graph_emb[idx_to_show, :]
 
         subset_batch_size = subset_predictions.shape[0]
         pred_imgs = (
@@ -220,15 +231,11 @@ class PLGraphAE(L.LightningModule):
             .squeeze()
             .numpy()
         )
-        pca_predictions = (
-            restore_tensor(subset_predictions, subset_batch_size, 1, 24, 24, 4)
-            .detach()
-            .cpu()
-            .squeeze()
-            .numpy()
-        )
+        pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
         fig_prediction = plot_images_all_perm(pred_imgs, n_rows=n_examples, n_cols=8)
-        fig_ground_truth = plot_images_all_perm(ground_truth_imgs, n_rows=n_examples, n_cols=8)
+        fig_ground_truth = plot_images_all_perm(
+            ground_truth_imgs, n_rows=n_examples, n_cols=8
+        )
         fig_perms = plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
         fig_pca = plot_pca(pca_predictions, subset_targets, n_rows=n_examples, n_cols=8)
         fig_pca_plotly = plot_pca_plotly(
@@ -256,7 +263,7 @@ class PLGraphAE(L.LightningModule):
         self.perms.clear()
 
     def test_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> None:
         """Perform a single test step on a batch of data from the test set.
 
@@ -264,11 +271,87 @@ class PLGraphAE(L.LightningModule):
             labels.
         :param batch_idx: The index of the current batch.
         """
-        pass
+
+        graph_emb, graph_pred, _, perm, _, _ = self(
+            graph=graph, training=False, tau=1.0
+        )
+        if perm is not None:
+            self.perms.append(perm)
+        outputs = {
+            "prediction": graph_pred,
+            "ground_truth": graph,
+            "graph_emb": graph_emb,
+        }
+        self.test_step_outputs.append(outputs)
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
-        pass
+        n_examples = 10
+        predictions = self.test_step_outputs[0]["prediction"].node_features
+        ground_truths = self.test_step_outputs[0]["ground_truth"].node_features
+        graph_emb = torch.cat([el["graph_emb"] for el in self.test_step_outputs], dim = 0)
+        targets = np.concatenate([el["ground_truth"].y for el in self.test_step_outputs], axis = 0)
+        batch_size = predictions.shape[0] // 8
+        base_idx = np.arange(8) * batch_size
+        idx = []
+        for i in range(n_examples):
+            idx.append(base_idx + i)
+        idx_to_show = np.stack(idx, axis=0).flatten()
+
+        if self.perms:
+            perms = self.perms[0]
+            subset_perms = perms[idx_to_show, :, :]
+            permutations = subset_perms.detach().cpu().squeeze().numpy()
+        else:
+            permutations = np.array([])
+        subset_predictions = predictions[idx_to_show, :, :]
+        subset_ground_truths = ground_truths[idx_to_show, :, :]
+
+        subset_batch_size = subset_predictions.shape[0]
+        pred_imgs = (
+            restore_tensor(subset_predictions, subset_batch_size, 1, 24, 24, 4)
+            .detach()
+            .cpu()
+            .squeeze()
+            .numpy()
+        )
+        ground_truth_imgs = (
+            restore_tensor(subset_ground_truths, subset_batch_size, 1, 24, 24, 4)
+            .detach()
+            .cpu()
+            .squeeze()
+            .numpy()
+        )
+        pca_predictions = graph_emb.detach().cpu().squeeze().numpy()
+        fig_prediction = plot_images_all_perm(pred_imgs, n_rows=n_examples, n_cols=8)
+        fig_ground_truth = plot_images_all_perm(
+            ground_truth_imgs, n_rows=n_examples, n_cols=8
+        )
+        fig_perms = plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
+        fig_pca = plot_pca(pca_predictions, targets, n_rows=100, n_cols=8)
+        fig_pca_plotly = plot_pca_plotly(
+            pca_predictions, targets, n_rows=100, n_cols=8
+        )
+        path_to_plotly_html = "./plotly_figure.html"
+        fig_pca_plotly.write_html(path_to_plotly_html, auto_play=False)
+        table = wandb.Table(columns=["plotly_figure"])
+        table.add_data(wandb.Html(path_to_plotly_html))
+        wandb.log(
+            {
+                "Prediction": wandb.Image(fig_prediction, caption="Predicted Image"),
+                "Ground Truth": wandb.Image(fig_ground_truth, caption="Ground Truth"),
+                "Perms": wandb.Image(fig_perms, caption="Perms")
+                if self.perms
+                else None,
+                "PCA": wandb.Image(fig_pca, caption="PCA"),
+            }
+        )
+        plt.close(fig_prediction)
+        plt.close(fig_ground_truth)
+        plt.close(fig_perms)
+        plt.close(fig_pca)
+        self.test_step_outputs.clear()
+        self.perms.clear()
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train + validate), validate,
