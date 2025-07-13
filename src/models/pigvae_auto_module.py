@@ -4,15 +4,18 @@ import torch
 import numpy as np
 import lightning as L
 import matplotlib.pyplot as plt
+from collections import Counter
 from models.components.warmups import get_cosine_schedule_with_warmup
 from models.components.plot import (
     restore_tensor,
     plot_images_all_perm,
     plot_pca,
     plot_pca_plotly,
+    plot_barchart_from_dict
 )
 
 import models.components.metrics.lie_equivariance as lE
+import models.components.metrics.recontructions as R
 
 import wandb
 from src.data.components.graphs_datamodules import DenseGraphBatch
@@ -137,12 +140,14 @@ class PLGraphAE(L.LightningModule):
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph, training=True, tau=tau
         )
+        
         if perm is not None:
             self.perms.append(perm)
         outputs = {
             "prediction": graph_pred,
             "ground_truth": graph,
             "graph_emb": graph_emb,
+            "soft_probs": soft_probs
         }
         self.validation_step_outputs.append(outputs)
         batch_size = graph_pred.node_features.shape[0]
@@ -198,13 +203,13 @@ class PLGraphAE(L.LightningModule):
         ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
         graph_emb = self.validation_step_outputs[0]["graph_emb"]
         targets = self.validation_step_outputs[0]["ground_truth"].y
-        batch_size = predictions.shape[0] // 8
-        base_idx = np.arange(8) * batch_size
-        idx = []
-        for i in range(n_examples):
-            idx.append(base_idx + i)
-        idx_to_show = np.stack(idx, axis=0).flatten()
+        soft_probs = self.validation_step_outputs[0]["soft_probs"]
 
+        perm_preds = torch.argmax(soft_probs, dim = 1).detach().cpu().numpy().tolist()
+        perm_preds_counter = Counter(perm_preds)
+
+        batch_size = predictions.shape[0] // 8
+        idx_to_show = R.batch_augmented_indices(batch_size, num_permutations=8, n_examples=n_examples)
         if self.perms:
             perms = self.perms[0]
             subset_perms = perms[idx_to_show, :, :]
@@ -222,29 +227,25 @@ class PLGraphAE(L.LightningModule):
             .detach()
             .cpu()
             .squeeze()
-            .numpy()
         )
         ground_truth_imgs = (
             restore_tensor(subset_ground_truths, subset_batch_size, 1, 24, 24, 4)
             .detach()
             .cpu()
             .squeeze()
-            .numpy()
         )
         pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
-        fig_prediction = plot_images_all_perm(pred_imgs, n_rows=n_examples, n_cols=8)
+
+        mse = R.mse_per_transform(ground_truth_imgs, pred_imgs, n_examples, 8)
+        fig_prediction = plot_images_all_perm(pred_imgs.numpy(), n_rows=n_examples, n_cols=8)
         fig_ground_truth = plot_images_all_perm(
-            ground_truth_imgs, n_rows=n_examples, n_cols=8
+            ground_truth_imgs.numpy(), n_rows=n_examples, n_cols=8
         )
         fig_perms = plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
         fig_pca = plot_pca(pca_predictions, subset_targets, n_rows=n_examples, n_cols=8)
-        fig_pca_plotly = plot_pca_plotly(
-            pca_predictions, subset_targets, n_rows=n_examples, n_cols=8
-        )
-        path_to_plotly_html = "./plotly_figure.html"
-        fig_pca_plotly.write_html(path_to_plotly_html, auto_play=False)
-        table = wandb.Table(columns=["plotly_figure"])
-        table.add_data(wandb.Html(path_to_plotly_html))
+        fig_mse = plot_barchart_from_dict(mse)
+        fig_perm_preds_counter = plot_barchart_from_dict(dict(perm_preds_counter))
+       
         wandb.log(
             {
                 "Prediction": wandb.Image(fig_prediction, caption="Predicted Image"),
@@ -253,12 +254,16 @@ class PLGraphAE(L.LightningModule):
                 if self.perms
                 else None,
                 "PCA": wandb.Image(fig_pca, caption="PCA"),
+                'MSE Per Transform': wandb.Image(fig_mse, caption="MSE"),
+                "Perm Preds Counter": wandb.Image(fig_perm_preds_counter, caption="Perm Preds Counter")
             }
         )
         plt.close(fig_prediction)
         plt.close(fig_ground_truth)
         plt.close(fig_perms)
         plt.close(fig_pca)
+        plt.close(fig_mse)
+        plt.close(fig_perm_preds_counter)
         self.validation_step_outputs.clear()
         self.perms.clear()
 
@@ -292,12 +297,12 @@ class PLGraphAE(L.LightningModule):
         graph_emb = torch.cat([el["graph_emb"] for el in self.test_step_outputs], dim = 0)
         targets = np.concatenate([el["ground_truth"].y for el in self.test_step_outputs], axis = 0)
         batch_size = predictions.shape[0] // 8
-        base_idx = np.arange(8) * batch_size
-        idx = []
-        for i in range(n_examples):
-            idx.append(base_idx + i)
-        idx_to_show = np.stack(idx, axis=0).flatten()
-
+        # base_idx = np.arange(8) * batch_size
+        # idx = []
+        # for i in range(n_examples):
+        #     idx.append(base_idx + i)
+        # idx_to_show = np.stack(idx, axis=0).flatten()
+        idx_to_show = R.batch_augmented_indices(batch_size, num_permutations=8, n_examples=n_examples)
         if self.perms:
             perms = self.perms[0]
             subset_perms = perms[idx_to_show, :, :]

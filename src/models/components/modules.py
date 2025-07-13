@@ -369,6 +369,7 @@ class SimplePermuter(torch.nn.Module):
         perm_y_reflection_180 = torch.matmul(perm_y_reflection, perm_180)
         perm_y_reflection_270 = torch.matmul(perm_y_reflection, perm_270)
 
+        # TODO: If I shuffle the train set with every epoch can I have fix this list if I have no labels? 
         permutations = torch.stack(
             [
                 perm,
@@ -406,10 +407,6 @@ class BottleNeckEncoder(torch.nn.Module):
             self.w = Linear(self.d_in, 2 * self.d_out)
         else:
             self.w = Linear(self.d_in, self.d_out)
-
-        # Explicit Xavier uniform initialization
-        # torch.nn.init.xavier_uniform_(self.w.weight)
-        # torch.nn.init.zeros_(self.w.bias)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         x = self.w(self.activation(x))

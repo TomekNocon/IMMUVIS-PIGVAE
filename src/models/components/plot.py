@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.figure as figure
-from typing import Optional
+from typing import Dict, Optional
 import torch
 import numpy as np
 from sklearn.decomposition import PCA
@@ -82,6 +82,16 @@ def plot_images_all_perm(
         ax.imshow(img, cmap="gray")
         ax.set_title(f"Image {idx}")
         ax.axis("off")
+
+    return fig
+
+def plot_barchart_from_dict(data: Dict[str, float]) -> figure.Figure:
+# Plotting
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.bar(list(data.keys()), list(data.values()), color='skyblue')
+    ax.set_xlabel("Keys")
+    ax.set_ylabel("Values")
+    ax.set_title("MSE per transform")
 
     return fig
 
