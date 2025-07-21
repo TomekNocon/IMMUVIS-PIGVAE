@@ -11,7 +11,7 @@ from src.data.components.graphs_datamodules import (
     PatchAugmentations,
     GridGraphDataset,
     DenseGraphDataLoader,
-    DualOutputTransform,
+    # DualOutputTransform,
 )
 
 
@@ -81,46 +81,21 @@ class MNISTDataModule(LightningDataModule):
                 transforms.Normalize((0.1307,), (0.3081,)),
                 transforms.Resize((hparams.size, hparams.size)),
                 add_channel,
+                SplitPatches(hparams.patch_size),
             ]
         )
 
-        self.aug_transforms_train = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,)),
-                transforms.Resize((hparams.size, hparams.size)),
-                add_channel,
-                PatchAugmentations(
-                    prob=hparams.augmentation_prob,
-                    size=hparams.size,
-                    patch_size=hparams.patch_size,
-                ),
-            ]
+        self.aug_transforms_train = PatchAugmentations(
+            prob=hparams.augmentation_prob,
+            size=hparams.size,
+            patch_size=hparams.patch_size,
         )
 
-        self.aug_transforms_val = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,)),
-                transforms.Resize((hparams.size, hparams.size)),
-                add_channel,
-                PatchAugmentations(
-                    prob=hparams.augmentation_prob,
-                    size=hparams.size,
-                    patch_size=hparams.patch_size,
-                    is_validation=True,
-                ),
-            ]
-        )
-
-        self.patch_transform = SplitPatches(hparams.patch_size)
-
-        self.dual_transforms_train = DualOutputTransform(
-            self.base_transforms, self.aug_transforms_train, self.patch_transform
-        )
-
-        self.dual_transforms_val = DualOutputTransform(
-            self.base_transforms, self.aug_transforms_val, self.patch_transform
+        self.aug_transforms_val = PatchAugmentations(
+            prob=hparams.augmentation_prob,
+            size=hparams.size,
+            patch_size=hparams.patch_size,
+            is_validation=True,
         )
 
         self.data_train: Optional[Dataset] = None

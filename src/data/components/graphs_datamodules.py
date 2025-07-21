@@ -8,112 +8,69 @@ import torchvision.transforms as T
 import networkx as nx
 
 
-# class PatchAugmentations(nn.Module):
-#     """Apply one of 8 possible dihedral (rotation + flip) augmentations"""
-
-#     NUM_PERM = 8
-
-#     def __init__(self, prob: float, size: int, patch_size: int, is_validation: bool = False):
-#         super().__init__()
-#         self.prob = prob
-#         self.is_validation = is_validation
-#         self.grid = self.make_grid(size // patch_size)
-
-#     def forward(self, patch: torch.Tensor) -> torch.Tensor:
-#         aug_list = []
-#         self.grid = self.grid.to(img.device)
-#         idx  = TF.hflip(self.grid).flatten()
-#         aug_list.append(img[:, idx, :])
-#         for k in range(1, 4):  # rotations: 0, 90, 180, 270 degrees
-#             rotated_idx = torch.rot90(self.grid, k=k, dims=[-2, -1])
-#             aug_list.append(img[:, rotated_idx, :])  # no flip
-#             flip_idx = TF.hflip(rotated_idx)
-#             aug_list.append(img[:, flip_idx, :])  # with horizontal flip
-#         aug_list = torch.stack(aug_list, dim=0).squeeze(1)
-#         if self.is_validation:
-#             return aug_list
-#         return aug_list[
-#             torch.randperm(self.NUM_PERM - 1)
-#         ]  # shuffle during traininghape: [7, C, H, W]
-
-
-#     def make_grid(self, num_nodes_columns: int) -> torch.Tensor:
-#         return (
-#             torch
-#             .arange(num_nodes_columns * num_nodes_columns)
-#             .reshape(num_nodes_columns, num_nodes_columns)
-#         )
 class PatchAugmentations(nn.Module):
     """
-    Apply one of 8 possible dihedral (rotation + horizontal flip) augmentations
-    on a square patch represented as a flattened grid of node indices.
+    Apply 8 dihedral (rotation + horizontal flip) augmentations on a patch
+    represented as a flattened grid of node indices.
 
     During validation:
-        Returns all 8 augmented variants stacked.
+        Returns all 8 augmented variants stacked in order.
     During training:
-        Returns the 8 augmented variants shuffled.
+        Returns the 8 variants in a consistently permuted order.
     """
 
     NUM_PERM = 8  # 4 rotations x {no flip, flip}
 
-    def __init__(
-        self, prob: float, size: int, patch_size: int, is_validation: bool = False
-    ):
+    def __init__(self, prob: float, size: int, patch_size: int, is_validation: bool = False):
         super().__init__()
         self.prob = prob
         self.is_validation = is_validation
         num_nodes_per_dim = size // patch_size
-        self.register_buffer(
-            "grid", self.make_grid(num_nodes_per_dim), persistent=False
-        )
+        self.register_buffer("grid", self.make_grid(num_nodes_per_dim), persistent=False)
 
-    def forward(self, patch: torch.Tensor) -> torch.Tensor:
+    def forward(self, patch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
-            patch: Tensor of shape [C, N, D] where N = patch_size^2, or a similar layout.
+            patch: Tensor of shape [C, N, D], N = patch_size^2.
 
         Returns:
-            Tensor of shape:
-                [7, C, N, D] during validation
-                [7, C, N, D] shuffled during training
+            aug_tensor: [8, C, N, D]
+            argsort_tensor: [8, N]
+            perm: [8] permutation used
         """
         device = patch.device
         grid = self.grid.to(device)
 
         aug_list = []
-        argsort_aug_list = []
-        flat_flipped_idx = TF.hflip(grid).flatten()
-        aug_list.append(patch[:, flat_flipped_idx, :])
-        argsort_aug_list.append(torch.argsort(flat_flipped_idx))
-        for k in range(1, 4):  # 0, 90, 180, 270 degrees
+        argsort_list = []
+
+        for k in range(4):
             rotated_grid = torch.rot90(grid, k=k, dims=[0, 1])
-            flat_rotated_idx = rotated_grid.flatten()
-            aug_list.append(patch[:, flat_rotated_idx, :])  # without flip
+            flat_idx = rotated_grid.flatten()
+            aug_list.append(patch[:, flat_idx, :].contiguous())
+            argsort_list.append(torch.argsort(flat_idx))
 
             flipped_grid = TF.hflip(rotated_grid)
             flat_flipped_idx = flipped_grid.flatten()
-            aug_list.append(patch[:, flat_flipped_idx, :]) # with horizontal flip
-            argsort_aug_list.append(torch.argsort(flat_rotated_idx)) 
-            argsort_aug_list.append(torch.argsort(flat_flipped_idx))
-        aug_tensor = torch.stack(aug_list, dim=0)  # [7, C, N, D]
-        argsort_tensor = torch.stack(argsort_aug_list, dim=0) 
+            aug_list.append(patch[:, flat_flipped_idx, :].contiguous())
+            argsort_list.append(torch.argsort(flat_flipped_idx))
+
+        aug_tensor = torch.stack(aug_list, dim=0).contiguous()       # [8, C, N, D]
+        argsort_tensor = torch.stack(argsort_list, dim=0).contiguous()  # [8, N]
 
         if self.is_validation:
-            return aug_tensor, argsort_tensor
+            perm = torch.arange(self.NUM_PERM, device=device)
+            return aug_tensor, argsort_tensor, perm
 
-        # Shuffle augmentations during training
-        perm = torch.randperm(self.NUM_PERM - 1, device=device)
-        return aug_tensor[perm], argsort_tensor[perm]
+        perm = torch.randperm(self.NUM_PERM, device=device)
+        aug_tensor_shuffled = aug_tensor
+        argsort_tensor_shuffled = argsort_tensor
+        return aug_tensor_shuffled, argsort_tensor_shuffled, perm
 
     @staticmethod
     def make_grid(num_nodes_per_dim: int) -> torch.Tensor:
-        """
-        Creates a 2D grid of indices with shape [num_nodes_per_dim, num_nodes_per_dim],
-        mapping a flattened patch to its 2D structure.
-        """
-        return torch.arange(num_nodes_per_dim**2).reshape(
-            num_nodes_per_dim, num_nodes_per_dim
-        )
+        """Create a 2D grid mapping flattened indices to 2D for rotation/flip operations."""
+        return torch.arange(num_nodes_per_dim ** 2).reshape(num_nodes_per_dim, num_nodes_per_dim)
 
 
 class DualOutputTransform:
@@ -125,25 +82,17 @@ class DualOutputTransform:
         self,
         base_transforms: Union[T.Compose, Callable],
         augmentation_transforms: Union[T.Compose, Callable],
-        patch_transform: Optional[Union[T.Compose, Callable]] = None,
     ):
         self.base_transforms = base_transforms
         self.augmentation_transforms = augmentation_transforms
-        self.patch_transform = patch_transform
 
     def __call__(self, img: torch.Tensor) -> Tuple[torch.Tensor]:
         # Apply base transformations to get the original version
         original = self.base_transforms(img)
 
         # Apply the same base transformations + augmentations to get the augmented version
-        augmented = self.augmentation_transforms(img)
-
-        # Apply patch transform if specified
-        if self.patch_transform:
-            original = self.patch_transform(original)
-            augmented = self.patch_transform(augmented)
-
-        return (original, augmented)
+        augmented, argsort_augmented, perm = self.augmentation_transforms(original)
+        return (augmented, argsort_augmented, perm)
 
 
 class SplitPatches(nn.Module):
@@ -184,10 +133,10 @@ class GridGraphDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple:
         g = nx.grid_graph((self.grid_size, self.grid_size))
         # img = self.dataset[idx][0].to(torch.float32)
-        original, augmented = self.dataset[idx][0]
-        original, augmented = original.to(torch.float32), augmented.to(torch.float32)
+        augmented, argsort_augmented, perm = self.dataset[idx][0]
+        augmented = augmented.to(torch.float32)
         target = self.dataset[idx][1]
-        return (g, original, augmented, target)
+        return (g, augmented, argsort_augmented, perm, target)
 
 
 class DenseGraphBatch:
@@ -196,11 +145,13 @@ class DenseGraphBatch:
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
+        argsort_augmented_features: Optional[torch.Tensor] = None,
         **kwargs,
     ):
         self.node_features = node_features
         self.edge_features = edge_features
         self.mask = mask
+        self.argsort_augmented_features = argsort_augmented_features
         self.properties = kwargs.get("properties", None)
 
     @classmethod
@@ -209,32 +160,34 @@ class DenseGraphBatch:
     ) -> DenseGraphBatch:
         if labels:
             max_num_nodes = max(
-                [graph.number_of_nodes() for graph, _, _, _ in data_list]
+                [graph.number_of_nodes() for graph, _, _, _, _ in data_list]
             )
         else:
-            max_num_nodes = max([graph.number_of_nodes() for graph in data_list])
-        in_node_features = []
-        out_node_features = []
+            max_num_nodes = max([graph.number_of_nodes() for graph, _, _ , _, _ in data_list])
+        node_features = []
         edge_features = []
+        argsort_augmented_indices = []
         mask = []
         y = []
         props = []
-        for graph, original_embedding, augmented_embedding, label in data_list:
+        perms = []
+        for (
+            graph,
+            augmented_embedding,
+            argsort_augmented,
+            perm,
+            label,
+        ) in data_list:
             y.append(label)
             num_nodes = graph.number_of_nodes()
             props.append(torch.Tensor([num_nodes]))
             graph.add_nodes_from([i for i in range(num_nodes, max_num_nodes)])
-            in_node_features.append(augmented_embedding)
-            out_node_features.append(original_embedding)
+            node_features.append(augmented_embedding[perm].squeeze(1))
+            argsort_augmented_indices.append(argsort_augmented[perm].squeeze(1))
             mask.append((torch.arange(max_num_nodes) < num_nodes).unsqueeze(0))
-        in_node_features = torch.stack(in_node_features, dim=1)
-        _, _, _, emd_dim = in_node_features.shape
-        in_node_features = in_node_features.view(-1, num_nodes, emd_dim)
-        out_node_features = torch.cat(out_node_features, dim=0)
-        contrastive_node_features = torch.cat(
-            [out_node_features, in_node_features], dim=0
-        )
-        batch_size = contrastive_node_features.size(0)
+        node_features = torch.cat(node_features, dim=0)
+        argsort_augmented_indices = torch.cat(argsort_augmented_indices, dim=0)
+        batch_size = node_features.size(0)
         edge_features = torch.tensor(edge_features)
         mask = torch.cat(mask, dim=0)
         batch_size_mask = mask.size(0)
@@ -242,8 +195,9 @@ class DenseGraphBatch:
         mask = mask.repeat_interleave(factor, dim=0)
         props = torch.cat(props, dim=0)
         batch = DenseGraphBatch(
-            node_features=contrastive_node_features,
+            node_features=node_features,
             edge_features=edge_features,
+            argsort_augmented_features=argsort_augmented_indices,
             mask=mask,
             properties=props,
         )
@@ -256,11 +210,13 @@ class DenseGraphBatch:
         edge_features = self.edge_features
         mask = self.mask
         properties = self.properties
+        argsort_augmented_features = self.argsort_augmented_features
 
         return DenseGraphBatch(
             node_features=node_features[:n, :, :],
             edge_features=edge_features[:n],
             mask=mask[:n, :],
+            argsort_augmented_features=argsort_augmented_features[:n, :, :] if argsort_augmented_features is not None else None,
             properties=properties[:n],
         )
 
