@@ -8,7 +8,7 @@ from torchvision.datasets import MNIST
 from torchvision.transforms import transforms
 from src.data.components.graphs_datamodules import (
     SplitPatches,
-    ImageAugmentations,
+    PatchAugmentations,
     GridGraphDataset,
     DenseGraphDataLoader,
     DualOutputTransform,
@@ -90,7 +90,11 @@ class MNISTDataModule(LightningDataModule):
                 transforms.Normalize((0.1307,), (0.3081,)),
                 transforms.Resize((hparams.size, hparams.size)),
                 add_channel,
-                ImageAugmentations(prob=hparams.augmentation_prob),
+                PatchAugmentations(
+                    prob=hparams.augmentation_prob,
+                    size=hparams.size,
+                    patch_size=hparams.patch_size,
+                ),
             ]
         )
 
@@ -100,7 +104,12 @@ class MNISTDataModule(LightningDataModule):
                 transforms.Normalize((0.1307,), (0.3081,)),
                 transforms.Resize((hparams.size, hparams.size)),
                 add_channel,
-                ImageAugmentations(prob=hparams.augmentation_prob, is_validation=True),
+                PatchAugmentations(
+                    prob=hparams.augmentation_prob,
+                    size=hparams.size,
+                    patch_size=hparams.patch_size,
+                    is_validation=True,
+                ),
             ]
         )
 
@@ -180,16 +189,13 @@ class MNISTDataModule(LightningDataModule):
             size_trainset = len(trainset)
             self.data_train, _ = random_split(
                 dataset=trainset,
-                lengths=[
-                    train_ratio,
-                    size_trainset - train_ratio
-                ],
+                lengths=[train_ratio, size_trainset - train_ratio],
                 generator=torch.Generator().manual_seed(42),
             )
             # dataset = ConcatDataset(datasets=[trainset, testset])
             self.data_val, self.data_test, _ = random_split(
                 dataset=testset,
-                lengths=[val_ratio, test_ratio,  size_testset - val_ratio - test_ratio],
+                lengths=[val_ratio, test_ratio, size_testset - val_ratio - test_ratio],
                 generator=torch.Generator().manual_seed(42),
             )
 

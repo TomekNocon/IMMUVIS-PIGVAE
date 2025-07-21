@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.figure as figure
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import torch
 import numpy as np
 from sklearn.decomposition import PCA
@@ -8,6 +8,8 @@ from sklearn.preprocessing import StandardScaler
 from collections import defaultdict
 import plotly.express as px
 import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score, silhouette_samples
 
 
 def restore_tensor(
@@ -85,13 +87,14 @@ def plot_images_all_perm(
 
     return fig
 
-def plot_barchart_from_dict(data: Dict[str, float]) -> figure.Figure:
-# Plotting
+
+def plot_barchart_from_dict(data: Dict[str, float], title: str) -> figure.Figure:
+    # Plotting
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.bar(list(data.keys()), list(data.values()), color='skyblue')
+    ax.bar(list(data.keys()), list(data.values()), color="skyblue")
     ax.set_xlabel("Keys")
     ax.set_ylabel("Values")
-    ax.set_title("MSE per transform")
+    ax.set_title(title)
 
     return fig
 
@@ -112,7 +115,7 @@ def plot_pca(
     pca = PCA(n_components=2)  # choose desired number of components
     batch_pca = pca.fit_transform(batch_flat)
     scaler = StandardScaler()
-    batch_flat_scaled = scaler.fit_transform(batch_flat)  # shape: [64, 2]
+    batch_pca_scaled = scaler.fit_transform(batch_pca)  # shape: [64, 2]
 
     fig, ax = plt.subplots(figsize=(8, 6))
     if new_targets is not None:
@@ -122,8 +125,8 @@ def plot_pca(
         for idx, cls in enumerate(classes):
             mask = new_targets == cls
             ax.scatter(
-                batch_flat_scaled[mask, 0],
-                batch_flat_scaled[mask, 1],
+                batch_pca_scaled[mask, 0],
+                batch_pca_scaled[mask, 1],
                 label=str(cls),
                 color=cmap(idx),
                 edgecolors="k",
@@ -179,4 +182,78 @@ def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols
         opacity=0.7,
         hover_data=["Rotations"],
     )
+    return fig
+
+
+def plot_silhouette(
+    images: np.ndarray, k_range=range(2, 11)
+) -> Tuple[int, figure.Figure]:
+    best_k = 0
+    best_score = -1
+    silhouette_scores = []
+
+    batch_flat = images.reshape(images.shape[0], -1)
+    scaler = StandardScaler()
+    batch_flat_scaled = scaler.fit_transform(batch_flat)
+
+    for k in k_range:
+        kmeans = KMeans(n_clusters=k, random_state=42)
+        labels = kmeans.fit_predict(batch_flat_scaled)
+        score = silhouette_score(batch_flat_scaled, labels)
+        silhouette_scores.append(score)
+        if score > best_score:
+            best_score = score
+            best_k = k
+    # Plot and capture figure
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.plot(k_range, silhouette_scores, marker="o")
+    ax.set_xlabel("Number of clusters k")
+    ax.set_ylabel("Average Silhouette Score")
+    ax.set_title(f"Silhouette Score vs. k (Best k={best_k}, score={best_score:.4f})")
+    plt.tight_layout()
+
+    return best_k, fig
+
+
+def plot_inter_silhouette(images: np.ndarray, k: int) -> figure.Figure:
+    # Assuming X is your unlabelled data of shape [n_samples, n_features]
+    # choose the number of clusters you want to evaluate
+
+    batch_flat = images.reshape(images.shape[0], -1)
+    scaler = StandardScaler()
+    batch_flat_scaled = scaler.fit_transform(batch_flat)
+
+    kmeans = KMeans(n_clusters=k, random_state=42)
+    labels = kmeans.fit_predict(batch_flat_scaled)
+
+    score = silhouette_score(batch_flat_scaled, labels)
+    sample_scores = silhouette_samples(batch_flat_scaled, labels)
+
+    y_lower = 10
+    fig, ax = plt.subplots(figsize=(6, 4))
+    for i in range(k):
+        ith_cluster_silhouette_values = sample_scores[labels == i]
+        ith_cluster_silhouette_values.sort()
+
+        size_cluster_i = ith_cluster_silhouette_values.shape[0]
+        y_upper = y_lower + size_cluster_i
+
+        cmap = plt.get_cmap("nipy_spectral")
+        color = cmap(float(i) / k)
+        ax.fill_betweenx(
+            np.arange(y_lower, y_upper),
+            0,
+            ith_cluster_silhouette_values,
+            facecolor=color,
+            edgecolor=color,
+            alpha=0.7,
+        )
+
+        ax.text(-0.05, y_lower + 0.5 * size_cluster_i, str(i))
+        y_lower = y_upper + 10
+
+    ax.axvline(x=score, color="red", linestyle="--")
+    ax.set_xlabel("Silhouette Coefficient Values")
+    ax.set_ylabel("Cluster Label")
+    ax.set_title(f"Silhouette Plot (avg score: {score:.3f})")
     return fig

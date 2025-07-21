@@ -48,12 +48,17 @@ graph_ae:
 
     permuter:
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
+      graph_decoder_num_heads: ${model.graph_ae.hparams.num_heads}
+      graph_decoder_ppf_hidden_dim: ${multiply:${model.graph_ae.hparams.input_size},4}
+      dropout: ${model.graph_ae.hparams.dropout}
       num_permutations: 8
       grid_size: 6
       break_symmetry_scale: 0.01
       emb_dim: ${model.graph_ae.hparams.emb_dim}
-      turn_off: false
-    
+      turn_off: False
+      head_dim: 64
+      num_node_features: 16
+
 temperature_scheduler:
   _target_: "src.models.components.schedulers.TemperatureScheduler"
   hparams:

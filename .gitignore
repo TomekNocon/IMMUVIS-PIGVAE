@@ -144,6 +144,9 @@ dmypy.json
 *.tar
 *.tar.gz
 
+# macOS Finder metadata
+.DS_Store
+
 # Lightning-Hydra-Template
 configs/local/default.yaml
 /data/

@@ -7,7 +7,7 @@ from torch.nn.functional import pad
 from src.models.components.llama_graph_transformer import Transformer
 from src.models.components.emdeddings import PositionalEncoding
 from src.data.components.graphs_datamodules import DenseGraphBatch
-from src.models.components.spectral_embeddings import NetworkXSpectralEmbedding
+from src.models.components.spectral_embeddings import SklearnSpectralEmbedding
 from src.models.components.rotary_embedding import LLamaRotaryEmbedding
 
 from omegaconf import DictConfig
@@ -24,7 +24,9 @@ class GraphAE(torch.nn.Module):
         self.permuter = SimplePermuter(hparams.permuter)
         self.decoder = GraphDecoder(hparams.decoder)
 
-    def encode(self, graph: DenseGraphBatch) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def encode(
+        self, graph: DenseGraphBatch
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         node_features = graph.node_features
         edge_features = graph.edge_features
         mask = graph.mask
@@ -87,9 +89,9 @@ class GraphEncoder(torch.nn.Module):
         )
         self.layer_norm = LayerNorm(hparams.graph_encoder_hidden_dim)
         self.dropout = Dropout(hparams.dropout)
-        self.spectral_embeddings = NetworkXSpectralEmbedding(
-            hparams.num_node_features, hparams.grid_size
-        )
+        # self.spectral_embeddings = NetworkXSpectralEmbedding(
+        #     hparams.num_node_features, hparams.grid_size
+        # )
 
     def add_emb_node_and_feature(
         self,
@@ -113,7 +115,9 @@ class GraphEncoder(torch.nn.Module):
         x = self.layer_norm(self.dropout(self.fc_in(node_features)))
         return x, mask  # edge_mask
 
-    def read_out_message_matrix(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def read_out_message_matrix(
+        self, x: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         node_features = x
         graph_emb, node_features = node_features[:, 0], node_features[:, 1:]
         return graph_emb, node_features
@@ -126,8 +130,10 @@ class GraphEncoder(torch.nn.Module):
         device: str = "mps",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # node_features = self.spectral_embeddings(node_features)
+        print(node_features.shape)
         node_features = node_features.to(device)
         node_features = self.projection_in(node_features)
+        print(node_features.shape)
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=None, is_encoder=True)
         graph_emb, node_features = self.read_out_message_matrix(x)
@@ -181,7 +187,9 @@ class GraphDecoder(torch.nn.Module):
         x = self.layer_norm(self.dropout(self.fc_in(x)))
         return x
 
-    def read_out_message_matrix(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def read_out_message_matrix(
+        self, x: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         node_features = x
         node_features = self.node_fc_out(node_features)
         edge_features = torch.tensor([])
@@ -303,6 +311,19 @@ class SimplePermuter(torch.nn.Module):
         self.scoring_fc = torch.nn.Linear(
             hparams.graph_decoder_hidden_dim, hparams.num_permutations
         )
+        self.graph_transformer = Transformer(
+            hidden_dim=hparams.graph_decoder_hidden_dim,
+            num_heads=hparams.graph_decoder_num_heads,
+            ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
+            num_layers=2,
+            dropout=hparams.dropout,
+            rope=LLamaRotaryEmbedding(hparams.head_dim),
+        )
+        self.spectral_embeddings = SklearnSpectralEmbedding(
+            hparams.num_node_features,
+            hparams.graph_decoder_hidden_dim,
+            hparams.grid_size,
+        )
         self.perm_context = torch.nn.Linear(hparams.num_permutations, hparams.emb_dim)
         predefined_permutations = self.create_predefine_permutations(hparams.grid_size)
         # Predefined permutation matrices (B, num_permutations, N, N)
@@ -324,7 +345,10 @@ class SimplePermuter(torch.nn.Module):
         node_features = (
             node_features + torch.randn_like(node_features) * self.break_symmetry_scale
         )
-
+        node_features = self.spectral_embeddings(node_features)
+        node_features = self.graph_transformer(
+            node_features, mask=None, is_encoder=False
+        )
         # Score each permutation option
         scores = self.scoring_fc(node_features).mean(dim=1)  # (B, num_permutations)
         context = self.perm_context(scores)
@@ -369,7 +393,7 @@ class SimplePermuter(torch.nn.Module):
         perm_y_reflection_180 = torch.matmul(perm_y_reflection, perm_180)
         perm_y_reflection_270 = torch.matmul(perm_y_reflection, perm_270)
 
-        # TODO: If I shuffle the train set with every epoch can I have fix this list if I have no labels? 
+        # TODO: If I shuffle the train set with every epoch can I have fix this list if I have no labels?
         permutations = torch.stack(
             [
                 perm,
@@ -408,7 +432,9 @@ class BottleNeckEncoder(torch.nn.Module):
         else:
             self.w = Linear(self.d_in, self.d_out)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    def forward(
+        self, x: torch.Tensor
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         x = self.w(self.activation(x))
         # x = self.activation(self.w(x))
         if self.vae:

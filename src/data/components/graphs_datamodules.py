@@ -8,29 +8,112 @@ import torchvision.transforms as T
 import networkx as nx
 
 
-class ImageAugmentations(nn.Module):
-    """Apply one of 8 possible dihedral (rotation + flip) augmentations"""
+# class PatchAugmentations(nn.Module):
+#     """Apply one of 8 possible dihedral (rotation + flip) augmentations"""
 
-    NUM_PERM = 8
+#     NUM_PERM = 8
 
-    def __init__(self, prob: float, is_validation: bool = False):
+#     def __init__(self, prob: float, size: int, patch_size: int, is_validation: bool = False):
+#         super().__init__()
+#         self.prob = prob
+#         self.is_validation = is_validation
+#         self.grid = self.make_grid(size // patch_size)
+
+#     def forward(self, patch: torch.Tensor) -> torch.Tensor:
+#         aug_list = []
+#         self.grid = self.grid.to(img.device)
+#         idx  = TF.hflip(self.grid).flatten()
+#         aug_list.append(img[:, idx, :])
+#         for k in range(1, 4):  # rotations: 0, 90, 180, 270 degrees
+#             rotated_idx = torch.rot90(self.grid, k=k, dims=[-2, -1])
+#             aug_list.append(img[:, rotated_idx, :])  # no flip
+#             flip_idx = TF.hflip(rotated_idx)
+#             aug_list.append(img[:, flip_idx, :])  # with horizontal flip
+#         aug_list = torch.stack(aug_list, dim=0).squeeze(1)
+#         if self.is_validation:
+#             return aug_list
+#         return aug_list[
+#             torch.randperm(self.NUM_PERM - 1)
+#         ]  # shuffle during traininghape: [7, C, H, W]
+
+
+#     def make_grid(self, num_nodes_columns: int) -> torch.Tensor:
+#         return (
+#             torch
+#             .arange(num_nodes_columns * num_nodes_columns)
+#             .reshape(num_nodes_columns, num_nodes_columns)
+#         )
+class PatchAugmentations(nn.Module):
+    """
+    Apply one of 8 possible dihedral (rotation + horizontal flip) augmentations
+    on a square patch represented as a flattened grid of node indices.
+
+    During validation:
+        Returns all 8 augmented variants stacked.
+    During training:
+        Returns the 8 augmented variants shuffled.
+    """
+
+    NUM_PERM = 8  # 4 rotations x {no flip, flip}
+
+    def __init__(
+        self, prob: float, size: int, patch_size: int, is_validation: bool = False
+    ):
         super().__init__()
         self.prob = prob
         self.is_validation = is_validation
+        num_nodes_per_dim = size // patch_size
+        self.register_buffer(
+            "grid", self.make_grid(num_nodes_per_dim), persistent=False
+        )
 
-    def forward(self, img: torch.Tensor) -> torch.Tensor:
+    def forward(self, patch: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            patch: Tensor of shape [C, N, D] where N = patch_size^2, or a similar layout.
+
+        Returns:
+            Tensor of shape:
+                [7, C, N, D] during validation
+                [7, C, N, D] shuffled during training
+        """
+        device = patch.device
+        grid = self.grid.to(device)
+
         aug_list = []
-        aug_list.append(TF.hflip(img))
-        for k in range(1, 4):  # rotations: 0, 90, 180, 270 degrees
-            rotated = torch.rot90(img, k=k, dims=[-2, -1])
-            aug_list.append(rotated)  # no flip
-            aug_list.append(TF.hflip(rotated))  # with horizontal flip
-        aug_list = torch.stack(aug_list, dim=0).squeeze(1)
+        argsort_aug_list = []
+        flat_flipped_idx = TF.hflip(grid).flatten()
+        aug_list.append(patch[:, flat_flipped_idx, :])
+        argsort_aug_list.append(torch.argsort(flat_flipped_idx))
+        for k in range(1, 4):  # 0, 90, 180, 270 degrees
+            rotated_grid = torch.rot90(grid, k=k, dims=[0, 1])
+            flat_rotated_idx = rotated_grid.flatten()
+            aug_list.append(patch[:, flat_rotated_idx, :])  # without flip
+
+            flipped_grid = TF.hflip(rotated_grid)
+            flat_flipped_idx = flipped_grid.flatten()
+            aug_list.append(patch[:, flat_flipped_idx, :]) # with horizontal flip
+            argsort_aug_list.append(torch.argsort(flat_rotated_idx)) 
+            argsort_aug_list.append(torch.argsort(flat_flipped_idx))
+        aug_tensor = torch.stack(aug_list, dim=0)  # [7, C, N, D]
+        argsort_tensor = torch.stack(argsort_aug_list, dim=0) 
+
         if self.is_validation:
-            return aug_list
-        return aug_list[
-            torch.randperm(self.NUM_PERM - 1)
-        ]  # shuffle during traininghape: [7, C, H, W]
+            return aug_tensor, argsort_tensor
+
+        # Shuffle augmentations during training
+        perm = torch.randperm(self.NUM_PERM - 1, device=device)
+        return aug_tensor[perm], argsort_tensor[perm]
+
+    @staticmethod
+    def make_grid(num_nodes_per_dim: int) -> torch.Tensor:
+        """
+        Creates a 2D grid of indices with shape [num_nodes_per_dim, num_nodes_per_dim],
+        mapping a flattened patch to its 2D structure.
+        """
+        return torch.arange(num_nodes_per_dim**2).reshape(
+            num_nodes_per_dim, num_nodes_per_dim
+        )
 
 
 class DualOutputTransform:

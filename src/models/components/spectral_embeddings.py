@@ -54,21 +54,32 @@ class NetworkXSpectralEmbedding(nn.Module):
 
 
 class SklearnSpectralEmbedding(nn.Module):
-    def __init__(self, d_model: int, grid_size: int, dropout: float = 0.1, **kwargs):
+    def __init__(
+        self,
+        num_nodes: int,
+        d_model: int,
+        grid_size: int,
+        dropout: float = 0.1,
+        **kwargs,
+    ):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
         self.G = nx.grid_2d_graph(grid_size, grid_size)
         self.A = nx.to_numpy_array(self.G)
         transformation = SpectralEmbedding(
-            n_components=d_model, affinity="precomputed", **kwargs
+            n_components=num_nodes, affinity="precomputed", **kwargs
         )
         sorted_eigenvecs = transformation.fit_transform(self.A)
         sorted_eigenvecs = torch.tensor(sorted_eigenvecs, dtype=torch.float32)
 
         self.register_buffer("sorted_eigenvecs", sorted_eigenvecs)
+        self.proj = nn.Linear(num_nodes, d_model)
+        self.to_project = d_model != num_nodes
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch, _, _ = x.shape
         embbeding = torch.tile(self.sorted_eigenvecs, (batch, 1, 1))
+        if self.to_project:
+            embbeding = self.proj(embbeding)
         x = x + embbeding
         return self.dropout(x)
