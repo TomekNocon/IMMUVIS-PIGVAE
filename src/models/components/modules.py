@@ -1,7 +1,7 @@
 import torch
 from typing import Tuple, Optional, Any
-from torch.nn import Linear, LayerNorm, Dropout
-from torch.nn.functional import pad
+import torch.nn as nn
+import torch.nn.functional as F
 
 # from src.models.components.custom_graph_transformer import Transformer
 from src.models.components.llama_graph_transformer import Transformer
@@ -60,7 +60,7 @@ class GraphAE(torch.nn.Module):
         self, graph: DenseGraphBatch, training: bool, tau: float = 1.0
     ) -> Tuple:
         graph_emb, node_features, mu, logvar = self.encode(graph=graph)
-        perm, context, soft_probs = self.permuter(
+        perm, context, soft_probs, _ = self.permuter(
             node_features, mask=graph.mask, hard=not training, tau=tau
         )
         if context is not None:
@@ -73,7 +73,11 @@ class GraphEncoder(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
 
-        self.projection_in = Linear(
+        self.summary_node = nn.Parameter(
+            torch.randn(1, 1, hparams.graph_encoder_hidden_dim)
+        )
+        # nn.init.trunc_normal_(self.summary_node, std=0.02)
+        self.projection_in = nn.Linear(
             hparams.num_node_features, hparams.graph_encoder_hidden_dim
         )
 
@@ -84,14 +88,11 @@ class GraphEncoder(torch.nn.Module):
             num_layers=hparams.graph_encoder_num_layers,
             dropout=hparams.dropout,
         )
-        self.fc_in = Linear(
+        self.fc_in = nn.Linear(
             hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim
         )
-        self.layer_norm = LayerNorm(hparams.graph_encoder_hidden_dim)
-        self.dropout = Dropout(hparams.dropout)
-        # self.spectral_embeddings = NetworkXSpectralEmbedding(
-        #     hparams.num_node_features, hparams.grid_size
-        # )
+        self.layer_norm = nn.LayerNorm(hparams.graph_encoder_hidden_dim)
+        self.dropout = nn.Dropout(hparams.dropout)
 
     def add_emb_node_and_feature(
         self,
@@ -99,8 +100,10 @@ class GraphEncoder(torch.nn.Module):
         edge_features: torch.Tensor,
         mask: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        node_features = pad(node_features, (0, 0, 1, 0))
-        mask = pad(mask, (1, 0), value=1)
+        batch_size = node_features.size(0)
+        cls_tokens = self.summary_node.expand(batch_size, -1, -1)
+        node_features = torch.cat([cls_tokens, node_features], dim=1)  # (B, N+1, D)
+        mask = F.pad(mask, (1, 0), value=1)
         return node_features, edge_features, mask
 
     def init_message_matrix(
@@ -113,7 +116,7 @@ class GraphEncoder(torch.nn.Module):
             node_features, edge_features, mask
         )
         x = self.layer_norm(self.dropout(self.fc_in(node_features)))
-        return x, mask  # edge_mask
+        return x, mask
 
     def read_out_message_matrix(
         self, x: torch.Tensor
@@ -130,10 +133,8 @@ class GraphEncoder(torch.nn.Module):
         device: str = "mps",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # node_features = self.spectral_embeddings(node_features)
-        print(node_features.shape)
         node_features = node_features.to(device)
         node_features = self.projection_in(node_features)
-        print(node_features.shape)
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=None, is_encoder=True)
         graph_emb, node_features = self.read_out_message_matrix(x)
@@ -143,10 +144,10 @@ class GraphEncoder(torch.nn.Module):
 class GraphDecoder(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
+        # TODO: check what should be the dim
         self.positional_embedding = PositionalEncoding(
             hparams.graph_decoder_pos_emb_dim
         )
-        # self.rope = LLamaRotaryEmbedding(dim=64)
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_decoder_hidden_dim,
             num_heads=hparams.graph_decoder_num_heads,
@@ -155,18 +156,20 @@ class GraphDecoder(torch.nn.Module):
             dropout=hparams.dropout,
             rope=LLamaRotaryEmbedding(hparams.head_dim),
         )
-        self.fc_in = Linear(
+        self.fc_in = nn.Linear(
             hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim
         )
-        self.node_fc_out = Linear(
+        self.node_fc_out = nn.Linear(
             hparams.graph_decoder_hidden_dim, hparams.num_node_features
         )
-        self.dropout = Dropout(hparams.dropout)
-        self.layer_norm = LayerNorm(hparams.graph_decoder_hidden_dim)
+        self.dropout = nn.Dropout(hparams.dropout)
+        self.layer_norm = nn.LayerNorm(hparams.graph_decoder_hidden_dim)
 
         if not self.graph_transformer.is_rope:
+            # TODO: check what should be the dim
             self.embedding = torch.nn.Embedding(
-                num_embeddings=200, embedding_dim=hparams.graph_decoder_hidden_dim
+                num_embeddings=hparams.num_embeddings,
+                embedding_dim=hparams.graph_decoder_hidden_dim,
             )
 
     def init_message_matrix(
@@ -192,15 +195,13 @@ class GraphDecoder(torch.nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         node_features = x
         node_features = self.node_fc_out(node_features)
-        edge_features = torch.tensor([])
+        edge_features = torch.empty(0, device=x.device)
         return node_features, edge_features
 
     def forward(
         self, graph_emb: torch.Tensor, perm: torch.Tensor, mask: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
-        # if self.rope:
-        #     self.graph_transformer.perm = perm
         x = self.graph_transformer(x, mask=None, is_encoder=False)
         node_features, edge_features = self.read_out_message_matrix(x)
         return node_features, edge_features
@@ -209,17 +210,21 @@ class GraphDecoder(torch.nn.Module):
 class Permuter(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
-        self.scoring_fc = torch.nn.Sequential(
-            Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim),
-            torch.nn.ReLU(),
-            Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim),
-            torch.nn.ReLU(),
-            Linear(hparams.graph_decoder_hidden_dim, 1),
+        self.scoring_fc = nn.Sequential(
+            nn.Linear(
+                hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim
+            ),
+            nn.ReLU(),
+            nn.Linear(
+                hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim
+            ),
+            nn.ReLU(),
+            nn.Linear(hparams.graph_decoder_hidden_dim, 1),
         )
-        self.perm_context = torch.nn.Sequential(
-            Linear(hparams.grid_size**2, hparams.emb_dim),
-            torch.nn.LayerNorm(hparams.emb_dim),
-            torch.nn.ReLU(),
+        self.perm_context = nn.Sequential(
+            nn.Linear(hparams.grid_size**2, hparams.emb_dim),
+            nn.LayerNorm(hparams.emb_dim),
+            nn.ReLU(),
         )
         self.break_symmetry_scale = hparams.break_symmetry_scale
 
@@ -308,6 +313,8 @@ class SimplePermuter(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.turn_off = hparams.turn_off
+        self.use_ce = hparams.use_ce
+        self.use_context = hparams.use_context
         self.scoring_fc = torch.nn.Linear(
             hparams.graph_decoder_hidden_dim, hparams.num_permutations
         )
@@ -319,6 +326,10 @@ class SimplePermuter(torch.nn.Module):
             dropout=hparams.dropout,
             rope=LLamaRotaryEmbedding(hparams.head_dim),
         )
+        self.perm_node = nn.Parameter(
+            torch.randn(1, 1, hparams.graph_decoder_hidden_dim)
+        )
+        # nn.init.trunc_normal_(self.perm_node, std=0.02)
         self.spectral_embeddings = SklearnSpectralEmbedding(
             hparams.num_node_features,
             hparams.graph_decoder_hidden_dim,
@@ -336,39 +347,50 @@ class SimplePermuter(torch.nn.Module):
         tau: float,
         mask: torch.Tensor,
         hard: bool = False,
+        labels: Optional[torch.Tensor] = None,
     ) -> Tuple[Optional[torch.Tensor], Any, Optional[torch.Tensor]]:
         # Add noise to break symmetry
 
-        if self.turn_off:
-            return None, None, None
+        device = node_features.device
+        batch_size = node_features.shape[0] // 8
 
+        if self.turn_off:
+            perm = self.predefined_permutations.repeat_interleave(batch_size, dim=0)
+            return perm, None, None, None
+        # TODO: Think if I need to add this break symmetry scale
         node_features = (
             node_features + torch.randn_like(node_features) * self.break_symmetry_scale
         )
         node_features = self.spectral_embeddings(node_features)
+        cls_tokens = self.perm_node.expand(batch_size * 8, -1, -1)
+        node_features = torch.cat([cls_tokens, node_features], dim=1)  # (B, N+1, D)
         node_features = self.graph_transformer(
-            node_features, mask=None, is_encoder=False
+            node_features, mask=None, is_encoder=True
         )
         # Score each permutation option
-        scores = self.scoring_fc(node_features).mean(dim=1)  # (B, num_permutations)
-        context = self.perm_context(scores)
+        cls_out = node_features[:, 0, :]
+        scores = self.scoring_fc(cls_out)  # (B, num_permutations)
+        context = None
+        if self.use_context:
+            context = self.perm_context(scores)
 
-        # Softmax over scores to get probabilities for each permutation
-        soft_probs = torch.softmax(scores / tau, dim=-1)  # (B, num_permutations)
-        # Hard selection using Gumbel-Softmax (discrete but differentiable)
-        one_hot = torch.zeros_like(soft_probs)
-        one_hot.scatter_(1, soft_probs.argmax(dim=-1, keepdim=True), 1.0)
-        probs = (one_hot - soft_probs).detach() + soft_probs
+        # 5) optionally supervise with cross-entropy
+        ce_loss = None
+        if self.use_ce and labels:
+            labels = labels.to(device)
+            ce_loss = F.cross_entropy(scores, labels)
 
-        # Combine predefined permutations with the probabilities
+        probs, soft_probs = softmax_head(scores, tau)
+        # context = self.perm_context(probs)                            # (B*8, emb_dim)
+
+        perms_buffer = self.predefined_permutations.to(device)  # (P, N, N)
         # Shape: (B, N, N) = (B, num_permutations, N, N) * (B, num_permutations, 1, 1)
         # Expand probs to (B, num_permutations, 1, 1) to match (num_permutations, N, N)
-        probs = probs.unsqueeze(-1).unsqueeze(-1)  # (B, num_permutations, 1, 1)
-        # Combine predefined permutations with probabilities
-        # Shape: (B, N, N) = (B, num_permutations, 1, 1) * (num_permutations, N, N) -> sum over 8
-        perm = torch.sum(probs * self.predefined_permutations, dim=1)  # (B, N, N)
-
-        return perm, context, soft_probs
+        probs_expanded = probs.unsqueeze(-1).unsqueeze(
+            -1
+        )  # (B, num_permutations, 1, 1)                    # (B*8, P, 1, 1)
+        perm = torch.sum(probs_expanded * perms_buffer, dim=1)  # (B, N, N)
+        return perm, context, soft_probs, ce_loss
 
     def _permutation_matrix_90(self, n: int) -> torch.Tensor:
         indices = torch.arange(n * n).reshape(n, n)
@@ -422,26 +444,35 @@ class BottleNeckEncoder(torch.nn.Module):
         self.d_in = hparams.graph_encoder_hidden_dim
         self.d_out = hparams.emb_dim
         self.vae = hparams.vae
+        self.num_permutations = hparams.num_permutations
         self.activation = {
             "relu": torch.nn.ReLU(),
             "gelu": torch.nn.GELU(),
             "silu": torch.nn.SiLU(),
         }[hparams.activation.lower()]
         if self.vae:
-            self.w = Linear(self.d_in, 2 * self.d_out)
+            self.w = nn.Linear(self.d_in, 2 * self.d_out)
         else:
-            self.w = Linear(self.d_in, self.d_out)
+            self.w = nn.Linear(self.d_in, self.d_out)
 
     def forward(
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        # TODO: check what should be the order
         x = self.w(self.activation(x))
         # x = self.activation(self.w(x))
         if self.vae:
+            batch_size = x.shape[0] // self.num_permutations
             mu = x[:, : self.d_out]
             logvar = x[:, self.d_out :]
             std = torch.exp(0.5 * logvar)
-            eps = torch.randn_like(std)
+            batch_std = std[:batch_size, :]
+            batch_eps = torch.randn_like(batch_std)
+            eps = (
+                batch_eps.unsqueeze(0)
+                .repeat(self.num_permutations, 1, 1)
+                .view(-1, batch_eps.shape[1])
+            )
             x = mu + eps * std
             return x, mu, logvar
         else:
@@ -450,11 +481,36 @@ class BottleNeckEncoder(torch.nn.Module):
 
 class BottleNeckDecoder(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
+        super().__init__()
         self.d_in = hparams.emb_dim
         self.d_out = hparams.graph_decoder_hidden_dim
-        super().__init__()
-        self.w = Linear(self.d_in, self.d_out)
+        self.w = nn.Linear(self.d_in, self.d_out)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.w(x)
         return x
+
+
+def softmax_head(
+    scores: torch.Tensor, tau: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    # Softmax over scores to get probabilities for each permutation
+    soft_probs = torch.softmax(scores / tau, dim=-1)  # (B, num_permutations)
+    # Hard selection using Gumbel-Softmax (discrete but differentiable)
+    one_hot = torch.zeros_like(soft_probs)
+    one_hot.scatter_(1, soft_probs.argmax(dim=-1, keepdim=True), 1.0)
+    probs = (one_hot - soft_probs).detach() + soft_probs
+
+    return probs, soft_probs
+
+
+def gumbel_softmax_head(
+    scores: torch.Tensor, tau: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    # 1) compute the soft sample
+    soft_probs = F.gumbel_softmax(
+        scores, tau=tau, hard=False, dim=-1
+    )  # (B, P), continuous
+    probs = F.gumbel_softmax(scores, tau=tau, hard=True, dim=-1)
+
+    return probs, soft_probs

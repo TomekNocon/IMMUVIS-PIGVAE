@@ -21,14 +21,20 @@ class PatchAugmentations(nn.Module):
 
     NUM_PERM = 8  # 4 rotations x {no flip, flip}
 
-    def __init__(self, prob: float, size: int, patch_size: int, is_validation: bool = False):
+    def __init__(
+        self, prob: float, size: int, patch_size: int, is_validation: bool = False
+    ):
         super().__init__()
         self.prob = prob
         self.is_validation = is_validation
         num_nodes_per_dim = size // patch_size
-        self.register_buffer("grid", self.make_grid(num_nodes_per_dim), persistent=False)
+        self.register_buffer(
+            "grid", self.make_grid(num_nodes_per_dim), persistent=False
+        )
 
-    def forward(self, patch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(
+        self, patch: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
             patch: Tensor of shape [C, N, D], N = patch_size^2.
@@ -55,7 +61,7 @@ class PatchAugmentations(nn.Module):
             aug_list.append(patch[:, flat_flipped_idx, :].contiguous())
             argsort_list.append(torch.argsort(flat_flipped_idx))
 
-        aug_tensor = torch.stack(aug_list, dim=0).contiguous()       # [8, C, N, D]
+        aug_tensor = torch.stack(aug_list, dim=0).contiguous()  # [8, C, N, D]
         argsort_tensor = torch.stack(argsort_list, dim=0).contiguous()  # [8, N]
 
         if self.is_validation:
@@ -63,6 +69,7 @@ class PatchAugmentations(nn.Module):
             return aug_tensor, argsort_tensor, perm
 
         perm = torch.randperm(self.NUM_PERM, device=device)
+        # perm = torch.arange(self.NUM_PERM, device=device)
         aug_tensor_shuffled = aug_tensor
         argsort_tensor_shuffled = argsort_tensor
         return aug_tensor_shuffled, argsort_tensor_shuffled, perm
@@ -70,7 +77,9 @@ class PatchAugmentations(nn.Module):
     @staticmethod
     def make_grid(num_nodes_per_dim: int) -> torch.Tensor:
         """Create a 2D grid mapping flattened indices to 2D for rotation/flip operations."""
-        return torch.arange(num_nodes_per_dim ** 2).reshape(num_nodes_per_dim, num_nodes_per_dim)
+        return torch.arange(num_nodes_per_dim**2).reshape(
+            num_nodes_per_dim, num_nodes_per_dim
+        )
 
 
 class DualOutputTransform:
@@ -146,12 +155,14 @@ class DenseGraphBatch:
         edge_features: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         argsort_augmented_features: Optional[torch.Tensor] = None,
+        perms: Optional[torch.Tensor] = None,
         **kwargs,
     ):
         self.node_features = node_features
         self.edge_features = edge_features
         self.mask = mask
         self.argsort_augmented_features = argsort_augmented_features
+        self.perms = perms
         self.properties = kwargs.get("properties", None)
 
     @classmethod
@@ -163,7 +174,9 @@ class DenseGraphBatch:
                 [graph.number_of_nodes() for graph, _, _, _, _ in data_list]
             )
         else:
-            max_num_nodes = max([graph.number_of_nodes() for graph, _, _ , _, _ in data_list])
+            max_num_nodes = max(
+                [graph.number_of_nodes() for graph, _, _, _, _ in data_list]
+            )
         node_features = []
         edge_features = []
         argsort_augmented_indices = []
@@ -184,9 +197,13 @@ class DenseGraphBatch:
             graph.add_nodes_from([i for i in range(num_nodes, max_num_nodes)])
             node_features.append(augmented_embedding[perm].squeeze(1))
             argsort_augmented_indices.append(argsort_augmented[perm].squeeze(1))
+            perms.append(perm.squeeze(0))
             mask.append((torch.arange(max_num_nodes) < num_nodes).unsqueeze(0))
-        node_features = torch.cat(node_features, dim=0)
-        argsort_augmented_indices = torch.cat(argsort_augmented_indices, dim=0)
+        node_features = torch.stack(node_features, dim=1).flatten(0, 1)
+        argsort_augmented_indices = torch.stack(
+            argsort_augmented_indices, dim=1
+        ).flatten(0, 1)
+        perms = torch.stack(perms, dim=1).flatten(0, 1)
         batch_size = node_features.size(0)
         edge_features = torch.tensor(edge_features)
         mask = torch.cat(mask, dim=0)
@@ -198,6 +215,7 @@ class DenseGraphBatch:
             node_features=node_features,
             edge_features=edge_features,
             argsort_augmented_features=argsort_augmented_indices,
+            perms=perms,
             mask=mask,
             properties=props,
         )
@@ -211,12 +229,16 @@ class DenseGraphBatch:
         mask = self.mask
         properties = self.properties
         argsort_augmented_features = self.argsort_augmented_features
+        perms = self.perms
 
         return DenseGraphBatch(
             node_features=node_features[:n, :, :],
             edge_features=edge_features[:n],
             mask=mask[:n, :],
-            argsort_augmented_features=argsort_augmented_features[:n, :, :] if argsort_augmented_features is not None else None,
+            argsort_augmented_features=argsort_augmented_features[:n, :, :]
+            if argsort_augmented_features is not None
+            else None,
+            perms=perms[:n, :],
             properties=properties[:n],
         )
 

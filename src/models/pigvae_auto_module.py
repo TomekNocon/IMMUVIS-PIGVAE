@@ -5,10 +5,10 @@ import numpy as np
 import lightning as L
 import matplotlib.pyplot as plt
 from collections import Counter
-from models.components.warmups import get_cosine_schedule_with_warmup
+from src.models.components.warmups import get_cosine_schedule_with_warmup
 import src.models.components.plot as pL
 
-import models.components.metrics.recontructions as R
+import src.models.components.metrics.recontructions as R
 
 import wandb
 from src.data.components.graphs_datamodules import DenseGraphBatch
@@ -127,6 +127,13 @@ class PLGraphAE(L.LightningModule):
         "Lightning hook that is called when a training epoch ends."
         pass
 
+    def on_after_backward(self) -> None:
+        for name, param in self.named_parameters():
+            if param.grad is not None:
+                grad_norm = torch.norm(param.grad)
+                if torch.isnan(grad_norm) or grad_norm > 1e3:
+                    print(f"🚨 Problematic gradient: {name} = {grad_norm}")
+
     def validation_step(self, graph: DenseGraphBatch, batch_idx: int) -> Dict[str, Any]:
         tau = self.temperature_scheduler(self.current_epoch)
         beta = self.entropy_weight_scheduler(self.current_epoch)
@@ -194,6 +201,9 @@ class PLGraphAE(L.LightningModule):
         n_examples = 10
         predictions = self.validation_step_outputs[0]["prediction"].node_features
         ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
+        argsort = self.validation_step_outputs[0][
+            "ground_truth"
+        ].argsort_augmented_features
         graph_emb = self.validation_step_outputs[0]["graph_emb"]
         targets = self.validation_step_outputs[0]["ground_truth"].y
         soft_probs = self.validation_step_outputs[0]["soft_probs"]
@@ -219,16 +229,30 @@ class PLGraphAE(L.LightningModule):
         subset_targets = targets[:n_examples].to(torch.int)
         subset_ground_truths = ground_truths[idx_to_show, :, :]
         subset_graph_emb = graph_emb[idx_to_show, :]
+        subset_argsort = argsort[idx_to_show, :]
+
+        restore_subset_predictions = torch.stack(
+            [img[arg, :] for img, arg in zip(subset_predictions, subset_argsort)], dim=0
+        )
+
+        restore_subset_ground_truths = torch.stack(
+            [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
+            dim=0,
+        )
 
         subset_batch_size = subset_predictions.shape[0]
         pred_imgs = (
-            pL.restore_tensor(subset_predictions, subset_batch_size, 1, 24, 24, 4)
+            pL.restore_tensor(
+                restore_subset_predictions, subset_batch_size, 1, 24, 24, 4
+            )
             .detach()
             .cpu()
             .squeeze()
         )
         ground_truth_imgs = (
-            pL.restore_tensor(subset_ground_truths, subset_batch_size, 1, 24, 24, 4)
+            pL.restore_tensor(
+                restore_subset_ground_truths, subset_batch_size, 1, 24, 24, 4
+            )
             .detach()
             .cpu()
             .squeeze()

@@ -11,7 +11,7 @@ from src.data.components.graphs_datamodules import (
     PatchAugmentations,
     GridGraphDataset,
     DenseGraphDataLoader,
-    # DualOutputTransform,
+    DualOutputTransform,
 )
 
 
@@ -96,6 +96,14 @@ class MNISTDataModule(LightningDataModule):
             size=hparams.size,
             patch_size=hparams.patch_size,
             is_validation=True,
+        )
+
+        self.dual_transforms_train = DualOutputTransform(
+            self.base_transforms, self.aug_transforms_train
+        )
+
+        self.dual_transforms_val = DualOutputTransform(
+            self.base_transforms, self.aug_transforms_val
         )
 
         self.data_train: Optional[Dataset] = None

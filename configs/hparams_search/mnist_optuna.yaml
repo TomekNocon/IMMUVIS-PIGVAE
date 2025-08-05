@@ -27,13 +27,13 @@ hydra:
     study_name: null
 
     # number of parallel workers
-    n_jobs: 1
+    n_jobs: 7
 
     # 'minimize' or 'maximize' the objective
     direction: minimize
 
     # total number of runs that will be executed
-    n_trials: 20
+    n_trials: 30
 
     # choose Optuna hyperparameter sampler
     # you can choose bayesian sampler (tpe), random search (without optimization), grid sampler, and others
@@ -42,12 +42,20 @@ hydra:
       _target_: optuna.samplers.TPESampler
       seed: 1234
       n_startup_trials: 10 # number of random sampling runs before optimization starts
-
+      n_ei_candidates: 28
     # define hyperparameter search space
     params:
       model.optimizer.lr: interval(0.0001, 0.01)
-      data.batch_size: choice(64)
-      model.graph_ae.hparams.input_size: choice(64, 128, 256)
+      data.hparams.batch_size: choice(64)  # Added more options for meaningful optimization
+      model.graph_ae.hparams.input_size: choice(128, 256)
       model.graph_ae.hparams.num_layers: choice(4, 6, 8)
       model.graph_ae.hparams.num_heads: choice(4, 8, 16)
-    
+      model.graph_ae.hparams.emb_dim: choice(64, 128)
+      model.temperature_scheduler.hparams.initial_tau: interval(0.5, 1.0)
+      model.temperature_scheduler.hparams.final_tau: ${multiply:${model.temperature_scheduler.hparams.initial_tau}, 0.1}
+      model.entropy_weight_scheduler.hparams.initial_weight: interval(0.2, 0.5)
+      model.entropy_weight_scheduler.hparams.final_weight: ${multiply:${model.entropy_weight_scheduler.hparams.initial_weight}, 0.1}  # Fixed reference
+      model.critic.hparams.kld_loss_scale: interval(0.001, 0.01)
+      model.critic.hparams.perm_loss_scale: interval(0.0001, 0.7)
+      model.critic.hparams.contrastive_loss_scale: interval(0.001, 0.07)
+      model.critic.hparams.temperature: interval(0.5, 0.7)

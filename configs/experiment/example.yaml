@@ -29,10 +29,26 @@ model:
       num_heads: 8
       input_size: 64
       num_layers: 4
+      emb_dim: 64
+  temperature_scheduler:
+    hparams: 
+      initial_tau: 1.0
+      final_tau: 0.1
+  entropy_weight_scheduler:
+    hparams:
+      initial_weight: 0.2
+      final_weight: 0.01
+  critic:
+    hparams:
+      kld_loss_scale: 0.001
+      perm_loss_scale: 0.5
+      contrastive_loss_scale: 0.01
+      temperature: 0.7
   compile: false
 
 data:
-  batch_size: 64
+  hparams:
+    batch_size: 128
 
 logger:
   wandb:

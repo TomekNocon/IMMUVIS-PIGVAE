@@ -14,6 +14,7 @@ import operator
 
 # Register a custom resolver to multiply values in Hydra configs
 OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)))
+OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y))
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #

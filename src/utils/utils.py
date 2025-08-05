@@ -1,4 +1,5 @@
 import warnings
+import math
 from importlib.util import find_spec
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -96,7 +97,9 @@ def task_wrapper(task_func: Callable) -> Callable:
 
 
 def get_metric_value(
-    metric_dict: Dict[str, Any], metric_name: Optional[str]
+    metric_dict: Dict[str, Any],
+    metric_name: Optional[str],
+    penalty_value: float = 999.0,
 ) -> Optional[float]:
     """Safely retrieves value of the metric logged in LightningModule.
 
@@ -115,7 +118,29 @@ def get_metric_value(
             "Make sure `optimized_metric` name in `hparams_search` config is correct!"
         )
 
-    metric_value = metric_dict[metric_name].item()
-    log.info(f"Retrieved metric value! <{metric_name}={metric_value}>")
+    try:
+        metric_value = metric_dict[metric_name].item()
 
-    return metric_value
+        # Check for NaN values
+        if math.isnan(metric_value):
+            log.warning(
+                f"Retrieved metric value is NaN! <{metric_name}=nan>. Returning penalty value: {penalty_value}"
+            )
+            return penalty_value
+
+        # Check for infinite values
+        if math.isinf(metric_value):
+            log.warning(
+                f"Retrieved metric value is infinite! <{metric_name}={metric_value}>. Returning penalty value: {penalty_value}"
+            )
+            return penalty_value
+
+        log.info(f"Retrieved metric value! <{metric_name}={metric_value}>")
+        return float(metric_value)
+
+    except (AttributeError, ValueError) as e:
+        log.error(f"Error extracting metric value: {e}")
+        log.warning(
+            f"Could not extract metric value from {metric_dict[metric_name]}. Returning penalty value: {penalty_value}"
+        )
+        return penalty_value
