@@ -130,10 +130,10 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
-        device: str = "mps",
+        # device: str = "cpu",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # node_features = self.spectral_embeddings(node_features)
-        node_features = node_features.to(device)
+        # node_features = node_features.to(device)
         node_features = self.projection_in(node_features)
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=None, is_encoder=True)
@@ -314,10 +314,11 @@ class SimplePermuter(torch.nn.Module):
         super().__init__()
         self.turn_off = hparams.turn_off
         self.use_ce = hparams.use_ce
-        self.use_context = hparams.use_context
-        self.scoring_fc = torch.nn.Linear(
-            hparams.graph_decoder_hidden_dim, hparams.num_permutations
+        # self.use_context = hparams.use_context
+        self.scoring_fc = torch.nn.utils.weight_norm(
+            torch.nn.Linear(hparams.graph_decoder_hidden_dim, hparams.num_permutations)
         )
+        self.layer_norm = torch.nn.LayerNorm(hparams.graph_decoder_hidden_dim)
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_decoder_hidden_dim,
             num_heads=hparams.graph_decoder_num_heads,
@@ -369,10 +370,11 @@ class SimplePermuter(torch.nn.Module):
         )
         # Score each permutation option
         cls_out = node_features[:, 0, :]
+        cls_out = self.layer_norm(cls_out)
         scores = self.scoring_fc(cls_out)  # (B, num_permutations)
         context = None
-        if self.use_context:
-            context = self.perm_context(scores)
+        # if self.use_context:
+        #     context = self.perm_context(scores)
 
         # 5) optionally supervise with cross-entropy
         ce_loss = None
@@ -459,8 +461,8 @@ class BottleNeckEncoder(torch.nn.Module):
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         # TODO: check what should be the order
-        x = self.w(self.activation(x))
-        # x = self.activation(self.w(x))
+        # x = self.w(self.activation(x))
+        x = self.activation(self.w(x))
         if self.vae:
             batch_size = x.shape[0] // self.num_permutations
             mu = x[:, : self.d_out]
@@ -507,10 +509,13 @@ def softmax_head(
 def gumbel_softmax_head(
     scores: torch.Tensor, tau: torch.Tensor
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    # 1) compute the soft sample
-    soft_probs = F.gumbel_softmax(
-        scores, tau=tau, hard=False, dim=-1
-    )  # (B, P), continuous
-    probs = F.gumbel_softmax(scores, tau=tau, hard=True, dim=-1)
+    # First compute soft probabilities
+    soft_probs = F.gumbel_softmax(scores, tau=tau, hard=False, dim=-1)
+
+    # Then derive hard probabilities from soft_probs
+    probs = F.one_hot(soft_probs.argmax(dim=-1), scores.size(-1)).float()
+
+    # Apply straight-through estimator: forward uses probs, backward uses soft_probs
+    probs = probs - soft_probs.detach() + soft_probs
 
     return probs, soft_probs
