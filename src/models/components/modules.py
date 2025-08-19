@@ -130,10 +130,10 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
-        # device: str = "cpu",
+        device: str = "mps",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # node_features = self.spectral_embeddings(node_features)
-        # node_features = node_features.to(device)
+        node_features = node_features.to(device)
         node_features = self.projection_in(node_features)
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=None, is_encoder=True)
@@ -315,10 +315,8 @@ class SimplePermuter(torch.nn.Module):
         self.turn_off = hparams.turn_off
         self.use_ce = hparams.use_ce
         # self.use_context = hparams.use_context
-        self.scoring_fc = torch.nn.utils.weight_norm(
-            torch.nn.Linear(hparams.graph_decoder_hidden_dim, hparams.num_permutations)
-        )
-        self.layer_norm = torch.nn.LayerNorm(hparams.graph_decoder_hidden_dim)
+        self.scoring_fc = torch.nn.Linear(hparams.graph_decoder_hidden_dim, hparams.num_permutations)
+        # self.layer_norm = torch.nn.LayerNorm(hparams.graph_decoder_hidden_dim)
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_decoder_hidden_dim,
             num_heads=hparams.graph_decoder_num_heads,
@@ -370,7 +368,7 @@ class SimplePermuter(torch.nn.Module):
         )
         # Score each permutation option
         cls_out = node_features[:, 0, :]
-        cls_out = self.layer_norm(cls_out)
+        # cls_out = self.layer_norm(cls_out)
         scores = self.scoring_fc(cls_out)  # (B, num_permutations)
         context = None
         # if self.use_context:

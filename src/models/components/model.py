@@ -20,13 +20,13 @@ class Critic(torch.nn.Module):
         super().__init__()
         self.alpha = hparams.kld_loss_scale
         # self.beta = hparams.perm_loss_scale
-        self.gamma = hparams.contrastive_loss_scale
+        # self.gamma = hparams.contrastive_loss_scale
         self.vae = hparams.vae
         self.reconstruction_loss = GraphReconstructionLoss()
-        self.contrastive_loss = ContrastiveLoss(
-            temperature=hparams.temperature,
-            num_aug_per_sample=hparams.num_aug_per_sample,
-        )
+        # self.contrastive_loss = ContrastiveLoss(
+        #     temperature=hparams.temperature,
+        #     num_aug_per_sample=hparams.num_aug_per_sample,
+        # )
         self.kld_loss = KLDLoss()
         self.permutation_loss = PermutationLoss()
 
@@ -44,17 +44,17 @@ class Critic(torch.nn.Module):
         recon_loss = self.reconstruction_loss(
             graph_true=graph_true, graph_pred=graph_pred
         )
-        contrastive_loss = self.contrastive_loss(graph_emb)
+        # contrastive_loss = self.contrastive_loss(graph_emb)
         permutation_loss = self.permutation_loss(
             soft_probs if soft_probs is not None else perm
         )
         loss = {
             **recon_loss,
-            "contrastive_loss": contrastive_loss,
+            # "contrastive_loss": contrastive_loss,
             "permutation_loss": permutation_loss,
         }
         loss["loss"] = (
-            loss["loss"] + beta * permutation_loss + self.gamma * contrastive_loss
+            loss["loss"] + beta * permutation_loss #+ self.gamma * contrastive_loss
         )
         if self.vae:
             kld_loss = self.kld_loss(mu, logvar)

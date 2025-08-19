@@ -55,7 +55,7 @@ hydra:
       model.temperature_scheduler.hparams.final_tau: ${multiply:${model.temperature_scheduler.hparams.initial_tau}, 0.1}
       model.entropy_weight_scheduler.hparams.initial_weight: interval(0.2, 0.5)
       model.entropy_weight_scheduler.hparams.final_weight: ${multiply:${model.entropy_weight_scheduler.hparams.initial_weight}, 0.1}  # Fixed reference
-      model.critic.hparams.kld_loss_scale: interval(0.001, 0.01)
+      model.critic.hparams.kld_loss_scale: interval(0.0001, 0.01)
       model.critic.hparams.perm_loss_scale: interval(0.0001, 0.7)
       model.critic.hparams.contrastive_loss_scale: interval(0.001, 0.07)
       model.critic.hparams.temperature: interval(0.5, 0.7)
