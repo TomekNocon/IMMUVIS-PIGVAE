@@ -143,13 +143,13 @@ class PLGraphAE(L.LightningModule):
 
         if perm is not None:
             self.perms.append(perm)
-        # outputs = {
-        #     "prediction": graph_pred,
-        #     "ground_truth": graph,
-        #     "graph_emb": graph_emb,
-        #     "soft_probs": soft_probs,
-        # }
-        # self.validation_step_outputs.append(outputs)
+        outputs = {
+            "prediction": graph_pred,
+            "ground_truth": graph,
+            "graph_emb": graph_emb,
+            "soft_probs": soft_probs,
+        }
+        self.validation_step_outputs.append(outputs)
         batch_size = graph_pred.node_features.shape[0]
 
         metrics_soft = self.critic.evaluate(
@@ -195,114 +195,114 @@ class PLGraphAE(L.LightningModule):
         )
         return metrics
 
-    # def on_validation_epoch_end(self) -> None:
-    #     "Lightning hook that is called when a validation epoch ends."
-    #     # Log one example to W&B
-    #     n_examples = 10
-    #     predictions = self.validation_step_outputs[0]["prediction"].node_features
-    #     ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
-    #     argsort = self.validation_step_outputs[0][
-    #         "ground_truth"
-    #     ].argsort_augmented_features
-    #     graph_emb = self.validation_step_outputs[0]["graph_emb"]
-    #     targets = self.validation_step_outputs[0]["ground_truth"].y
-    #     soft_probs = self.validation_step_outputs[0]["soft_probs"]
+    def on_validation_epoch_end(self) -> None:
+        "Lightning hook that is called when a validation epoch ends."
+        # Log one example to W&B
+        n_examples = 10
+        predictions = self.validation_step_outputs[0]["prediction"].node_features
+        ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
+        argsort = self.validation_step_outputs[0][
+            "ground_truth"
+        ].argsort_augmented_features
+        graph_emb = self.validation_step_outputs[0]["graph_emb"]
+        targets = self.validation_step_outputs[0]["ground_truth"].y
+        soft_probs = self.validation_step_outputs[0]["soft_probs"]
 
-    #     if soft_probs is not None:
-    #         perm_preds = torch.argmax(soft_probs, dim=1).detach().cpu().numpy().tolist()
-    #         perm_preds_counter = Counter(perm_preds)
-    #         fig_perm_preds_counter = pL.plot_barchart_from_dict(
-    #             dict(perm_preds_counter), "Perm Preds Counter"
-    #         )
+        if soft_probs is not None:
+            perm_preds = torch.argmax(soft_probs, dim=1).detach().cpu().numpy().tolist()
+            perm_preds_counter = Counter(perm_preds)
+            fig_perm_preds_counter = pL.plot_barchart_from_dict(
+                dict(perm_preds_counter), "Perm Preds Counter"
+            )
 
-    #     batch_size = predictions.shape[0] // 8
-    #     idx_to_show = R.batch_augmented_indices(
-    #         batch_size, num_permutations=8, n_examples=n_examples
-    #     )
-    #     if self.perms:
-    #         perms = self.perms[0]
-    #         subset_perms = perms[idx_to_show, :, :]
-    #         permutations = subset_perms.detach().cpu().squeeze().numpy()
-    #     else:
-    #         permutations = np.array([])
-    #     subset_predictions = predictions[idx_to_show, :, :]
-    #     subset_targets = targets[:n_examples].to(torch.int)
-    #     subset_ground_truths = ground_truths[idx_to_show, :, :]
-    #     subset_graph_emb = graph_emb[idx_to_show, :]
-    #     subset_argsort = argsort[idx_to_show, :]
+        batch_size = predictions.shape[0] // 8
+        idx_to_show = R.batch_augmented_indices(
+            batch_size, num_permutations=8, n_examples=n_examples
+        )
+        if self.perms:
+            perms = self.perms[0]
+            subset_perms = perms[idx_to_show, :, :]
+            permutations = subset_perms.detach().cpu().squeeze().numpy()
+        else:
+            permutations = np.array([])
+        subset_predictions = predictions[idx_to_show, :, :]
+        subset_targets = targets[:n_examples].to(torch.int)
+        subset_ground_truths = ground_truths[idx_to_show, :, :]
+        subset_graph_emb = graph_emb[idx_to_show, :]
+        subset_argsort = argsort[idx_to_show, :]
 
-    #     restore_subset_predictions = torch.stack(
-    #         [img[arg, :] for img, arg in zip(subset_predictions, subset_argsort)], dim=0
-    #     )
+        restore_subset_predictions = torch.stack(
+            [img[arg, :] for img, arg in zip(subset_predictions, subset_argsort)], dim=0
+        )
 
-    #     restore_subset_ground_truths = torch.stack(
-    #         [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
-    #         dim=0,
-    #     )
+        restore_subset_ground_truths = torch.stack(
+            [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
+            dim=0,
+        )
 
-    #     subset_batch_size = subset_predictions.shape[0]
-    #     pred_imgs = (
-    #         pL.restore_tensor(
-    #             restore_subset_predictions, subset_batch_size, 1, 24, 24, 4
-    #         )
-    #         .detach()
-    #         .cpu()
-    #         .squeeze()
-    #     )
-    #     ground_truth_imgs = (
-    #         pL.restore_tensor(
-    #             restore_subset_ground_truths, subset_batch_size, 1, 24, 24, 4
-    #         )
-    #         .detach()
-    #         .cpu()
-    #         .squeeze()
-    #     )
-    #     pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
+        subset_batch_size = subset_predictions.shape[0]
+        pred_imgs = (
+            pL.restore_tensor(
+                restore_subset_predictions, subset_batch_size, 1, 28, 28, 2
+            )
+            .detach()
+            .cpu()
+            .squeeze()
+        )
+        ground_truth_imgs = (
+            pL.restore_tensor(
+                restore_subset_ground_truths, subset_batch_size, 1, 28, 28, 2
+            )
+            .detach()
+            .cpu()
+            .squeeze()
+        )
+        pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
 
-    #     mse = R.mse_per_transform(ground_truth_imgs, pred_imgs, n_examples, 8)
-    #     fig_prediction = pL.plot_images_all_perm(
-    #         pred_imgs.numpy(), n_rows=n_examples, n_cols=8
-    #     )
-    #     fig_ground_truth = pL.plot_images_all_perm(
-    #         ground_truth_imgs.numpy(), n_rows=n_examples, n_cols=8
-    #     )
-    #     fig_perms = pL.plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
-    #     fig_pca = pL.plot_pca(
-    #         pca_predictions, subset_targets, n_rows=n_examples, n_cols=8
-    #     )
-    #     fig_mse = pL.plot_barchart_from_dict(mse, "MSE per transform")
+        mse = R.mse_per_transform(ground_truth_imgs, pred_imgs, n_examples, 8)
+        fig_prediction = pL.plot_images_all_perm(
+            pred_imgs.numpy(), n_rows=n_examples, n_cols=8
+        )
+        fig_ground_truth = pL.plot_images_all_perm(
+            ground_truth_imgs.numpy(), n_rows=n_examples, n_cols=8
+        )
+        fig_perms = pL.plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
+        fig_pca = pL.plot_pca(
+            pca_predictions, subset_targets, n_rows=n_examples, n_cols=8
+        )
+        fig_mse = pL.plot_barchart_from_dict(mse, "MSE per transform")
 
-    #     best_k, fig_silhouette = pL.plot_silhouette(pca_predictions)
-    #     fig_inter = pL.plot_inter_silhouette(pca_predictions, best_k)
-    #     wandb.log(
-    #         {
-    #             "Prediction": wandb.Image(fig_prediction, caption="Predicted Image"),
-    #             "Ground Truth": wandb.Image(fig_ground_truth, caption="Ground Truth"),
-    #             "Perms": wandb.Image(fig_perms, caption="Perms")
-    #             if self.perms
-    #             else None,
-    #             "PCA": wandb.Image(fig_pca, caption="PCA"),
-    #             "MSE Per Transform": wandb.Image(fig_mse, caption="MSE"),
-    #             "Perm Preds Counter": wandb.Image(
-    #                 fig_perm_preds_counter, caption="Perm Preds Counter"
-    #             )
-    #             if soft_probs is not None
-    #             else None,
-    #             "Silhouette": wandb.Image(fig_silhouette, caption="Silhouette"),
-    #             "Inter Silhouette": wandb.Image(fig_inter, caption="Inter Silhouette"),
-    #         }
-    #     )
-    #     plt.close(fig_prediction)
-    #     plt.close(fig_ground_truth)
-    #     plt.close(fig_perms)
-    #     plt.close(fig_pca)
-    #     plt.close(fig_mse)
-    #     if soft_probs is not None:
-    #         plt.close(fig_perm_preds_counter)
-    #     plt.close(fig_silhouette)
-    #     plt.close(fig_inter)
-    #     self.validation_step_outputs.clear()
-    #     self.perms.clear()
+        best_k, fig_silhouette = pL.plot_silhouette(pca_predictions)
+        fig_inter = pL.plot_inter_silhouette(pca_predictions, best_k)
+        wandb.log(
+            {
+                "Prediction": wandb.Image(fig_prediction, caption="Predicted Image"),
+                "Ground Truth": wandb.Image(fig_ground_truth, caption="Ground Truth"),
+                "Perms": wandb.Image(fig_perms, caption="Perms")
+                if self.perms
+                else None,
+                "PCA": wandb.Image(fig_pca, caption="PCA"),
+                "MSE Per Transform": wandb.Image(fig_mse, caption="MSE"),
+                "Perm Preds Counter": wandb.Image(
+                    fig_perm_preds_counter, caption="Perm Preds Counter"
+                )
+                if soft_probs is not None
+                else None,
+                "Silhouette": wandb.Image(fig_silhouette, caption="Silhouette"),
+                "Inter Silhouette": wandb.Image(fig_inter, caption="Inter Silhouette"),
+            }
+        )
+        plt.close(fig_prediction)
+        plt.close(fig_ground_truth)
+        plt.close(fig_perms)
+        plt.close(fig_pca)
+        plt.close(fig_mse)
+        if soft_probs is not None:
+            plt.close(fig_perm_preds_counter)
+        plt.close(fig_silhouette)
+        plt.close(fig_inter)
+        self.validation_step_outputs.clear()
+        self.perms.clear()
 
     def test_step(
         self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -331,6 +331,7 @@ class PLGraphAE(L.LightningModule):
         n_examples = 10
         predictions = self.test_step_outputs[0]["prediction"].node_features
         ground_truths = self.test_step_outputs[0]["ground_truth"].node_features
+        argsort = self.test_step_outputs[0]["ground_truth"].argsort_augmented_features
         graph_emb = torch.cat([el["graph_emb"] for el in self.test_step_outputs], dim=0)
         targets = np.concatenate(
             [el["ground_truth"].y for el in self.test_step_outputs], axis=0
@@ -347,17 +348,27 @@ class PLGraphAE(L.LightningModule):
             permutations = np.array([])
         subset_predictions = predictions[idx_to_show, :, :]
         subset_ground_truths = ground_truths[idx_to_show, :, :]
+        subset_argsort = argsort[idx_to_show, :]
+
+        restore_subset_predictions = torch.stack(
+            [img[arg, :] for img, arg in zip(subset_predictions, subset_argsort)], dim=0
+        )
+
+        restore_subset_ground_truths = torch.stack(
+            [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
+            dim=0,
+        )
 
         subset_batch_size = subset_predictions.shape[0]
         pred_imgs = (
-            pL.restore_tensor(subset_predictions, subset_batch_size, 1, 24, 24, 4)
+            pL.restore_tensor(restore_subset_predictions, subset_batch_size, 1, 24, 24, 4)
             .detach()
             .cpu()
             .squeeze()
             .numpy()
         )
         ground_truth_imgs = (
-            pL.restore_tensor(subset_ground_truths, subset_batch_size, 1, 24, 24, 4)
+            pL.restore_tensor(restore_subset_ground_truths, subset_batch_size, 1, 24, 24, 4)
             .detach()
             .cpu()
             .squeeze()
