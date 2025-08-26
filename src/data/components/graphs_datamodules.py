@@ -1,5 +1,6 @@
 from __future__ import annotations
 import torch
+import pickle
 from typing import Optional, Callable, Union, Tuple, List
 import torch.nn as nn
 from torch.utils.data import Dataset
@@ -8,71 +9,67 @@ import torchvision.transforms as T
 import networkx as nx
 
 
+class PickleDataset(Dataset):
+    def __init__(self, pickle_path, transform=None):
+        self.transform = transform
+        with open(pickle_path, "rb") as f:
+            self.data = pickle.load(f) 
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        x = self.data[idx]
+        if self.transform:
+            x = self.transform(x)
+        return x
+
+
 class PatchAugmentations(nn.Module):
-    """
-    Apply 8 dihedral (rotation + horizontal flip) augmentations on a patch
-    represented as a flattened grid of node indices.
+    NUM_PERM = 8  # 4 rotations × {no flip, flip}
 
-    During validation:
-        Returns all 8 augmented variants stacked in order.
-    During training:
-        Returns the 8 variants in a consistently permuted order.
-    """
-
-    NUM_PERM = 8  # 4 rotations x {no flip, flip}
-
-    def __init__(
-        self, prob: float, size: int, patch_size: int, is_validation: bool = False
-    ):
+    def __init__(self, prob: float, size: int, patch_size: int, is_validation: bool = False):
         super().__init__()
         self.prob = prob
         self.is_validation = is_validation
         num_nodes_per_dim = size // patch_size
-        self.register_buffer(
-            "grid", self.make_grid(num_nodes_per_dim), persistent=False
-        )
+        self.register_buffer("grid", self.make_grid(num_nodes_per_dim), persistent=False)
 
     def forward(
-        self, patch: torch.Tensor
+        self, patches: Dict[str, torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
-            patch: Tensor of shape [C, N, D], N = patch_size^2.
-
+            patches: Dict[str, Tensor], each [C, N, D]
         Returns:
             aug_tensor: [8, C, N, D]
             argsort_tensor: [8, N]
             perm: [8] permutation used
         """
-        device = patch.device
-        grid = self.grid.to(device)
+        device = self.grid.device
+        grid = self.grid
 
-        aug_list = []
-        argsort_list = []
+        aug_list, argsort_list = [], []
 
-        for k in range(4):
-            rotated_grid = torch.rot90(grid, k=k, dims=[0, 1])
-            flat_idx = rotated_grid.flatten()
-            aug_list.append(patch[:, flat_idx, :].contiguous())
+        for transform_key, patch_embedding in patches.items():
+            if transform_key == "img_path":
+                continue
+
+            transformed_grid = self.apply_transform(grid, transform_key)
+            flat_idx = transformed_grid.flatten()
+
+            aug_list.append(torch.from_numpy(patch_embedding))  # or patch_embedding if already Tensor
             argsort_list.append(torch.argsort(flat_idx))
 
-            flipped_grid = TF.hflip(rotated_grid)
-            flat_flipped_idx = flipped_grid.flatten()
-            aug_list.append(patch[:, flat_flipped_idx, :].contiguous())
-            argsort_list.append(torch.argsort(flat_flipped_idx))
-
-        aug_tensor = torch.stack(aug_list, dim=0).contiguous()  # [8, C, N, D]
-        argsort_tensor = torch.stack(argsort_list, dim=0).contiguous()  # [8, N]
+        aug_tensor = torch.stack(aug_list, dim=0).contiguous()
+        argsort_tensor = torch.stack(argsort_list, dim=0).contiguous()
 
         if self.is_validation:
             perm = torch.arange(self.NUM_PERM, device=device)
             return aug_tensor, argsort_tensor, perm
 
         perm = torch.randperm(self.NUM_PERM, device=device)
-        # perm = torch.arange(self.NUM_PERM, device=device)
-        aug_tensor_shuffled = aug_tensor
-        argsort_tensor_shuffled = argsort_tensor
-        return aug_tensor_shuffled, argsort_tensor_shuffled, perm
+        return aug_tensor, argsort_tensor, perm
 
     @staticmethod
     def make_grid(num_nodes_per_dim: int) -> torch.Tensor:
@@ -80,6 +77,26 @@ class PatchAugmentations(nn.Module):
         return torch.arange(num_nodes_per_dim**2).reshape(
             num_nodes_per_dim, num_nodes_per_dim
         )
+
+    @staticmethod
+    def apply_transform(grid: torch.Tensor, key: str) -> torch.Tensor:
+        """
+        Apply rotation/flip based on key string (e.g. 'r90_f').
+        """
+        # Parse
+        rot_part, flip_part = key.split("_")
+        angle = int(rot_part[1:])  # 'r90' -> 90
+        flip = flip_part == "f"
+
+        # Apply rotation
+        k = angle // 90
+        out = torch.rot90(grid, k=k, dims=[0, 1]) if k > 0 else grid
+
+        # Apply flip
+        if flip:
+            out = torch.flip(out, dims=[-1])
+
+        return out
 
 
 class DualOutputTransform:
@@ -97,7 +114,9 @@ class DualOutputTransform:
 
     def __call__(self, img: torch.Tensor) -> Tuple[torch.Tensor]:
         # Apply base transformations to get the original version
-        original = self.base_transforms(img)
+        original = img
+        if self.base_transforms is not None:
+            original = self.base_transforms(img)
 
         # Apply the same base transformations + augmentations to get the augmented version
         augmented, argsort_augmented, perm = self.augmentation_transforms(original)
@@ -142,9 +161,9 @@ class GridGraphDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple:
         g = nx.grid_graph((self.grid_size, self.grid_size))
         # img = self.dataset[idx][0].to(torch.float32)
-        augmented, argsort_augmented, perm = self.dataset[idx][0]
+        augmented, argsort_augmented, perm = self.dataset[idx]
         augmented = augmented.to(torch.float32)
-        target = self.dataset[idx][1]
+        target = -1
         return (g, augmented, argsort_augmented, perm, target)
 
 
@@ -167,7 +186,7 @@ class DenseGraphBatch:
 
     @classmethod
     def from_sparse_graph_list(
-        cls, data_list: List[Tuple], labels: bool = True
+        cls, data_list: List[Tuple], labels: bool = False
     ) -> DenseGraphBatch:
         if labels:
             max_num_nodes = max(
