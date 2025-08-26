@@ -4,7 +4,6 @@ import pickle
 from typing import Optional, Callable, Union, Tuple, List
 import torch.nn as nn
 from torch.utils.data import Dataset
-import torchvision.transforms.functional as TF
 import torchvision.transforms as T
 import networkx as nx
 
@@ -13,7 +12,7 @@ class PickleDataset(Dataset):
     def __init__(self, pickle_path, transform=None):
         self.transform = transform
         with open(pickle_path, "rb") as f:
-            self.data = pickle.load(f) 
+            self.data = pickle.load(f)
 
     def __len__(self):
         return len(self.data)
@@ -28,12 +27,16 @@ class PickleDataset(Dataset):
 class PatchAugmentations(nn.Module):
     NUM_PERM = 8  # 4 rotations × {no flip, flip}
 
-    def __init__(self, prob: float, size: int, patch_size: int, is_validation: bool = False):
+    def __init__(
+        self, prob: float, size: int, patch_size: int, is_validation: bool = False
+    ):
         super().__init__()
         self.prob = prob
         self.is_validation = is_validation
         num_nodes_per_dim = size // patch_size
-        self.register_buffer("grid", self.make_grid(num_nodes_per_dim), persistent=False)
+        self.register_buffer(
+            "grid", self.make_grid(num_nodes_per_dim), persistent=False
+        )
 
     def forward(
         self, patches: Dict[str, torch.Tensor]
@@ -98,21 +101,25 @@ class PatchAugmentations(nn.Module):
 
         return out
 
+
 class IMCBaseDictTransform(nn.Module):
-    def __init__(self, exclude_metadata: Optional[List[str]] = ['img_path']):
-        super().__init__() # numpy -> tensor (HWC -> CHW)
+    def __init__(self, exclude_metadata: Optional[List[str]] = ["img_path"]):
+        super().__init__()  # numpy -> tensor (HWC -> CHW)
         self.exclude_metadata = exclude_metadata
 
     def forward(self, embeddings: dict) -> dict:
-
         for key, embedding in embeddings.items():
-            if not isinstance(embedding, torch.Tensor) and key not in self.exclude_metadata:
+            if (
+                not isinstance(embedding, torch.Tensor)
+                and key not in self.exclude_metadata
+            ):
                 embedding = torch.from_numpy(embedding)
-                c, h, w = embedding.shape
+                c, _, _ = embedding.shape
                 embedding = embedding.view(c, -1).T
 
             embeddings[key] = embedding
         return embeddings
+
 
 class DualOutputTransform:
     """

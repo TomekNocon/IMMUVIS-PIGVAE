@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 # from src.models.components.custom_graph_transformer import Transformer
 from src.models.components.llama_graph_transformer import Transformer
-from src.models.components.emdeddings import PositionalEncoding
+from src.models.components.embeddings import PositionalEncoding
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.spectral_embeddings import SklearnSpectralEmbedding
 from src.models.components.rotary_embedding import LLamaRotaryEmbedding
@@ -315,7 +315,9 @@ class SimplePermuter(torch.nn.Module):
         self.turn_off = hparams.turn_off
         self.use_ce = hparams.use_ce
         # self.use_context = hparams.use_context
-        self.scoring_fc = torch.nn.Linear(hparams.graph_decoder_hidden_dim, hparams.num_permutations)
+        self.scoring_fc = torch.nn.Linear(
+            hparams.graph_decoder_hidden_dim, hparams.num_permutations
+        )
         # self.layer_norm = torch.nn.LayerNorm(hparams.graph_decoder_hidden_dim)
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_decoder_hidden_dim,

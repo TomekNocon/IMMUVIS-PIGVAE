@@ -361,14 +361,18 @@ class PLGraphAE(L.LightningModule):
 
         subset_batch_size = subset_predictions.shape[0]
         pred_imgs = (
-            pL.restore_tensor(restore_subset_predictions, subset_batch_size, 1, 24, 24, 4)
+            pL.restore_tensor(
+                restore_subset_predictions, subset_batch_size, 1, 24, 24, 4
+            )
             .detach()
             .cpu()
             .squeeze()
             .numpy()
         )
         ground_truth_imgs = (
-            pL.restore_tensor(restore_subset_ground_truths, subset_batch_size, 1, 24, 24, 4)
+            pL.restore_tensor(
+                restore_subset_ground_truths, subset_batch_size, 1, 24, 24, 4
+            )
             .detach()
             .cpu()
             .squeeze()

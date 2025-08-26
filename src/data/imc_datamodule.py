@@ -5,15 +5,13 @@ from pathlib import Path
 from omegaconf import DictConfig
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset, random_split
-from torchvision.datasets import MNIST
-from torchvision.transforms import transforms
 from src.data.components.graphs_datamodules import (
     IMCBaseDictTransform,
     PatchAugmentations,
     GridGraphDataset,
     DenseGraphDataLoader,
     DualOutputTransform,
-    PickleDataset
+    PickleDataset,
 )
 
 
@@ -149,12 +147,8 @@ class IMCDataModule(LightningDataModule):
         if not self.data_train and not self.data_val and not self.data_test:
             train_path = Path(self.data_dir) / "IMC-sample" / "train.pkl"
             test_path = Path(self.data_dir) / "IMC-sample" / "test.pkl"
-            trainset = PickleDataset(
-                train_path, transform=self.dual_transforms_train
-            )
-            testset = PickleDataset(
-                test_path, transform=self.dual_transforms_val
-            )
+            trainset = PickleDataset(train_path, transform=self.dual_transforms_train)
+            testset = PickleDataset(test_path, transform=self.dual_transforms_val)
             train_ratio, val_ratio, test_ratio, leftover_ratio = (
                 self.train_val_test_split
             )
@@ -256,4 +250,4 @@ def add_channel(x: torch.Tensor) -> torch.Tensor:
 
 
 if __name__ == "__main__":
-    _ = MNISTDataModule()
+    _ = IMCDataModule()

@@ -2,7 +2,6 @@ import torch
 from src.models.components.losses import (
     GraphReconstructionLoss,
     KLDLoss,
-    ContrastiveLoss,
     PermutationLoss,
 )
 from omegaconf import DictConfig
@@ -54,7 +53,7 @@ class Critic(torch.nn.Module):
             "permutation_loss": permutation_loss,
         }
         loss["loss"] = (
-            loss["loss"] + beta * permutation_loss #+ self.gamma * contrastive_loss
+            loss["loss"] + beta * permutation_loss  # + self.gamma * contrastive_loss
         )
         if self.vae:
             kld_loss = self.kld_loss(mu, logvar)
