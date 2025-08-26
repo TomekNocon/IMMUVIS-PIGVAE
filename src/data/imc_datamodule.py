@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision.datasets import MNIST
 from torchvision.transforms import transforms
 from src.data.components.graphs_datamodules import (
-    SplitPatches,
+    IMCBaseDictTransform,
     PatchAugmentations,
     GridGraphDataset,
     DenseGraphDataLoader,
@@ -70,7 +70,7 @@ class IMCDataModule(LightningDataModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
 
-        self.base_transforms = None
+        self.base_transforms = IMCBaseDictTransform()
 
         self.aug_transforms_train = PatchAugmentations(
             prob=hparams.augmentation_prob,

@@ -58,7 +58,7 @@ class PatchAugmentations(nn.Module):
             transformed_grid = self.apply_transform(grid, transform_key)
             flat_idx = transformed_grid.flatten()
 
-            aug_list.append(torch.from_numpy(patch_embedding))  # or patch_embedding if already Tensor
+            aug_list.append(patch_embedding)  # or patch_embedding if already Tensor
             argsort_list.append(torch.argsort(flat_idx))
 
         aug_tensor = torch.stack(aug_list, dim=0).contiguous()
@@ -98,6 +98,21 @@ class PatchAugmentations(nn.Module):
 
         return out
 
+class IMCBaseDictTransform(nn.Module):
+    def __init__(self, exclude_metadata: Optional[List[str]] = ['img_path']):
+        super().__init__() # numpy -> tensor (HWC -> CHW)
+        self.exclude_metadata = exclude_metadata
+
+    def forward(self, embeddings: dict) -> dict:
+
+        for key, embedding in embeddings.items():
+            if not isinstance(embedding, torch.Tensor) and key not in self.exclude_metadata:
+                embedding = torch.from_numpy(embedding)
+                c, h, w = embedding.shape
+                embedding = embedding.view(c, -1).T
+
+            embeddings[key] = embedding
+        return embeddings
 
 class DualOutputTransform:
     """
@@ -160,7 +175,6 @@ class GridGraphDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple:
         g = nx.grid_graph((self.grid_size, self.grid_size))
-        # img = self.dataset[idx][0].to(torch.float32)
         augmented, argsort_augmented, perm = self.dataset[idx]
         augmented = augmented.to(torch.float32)
         target = -1
