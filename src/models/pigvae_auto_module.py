@@ -240,18 +240,8 @@ class PLGraphAE(L.LightningModule):
             dim=0,
         )
         subset_batch_size = subset_predictions.shape[0]
-        pred_imgs = (
-            restore_subset_predictions
-            .detach()
-            .cpu()
-            .squeeze()
-        )
-        ground_truth_imgs = (
-            restore_subset_ground_truths
-            .detach()
-            .cpu()
-            .squeeze()
-        )
+        pred_imgs = restore_subset_predictions.detach().cpu().squeeze()
+        ground_truth_imgs = restore_subset_ground_truths.detach().cpu().squeeze()
 
         diff = pred_imgs - ground_truth_imgs
 
@@ -271,9 +261,18 @@ class PLGraphAE(L.LightningModule):
         # fig_inter = pL.plot_inter_silhouette(pca_predictions, best_k)
         wandb.log(
             {
-                "Predictions": [wandb.Image(fig, caption=f"Predictions {i+1}") for i, fig in enumerate(fig_prediction)],
-                "Ground Truth": [wandb.Image(fig, caption=f"Ground Truth {i+1}") for i, fig in enumerate(fig_ground_truth)],
-                "Diff": [wandb.Image(fig, caption=f"Diff {i+1}") for i, fig in enumerate(fig_diff)],
+                "Predictions": [
+                    wandb.Image(fig, caption=f"Predictions {i + 1}")
+                    for i, fig in enumerate(fig_prediction)
+                ],
+                "Ground Truth": [
+                    wandb.Image(fig, caption=f"Ground Truth {i + 1}")
+                    for i, fig in enumerate(fig_ground_truth)
+                ],
+                "Diff": [
+                    wandb.Image(fig, caption=f"Diff {i + 1}")
+                    for i, fig in enumerate(fig_diff)
+                ],
                 "Perms": wandb.Image(fig_perms, caption="Perms")
                 if self.perms
                 else None,
