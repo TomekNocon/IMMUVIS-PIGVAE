@@ -198,7 +198,7 @@ class PLGraphAE(L.LightningModule):
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
         # Log one example to W&B
-        n_examples = 10
+        n_examples = 4
         predictions = self.validation_step_outputs[0]["prediction"].node_features
         ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
         argsort = self.validation_step_outputs[0][
@@ -239,68 +239,68 @@ class PLGraphAE(L.LightningModule):
             [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
             dim=0,
         )
-
         subset_batch_size = subset_predictions.shape[0]
         pred_imgs = (
-            pL.restore_tensor(
-                restore_subset_predictions, subset_batch_size, 1, 28, 28, 2
-            )
+            restore_subset_predictions
             .detach()
             .cpu()
             .squeeze()
         )
         ground_truth_imgs = (
-            pL.restore_tensor(
-                restore_subset_ground_truths, subset_batch_size, 1, 28, 28, 2
-            )
+            restore_subset_ground_truths
             .detach()
             .cpu()
             .squeeze()
         )
-        pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
+
+        diff = pred_imgs - ground_truth_imgs
+
+        # pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
 
         mse = R.mse_per_transform(ground_truth_imgs, pred_imgs, n_examples, 8)
-        fig_prediction = pL.plot_images_all_perm(
-            pred_imgs.numpy(), n_rows=n_examples, n_cols=8
-        )
-        fig_ground_truth = pL.plot_images_all_perm(
-            ground_truth_imgs.numpy(), n_rows=n_examples, n_cols=8
-        )
+        fig_prediction = pL.plot_feature_map(pred_imgs, n_examples)
+        fig_ground_truth = pL.plot_feature_map(ground_truth_imgs, n_examples)
+        fig_diff = pL.plot_feature_map(diff, n_examples)
         fig_perms = pL.plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
-        fig_pca = pL.plot_pca(
-            pca_predictions, subset_targets, n_rows=n_examples, n_cols=8
-        )
+        # fig_pca = pL.plot_pca(
+        #     pca_predictions, subset_targets, n_rows=n_examples, n_cols=8
+        # )
         fig_mse = pL.plot_barchart_from_dict(mse, "MSE per transform")
 
-        best_k, fig_silhouette = pL.plot_silhouette(pca_predictions)
-        fig_inter = pL.plot_inter_silhouette(pca_predictions, best_k)
+        # best_k, fig_silhouette = pL.plot_silhouette(pca_predictions)
+        # fig_inter = pL.plot_inter_silhouette(pca_predictions, best_k)
         wandb.log(
             {
-                "Prediction": wandb.Image(fig_prediction, caption="Predicted Image"),
-                "Ground Truth": wandb.Image(fig_ground_truth, caption="Ground Truth"),
+                "Predictions": [wandb.Image(fig, caption=f"Predictions {i+1}") for i, fig in enumerate(fig_prediction)],
+                "Ground Truth": [wandb.Image(fig, caption=f"Ground Truth {i+1}") for i, fig in enumerate(fig_ground_truth)],
+                "Diff": [wandb.Image(fig, caption=f"Diff {i+1}") for i, fig in enumerate(fig_diff)],
                 "Perms": wandb.Image(fig_perms, caption="Perms")
                 if self.perms
                 else None,
-                "PCA": wandb.Image(fig_pca, caption="PCA"),
+                # "PCA": wandb.Image(fig_pca, caption="PCA"),
                 "MSE Per Transform": wandb.Image(fig_mse, caption="MSE"),
                 "Perm Preds Counter": wandb.Image(
                     fig_perm_preds_counter, caption="Perm Preds Counter"
                 )
                 if soft_probs is not None
                 else None,
-                "Silhouette": wandb.Image(fig_silhouette, caption="Silhouette"),
-                "Inter Silhouette": wandb.Image(fig_inter, caption="Inter Silhouette"),
+                # "Silhouette": wandb.Image(fig_silhouette, caption="Silhouette"),
+                # "Inter Silhouette": wandb.Image(fig_inter, caption="Inter Silhouette"),
             }
         )
-        plt.close(fig_prediction)
-        plt.close(fig_ground_truth)
+        for fig in fig_prediction:
+            plt.close(fig)
+        for fig in fig_ground_truth:
+            plt.close(fig)
+        for fig in fig_diff:
+            plt.close(fig)
         plt.close(fig_perms)
-        plt.close(fig_pca)
+        # plt.close(fig_pca)
         plt.close(fig_mse)
         if soft_probs is not None:
             plt.close(fig_perm_preds_counter)
-        plt.close(fig_silhouette)
-        plt.close(fig_inter)
+        # plt.close(fig_silhouette)
+        # plt.close(fig_inter)
         self.validation_step_outputs.clear()
         self.perms.clear()
 

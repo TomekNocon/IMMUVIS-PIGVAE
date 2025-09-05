@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib.figure as figure
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
+import math
 import torch
 import numpy as np
 from sklearn.decomposition import PCA
@@ -10,6 +11,7 @@ import plotly.express as px
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score, silhouette_samples
+from matplotlib.patches import Rectangle
 
 
 def restore_tensor(
@@ -56,17 +58,11 @@ def restore_tensor(
 #     return fig
 
 
-def reshape_images_array(images: np.ndarray, n_rows: int, n_cols: int) -> np.ndarray:
-    new_images = []
-    for idx in range(n_rows):
-        new_images.append(images[idx])
-        temp = images[
-            idx * n_cols + n_rows - idx : (idx + 1) * n_cols + n_rows - 1 - idx
-        ]
-        for img in temp:
-            new_images.append(img)
-    return np.array(new_images)
-
+def reshape_feature_map(features: torch.Tensor, num_example: int) -> torch.Tensor:
+    batch_size, num_nodes, _ = features.shape
+    grid_size = int(math.sqrt(num_nodes))
+    group = int(batch_size // num_example)
+    return features.view(num_example, group, -1, grid_size, grid_size)
 
 def plot_images_all_perm(
     images: np.ndarray, n_rows: int, n_cols: int
@@ -257,3 +253,68 @@ def plot_inter_silhouette(images: np.ndarray, k: int) -> figure.Figure:
     ax.set_ylabel("Cluster Label")
     ax.set_title(f"Silhouette Plot (avg score: {score:.3f})")
     return fig
+
+
+# Option 2: Card-like appearance with shadows
+def plot_feature_map(features: torch.Tensor, num_example: int) -> List[figure.Figure]:
+    """
+    Visualize 5D tensor data: (4, 8, 512, 13, 13)
+    Shows first 2 channels for all 4 images and 8 transformations
+    
+    Args:
+        tensor_data: 5D tensor of shape (4, 8, 512, 13, 13)
+    """
+    # Create figure for each channel (2 channels total)
+
+    tensor_data = reshape_feature_map(features, num_example)
+    figures = []
+    
+    for channel in range(2):  # First 2 channels
+        fig = plt.figure(figsize=(20, 10))
+        fig.patch.set_facecolor('#f8f9fa')
+        
+        # Create 4x8 grid (4 images × 8 transformations)
+        gs = fig.add_gridspec(4, 8, 
+                             hspace=0.4, wspace=0.25,
+                             left=0.06, right=0.94, top=0.92, bottom=0.08)
+        
+        for img_idx in range(4):  # 4 images
+            for trans_idx in range(8):  # 8 transformations
+                ax = fig.add_subplot(gs[img_idx, trans_idx])
+                
+                # Extract the specific 13x13 feature map
+                data_slice = tensor_data[img_idx, trans_idx, channel, :, :]
+                
+                # Create heatmap
+                im = ax.imshow(data_slice, cmap='plasma', aspect='equal')
+                
+                # Remove ticks
+                ax.set_xticks([])
+                ax.set_yticks([])
+                
+                # Create card-like appearance
+                ax.set_facecolor('white')
+                for spine in ax.spines.values():
+                    spine.set_color('#e9ecef')
+                    spine.set_linewidth(2)
+                
+                # Add shadow effect
+                shadow = Rectangle((-0.5, -0.5), 13.5, 13.5,
+                                  facecolor='gray', alpha=0.1, zorder=-1,
+                                  transform=ax.transData)
+                ax.add_patch(shadow)
+                
+                # Label with image, transformation, and channel info
+                label_text = f'Img {img_idx+1} | Trans {trans_idx+1} | Ch {channel+1}'
+                ax.text(0.5, -0.12, label_text, transform=ax.transAxes,
+                        ha='center', va='top', fontsize=8, 
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.9))
+        
+        # Add colorbar
+        cbar = fig.colorbar(im, ax=fig.get_axes(), shrink=0.8, aspect=30)
+        cbar.ax.tick_params(labelsize=8)
+        
+        plt.suptitle(f'Channel {channel+1} Feature Maps', fontsize=16, y=0.96)
+        figures.append(fig)
+    
+    return figures

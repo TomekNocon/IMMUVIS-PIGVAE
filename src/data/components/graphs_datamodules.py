@@ -207,7 +207,7 @@ class DenseGraphBatch:
 
     @classmethod
     def from_sparse_graph_list(
-        cls, data_list: List[Tuple], labels: bool = False
+        cls, data_list: List[Tuple], labels: bool = True
     ) -> DenseGraphBatch:
         if labels:
             max_num_nodes = max(

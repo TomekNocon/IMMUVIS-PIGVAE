@@ -46,16 +46,16 @@ hydra:
     # define hyperparameter search space
     params:
       model.optimizer.lr: interval(0.0001, 0.01)
-      data.hparams.batch_size: choice(64)  # Added more options for meaningful optimization
-      model.graph_ae.hparams.input_size: choice(128, 256)
+      data.hparams.batch_size: choice(8)  # Added more options for meaningful optimization
+      model.graph_ae.hparams.input_size: choice(512)
       model.graph_ae.hparams.num_layers: choice(4, 6, 8)
       model.graph_ae.hparams.num_heads: choice(4, 8, 16)
-      model.graph_ae.hparams.emb_dim: choice(64, 128)
+      model.graph_ae.hparams.emb_dim: choice(128, 256, 512)
       model.temperature_scheduler.hparams.initial_tau: interval(0.5, 1.0)
-      model.temperature_scheduler.hparams.final_tau: ${multiply:${model.temperature_scheduler.hparams.initial_tau}, 0.1}
+      model.temperature_scheduler.hparams.final_tau: interval(0.05, 0.2)
       model.entropy_weight_scheduler.hparams.initial_weight: interval(0.2, 0.5)
-      model.entropy_weight_scheduler.hparams.final_weight: ${multiply:${model.entropy_weight_scheduler.hparams.initial_weight}, 0.1}  # Fixed reference
+      model.entropy_weight_scheduler.hparams.final_weight:  interval(0.01, 0.1)  # Fixed reference
       model.critic.hparams.kld_loss_scale: interval(0.0001, 0.01)
-      model.critic.hparams.perm_loss_scale: interval(0.0001, 0.7)
+      model.critic.hparams.perm_loss_scale: interval(0.0001, 0.9)
       model.critic.hparams.contrastive_loss_scale: interval(0.001, 0.07)
       model.critic.hparams.temperature: interval(0.5, 0.7)

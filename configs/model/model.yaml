@@ -3,22 +3,23 @@ _target_: "src.models.pigvae_auto_module.PLGraphAE"
 graph_ae:
   _target_: "src.models.components.modules.GraphAE"
   hparams:
-    input_size: 256
+    input_size: 128
     num_heads: 4
     num_layers: 4
-    emb_dim: 64
+    emb_dim: 512
     vae: true
     dropout: 0.1
     encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
-      num_node_features: 4
+      num_node_features: 512
       num_edge_features: 0
       graph_encoder_num_heads: ${model.graph_ae.hparams.num_heads}
       graph_encoder_ppf_hidden_dim: ${multiply:${model.graph_ae.hparams.input_size},4}
       graph_encoder_num_layers: ${model.graph_ae.hparams.num_layers}
       emb_dim: ${model.graph_ae.hparams.emb_dim}
       dropout: ${model.graph_ae.hparams.dropout}
-      grid_size: 14
+      grid_size: 13
+      project: True
 
     decoder:
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
@@ -28,9 +29,10 @@ graph_ae:
       graph_decoder_num_layers: ${model.graph_ae.hparams.num_layers}
       dropout: ${model.graph_ae.hparams.dropout}
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
-      num_embeddings: 200
-      num_node_features: 4
+      num_embeddings: 786
+      num_node_features: 512
       num_edge_features: 0
+      project: True
 
     bottle_neck_encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
@@ -54,28 +56,28 @@ graph_ae:
       graph_decoder_ppf_hidden_dim: ${multiply:${model.graph_ae.hparams.input_size},4}
       dropout: ${model.graph_ae.hparams.dropout}
       num_permutations: ${data.hparams.num_aug_per_sample}
-      grid_size: 14
+      grid_size: 13
       break_symmetry_scale: 0.05
       emb_dim: ${model.graph_ae.hparams.emb_dim}
       turn_off: False
       use_ce: False
       use_context: False
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
-      num_node_features: 4
+      n_components: 2
 
 temperature_scheduler:
   _target_: "src.models.components.schedulers.TemperatureScheduler"
   hparams:
-    initial_tau: 1.0
-    final_tau: 0.3
+    initial_tau: 0.75
+    final_tau: 0.15
     num_epochs: ${trainer.max_epochs}
     start_epoch: ${trainer.min_epochs}
 
 entropy_weight_scheduler:
   _target_: "src.models.components.schedulers.EntropyWeightScheduler"
   hparams:
-    initial_weight: 0.2
-    final_weight: 0.05
+    initial_weight: 0.3
+    final_weight: 0.03
     mode: exponential
     num_epochs: ${trainer.max_epochs}
     start_epoch: ${trainer.min_epochs}
@@ -83,8 +85,8 @@ entropy_weight_scheduler:
 critic:
   _target_: "src.models.components.model.Critic"
   hparams:
-    kld_loss_scale: 0.0001
-    perm_loss_scale: 0.7
+    kld_loss_scale: 0.00001
+    perm_loss_scale: 0.8
     contrastive_loss_scale: 0.01
     temperature: 0.07
     num_aug_per_sample: ${data.hparams.num_aug_per_sample}
@@ -93,7 +95,7 @@ critic:
 optimizer:
   _target_: torch.optim.Adam
   _partial_: true
-  lr: 0.0007
+  lr: 0.0001
   weight_decay: 0.0
 
 scheduler:

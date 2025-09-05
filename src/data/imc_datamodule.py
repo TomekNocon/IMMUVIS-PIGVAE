@@ -120,9 +120,10 @@ class IMCDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        path = Path(self.data_dir) / "IMC-sample" / "test_1.pkl"
-        if not path.exists():
-            raise FileNotFoundError(f"Expected dataset at {path}")
+        train_path = Path(self.data_dir) / "IMC-sample" / "test.pkl"
+        test_path = Path(self.data_dir) / "IMC-sample" / "test.pkl"
+        if not train_path.exists() or not test_path.exists():
+            raise FileNotFoundError(f"Expected dataset at {train_path} and {test_path}")
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.

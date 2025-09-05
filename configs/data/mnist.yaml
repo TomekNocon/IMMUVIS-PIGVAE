@@ -1,13 +1,13 @@
-_target_: src.data.mnist_datamodule.MNISTDataModule
+_target_: src.data.imc_datamodule.IMCDataModule
 hparams:
   data_dir: ${paths.data_dir}
-  batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
-  train_val_test_split: [2_000, 4_00, 1_00, 67_500]
+  batch_size: 8 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+  train_val_test_split: [32, 16, 16, 8]
   num_workers: 7
   pin_memory: False
-  grid_size: 14
-  size: 28
-  patch_size: 2
+  grid_size: 13
+  size: 13
+  patch_size: 1
   augmentation_prob: 1.0
   is_contrastive: True
   num_aug_per_sample: 8

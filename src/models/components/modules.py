@@ -77,10 +77,11 @@ class GraphEncoder(torch.nn.Module):
             torch.randn(1, 1, hparams.graph_encoder_hidden_dim)
         )
         # nn.init.trunc_normal_(self.summary_node, std=0.02)
-        self.projection_in = nn.Linear(
-            hparams.num_node_features, hparams.graph_encoder_hidden_dim
-        )
-
+        if hparams.project:
+            self.projection_in = nn.Linear(
+                hparams.num_node_features, hparams.graph_encoder_hidden_dim
+            )
+        self.project = hparams.project
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_encoder_hidden_dim,
             num_heads=hparams.graph_encoder_num_heads,
@@ -132,9 +133,9 @@ class GraphEncoder(torch.nn.Module):
         mask: torch.Tensor,
         device: str = "mps",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # node_features = self.spectral_embeddings(node_features)
         node_features = node_features.to(device)
-        node_features = self.projection_in(node_features)
+        if self.project:
+            node_features = self.projection_in(node_features)
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=None, is_encoder=True)
         graph_emb, node_features = self.read_out_message_matrix(x)
@@ -159,9 +160,11 @@ class GraphDecoder(torch.nn.Module):
         self.fc_in = nn.Linear(
             hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim
         )
-        self.node_fc_out = nn.Linear(
-            hparams.graph_decoder_hidden_dim, hparams.num_node_features
-        )
+        if hparams.project:
+            self.node_fc_out = nn.Linear(
+                hparams.graph_decoder_hidden_dim, hparams.num_node_features
+            )
+        self.project = hparams.project
         self.dropout = nn.Dropout(hparams.dropout)
         self.layer_norm = nn.LayerNorm(hparams.graph_decoder_hidden_dim)
 
@@ -194,7 +197,8 @@ class GraphDecoder(torch.nn.Module):
         self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         node_features = x
-        node_features = self.node_fc_out(node_features)
+        if self.project:
+            node_features = self.node_fc_out(node_features)
         edge_features = torch.empty(0, device=x.device)
         return node_features, edge_features
 
@@ -332,7 +336,7 @@ class SimplePermuter(torch.nn.Module):
         )
         # nn.init.trunc_normal_(self.perm_node, std=0.02)
         self.spectral_embeddings = SklearnSpectralEmbedding(
-            hparams.num_node_features,
+            hparams.n_components,
             hparams.graph_decoder_hidden_dim,
             hparams.grid_size,
         )
