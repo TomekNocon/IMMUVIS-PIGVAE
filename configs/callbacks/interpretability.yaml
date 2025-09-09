@@ -1,0 +1,27 @@
+
+
+# Transformer Explainability Callback Configuration
+# Based on Chefer et al. "Transformer Interpretability Beyond Attention Visualization"
+interpretability:
+  _target_: src.utils.callbacks.transformer_explainability.InterpretabilityCallback
+
+# Directory to save interpretability results
+  save_dir: "${paths.output_dir}/interpretability"
+
+  # Analysis frequency
+  analyze_every_n_epochs: 5  # Run detailed analysis every N epochs
+  analyze_every_n_batches: 100  # Log attention statistics every N batches
+  max_samples_per_epoch: 3  # Maximum samples to analyze per epoch
+
+  # Enable/disable different analysis methods
+  enable_chefer_methods: true  # Attention rollout and LRP-like methods
+  enable_attention_analysis: true  # Basic attention pattern analysis
+  enable_gradient_analysis: true  # Gradient-based attributions
+
+# Note: This callback is specifically adapted for graph transformers
+# It captures attention weights from SelfAttention layers and provides
+# graph-aware interpretability analysis including:
+# - Attention pattern visualization
+# - Node-level gradient analysis  
+# - Simplified Chefer attention rollout for graphs
+# - LRP-like node relevance scores

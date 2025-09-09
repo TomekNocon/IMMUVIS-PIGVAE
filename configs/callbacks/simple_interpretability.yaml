@@ -1,0 +1,5 @@
+
+# Simple Interpretability Callback Configuration (test version)
+simple_interpretability:
+  _target_: src.utils.callbacks.simple_interpretability.SimpleInterpretabilityCallback
+  log_every_n_steps: 5  # Run analysis every N epochs

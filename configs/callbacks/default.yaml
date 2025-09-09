@@ -4,6 +4,7 @@ defaults:
   - model_summary
   - rich_progress_bar
   - learning_rate
+  - interpretability
   - _self_
 
 model_checkpoint:
@@ -26,3 +27,13 @@ model_summary:
 
 lr_monitor:
   logging_interval: step
+
+interpretability:
+  _target_: src.utils.callbacks.transformer_explainability.InterpretabilityCallback
+  save_dir: ${paths.output_dir}/interpretability_outputs
+  analyze_every_n_epochs: 5
+  analyze_every_n_batches: 100
+  max_samples_per_epoch: 3
+  enable_chefer_methods: True
+  enable_attention_analysis: True
+  enable_gradient_analysis: True
