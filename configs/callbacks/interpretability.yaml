@@ -22,6 +22,6 @@ interpretability:
 # It captures attention weights from SelfAttention layers and provides
 # graph-aware interpretability analysis including:
 # - Attention pattern visualization
-# - Node-level gradient analysis  
+# - Node-level gradient analysis
 # - Simplified Chefer attention rollout for graphs
 # - LRP-like node relevance scores
