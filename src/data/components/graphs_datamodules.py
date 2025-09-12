@@ -177,7 +177,7 @@ class DenseGraphBatch:
             self.perms = self.perms.to(device)
         if self.properties is not None:
             self.properties = self.properties.to(device)
-        if hasattr(self, 'y') and self.y is not None:
+        if hasattr(self, "y") and self.y is not None:
             self.y = self.y.to(device)
         return self
 

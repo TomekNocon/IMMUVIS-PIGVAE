@@ -313,7 +313,9 @@ class SimplePermuter(torch.nn.Module):
         self.turn_off = hparams.turn_off
         self.use_ce = hparams.use_ce
         # self.use_context = hparams.use_context
-        self.scoring_fc = torch.nn.Linear(hparams.graph_decoder_hidden_dim, hparams.num_permutations)
+        self.scoring_fc = torch.nn.Linear(
+            hparams.graph_decoder_hidden_dim, hparams.num_permutations
+        )
         # self.layer_norm = torch.nn.LayerNorm(hparams.graph_decoder_hidden_dim)
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_decoder_hidden_dim,
