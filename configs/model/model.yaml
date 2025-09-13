@@ -36,7 +36,7 @@ graph_ae:
 
     bottle_neck_encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
-      emb_dim: ${model.graph_ae.hparams.emb_dim} 
+      emb_dim: ${model.graph_ae.hparams.emb_dim}
       vae: ${model.graph_ae.hparams.vae}
       activation: silu
       num_permutations: ${data.hparams.num_aug_per_sample}
@@ -103,5 +103,3 @@ scheduler:
   warmup: 0.1
 
 compile: false
-
-

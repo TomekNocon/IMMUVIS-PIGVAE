@@ -131,9 +131,7 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
-        device: str = "mps",
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        node_features = node_features.to(device)
         if self.project:
             node_features = self.projection_in(node_features)
         x, _ = self.init_message_matrix(node_features, edge_features, mask)

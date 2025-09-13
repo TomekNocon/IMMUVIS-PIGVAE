@@ -205,6 +205,22 @@ class DenseGraphBatch:
         self.perms = perms
         self.properties = kwargs.get("properties", None)
 
+    def to(self, device):
+        """Move all tensors in the batch to the specified device."""
+        self.node_features = self.node_features.to(device)
+        self.edge_features = self.edge_features.to(device)
+        if self.mask is not None:
+            self.mask = self.mask.to(device)
+        if self.argsort_augmented_features is not None:
+            self.argsort_augmented_features = self.argsort_augmented_features.to(device)
+        if self.perms is not None:
+            self.perms = self.perms.to(device)
+        if self.properties is not None:
+            self.properties = self.properties.to(device)
+        if hasattr(self, "y") and self.y is not None:
+            self.y = self.y.to(device)
+        return self
+
     @classmethod
     def from_sparse_graph_list(
         cls, data_list: List[Tuple], labels: bool = True
