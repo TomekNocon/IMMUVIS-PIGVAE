@@ -126,7 +126,8 @@ class PermutationLoss(torch.nn.Module):
         avg_probs = probs.mean(dim=0)  # (num_classes,)
         log_avg_probs = torch.log(avg_probs + 1e-12)
         entropy = -torch.sum(avg_probs * log_avg_probs)  # scalar
-        return -entropy  # negative entropy to maximize it
+        max_entropy = torch.log(torch.tensor(avg_probs.size(0), dtype=avg_probs.dtype, device=avg_probs.device))
+        return max_entropy - entropy  # always positive, minimizing this maximizes entropy
 
 
 class PermutaionMatrixLoss(torch.nn.Module):
