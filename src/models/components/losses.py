@@ -1,5 +1,5 @@
 import torch
-from torch.nn import MSELoss
+from torch.nn import MSELoss, L1Loss, CosineSimilarity
 import torch.nn.functional as F
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from typing import Dict, Any
@@ -28,6 +28,83 @@ class GraphReconstructionLoss(torch.nn.Module):
 
         # Return the loss dictionary
         loss = {"node_loss": node_loss, "loss": node_loss}
+        return loss
+
+
+class MAELoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.node_loss = L1Loss()  # BCEWithLogitsLoss() #MSE
+
+    def forward(
+        self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch
+    ) -> torch.Tensor:
+        # Use the mask to identify valid nodes
+        device = graph_pred.node_features.device
+        mask = graph_true.mask
+        mask = mask.to(device)
+        # Extract the node features for the true and predicted graphs, filtered
+        # by the mask
+        nodes_true = graph_true.node_features.to(device)
+        nodes_true = nodes_true[mask]
+        nodes_pred = graph_pred.node_features[mask]
+
+        # Compute the node-based loss
+        loss = self.node_loss(input=nodes_pred, target=nodes_true)
+
+        return loss
+
+
+class CosineSimilarityLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.node_loss = CosineSimilarity()
+
+    def forward(
+        self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch
+    ) -> torch.Tensor:
+        # Use the mask to identify valid nodes
+        device = graph_pred.node_features.device
+        mask = graph_true.mask
+        mask = mask.to(device)
+        # Extract the node features for the true and predicted graphs, filtered
+        # by the mask
+        nodes_true = graph_true.node_features.to(device)
+        nodes_true = nodes_true[mask]
+        nodes_pred = graph_pred.node_features[mask]
+
+        # Compute the node-based loss
+        loss = self.node_loss(nodes_pred.flatten(1), nodes_true.flatten(1)).mean()
+
+        return loss
+
+
+class SignalToNoiseRatioLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(
+        self,
+        graph_true: DenseGraphBatch,
+        graph_pred: DenseGraphBatch,
+        eps: float = 1e-8,
+    ) -> torch.Tensor:
+        # Use the mask to identify valid nodes
+        device = graph_pred.node_features.device
+        mask = graph_true.mask
+        mask = mask.to(device)
+        # Extract the node features for the true and predicted graphs, filtered
+        # by the mask
+        nodes_true = graph_true.node_features.to(device)
+        nodes_true = nodes_true[mask]
+        nodes_pred = graph_pred.node_features[mask]
+
+        # Compute the node-based loss
+        signal_power = torch.mean(nodes_true**2)
+        noise_power = torch.mean((nodes_pred - nodes_true) ** 2)
+
+        loss = 10 * torch.log10(signal_power / (noise_power + eps))
+
         return loss
 
 
@@ -126,8 +203,14 @@ class PermutationLoss(torch.nn.Module):
         avg_probs = probs.mean(dim=0)  # (num_classes,)
         log_avg_probs = torch.log(avg_probs + 1e-12)
         entropy = -torch.sum(avg_probs * log_avg_probs)  # scalar
-        max_entropy = torch.log(torch.tensor(avg_probs.size(0), dtype=avg_probs.dtype, device=avg_probs.device))
-        return max_entropy - entropy  # always positive, minimizing this maximizes entropy
+        max_entropy = torch.log(
+            torch.tensor(
+                avg_probs.size(0), dtype=avg_probs.dtype, device=avg_probs.device
+            )
+        )
+        return (
+            max_entropy - entropy
+        )  # always positive, minimizing this maximizes entropy
 
 
 class PermutaionMatrixLoss(torch.nn.Module):

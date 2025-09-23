@@ -3,6 +3,9 @@ from src.models.components.losses import (
     GraphReconstructionLoss,
     KLDLoss,
     PermutationLoss,
+    MAELoss,
+    CosineSimilarityLoss,
+    SignalToNoiseRatioLoss,
 )
 from omegaconf import DictConfig
 from src.data.components.graphs_datamodules import DenseGraphBatch
@@ -28,6 +31,9 @@ class Critic(torch.nn.Module):
         # )
         self.kld_loss = KLDLoss()
         self.permutation_loss = PermutationLoss()
+        self.mae_loss = MAELoss()
+        self.cosine_similarity_loss = CosineSimilarityLoss()
+        self.signal_to_noise_ratio_loss = SignalToNoiseRatioLoss()
 
     def forward(
         self,
@@ -47,10 +53,22 @@ class Critic(torch.nn.Module):
         permutation_loss = self.permutation_loss(
             soft_probs if soft_probs is not None else perm
         )
+
+        mae_loss = self.mae_loss(graph_true=graph_true, graph_pred=graph_pred)
+        cosine_similarity_loss = self.cosine_similarity_loss(
+            graph_true=graph_true, graph_pred=graph_pred
+        )
+        signal_to_noise_ratio_loss = self.signal_to_noise_ratio_loss(
+            graph_true=graph_true, graph_pred=graph_pred
+        )
+
         loss = {
             **recon_loss,
             # "contrastive_loss": contrastive_loss,
             "permutation_loss": permutation_loss,
+            "mae_loss": mae_loss,
+            "cosine_similarity_loss": cosine_similarity_loss,
+            "signal_to_noise_ratio_loss": signal_to_noise_ratio_loss,
         }
         loss["loss"] = (
             loss["loss"] + beta * permutation_loss  # + self.gamma * contrastive_loss

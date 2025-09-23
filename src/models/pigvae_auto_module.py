@@ -6,6 +6,7 @@ import lightning as L
 import matplotlib.pyplot as plt
 from collections import Counter
 from src.models.components.warmups import get_cosine_schedule_with_warmup
+from torch.optim.lr_scheduler import OneCycleLR
 import src.models.components.plot as pL
 
 import src.models.components.metrics.recontructions as R
@@ -426,17 +427,33 @@ class PLGraphAE(L.LightningModule):
         # Calculate total training steps based on the actual number of batches
         # This is more accurate than using a fixed DATASET_LEN
         num_training_steps = self.trainer.estimated_stepping_batches
-        num_warmup_steps = int(
-            self.hparams.scheduler.warmup * num_training_steps
-        )  # 10% warmup is a common choice
+        scheduler_type = getattr(self.hparams.scheduler, "type", "cosine_warmup")
 
-        lr_scheduler = get_cosine_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=num_warmup_steps,
-            num_training_steps=num_training_steps,
-        )
+        if scheduler_type == "one_cycle":
+            lr_scheduler = OneCycleLR(
+                optimizer,
+                max_lr=self.hparams.scheduler.max_lr,
+                total_steps=num_training_steps,
+                pct_start=self.hparams.scheduler.warmup,
+                div_factor=self.hparams.scheduler.div_factor,
+                final_div_factor=self.hparams.scheduler.final_div_factor,
+                anneal_strategy="cos",
+            )
+
+            scheduler = {"scheduler": lr_scheduler, "interval": "step", "frequency": 1, "name": "OneCycleLR"}
+
+        else:
+            num_warmup_steps = int(
+                self.hparams.scheduler.warmup * num_training_steps
+            )  # 10% warmup is a common choice
+
+            lr_scheduler = get_cosine_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=num_warmup_steps,
+                num_training_steps=num_training_steps,
+            )
         # Step scheduler every batch
-        scheduler = {"scheduler": lr_scheduler, "interval": "step", "frequency": 1}
+            scheduler = {"scheduler": lr_scheduler, "interval": "step", "frequency": 1, "name": "CosineWarmupLR"}
         return [optimizer], [scheduler]
 
     def optimizer_step(

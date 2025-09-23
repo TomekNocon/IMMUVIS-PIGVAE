@@ -287,7 +287,7 @@ def plot_feature_map(features: torch.Tensor, num_example: int) -> List[figure.Fi
                 data_slice = tensor_data[img_idx, trans_idx, channel, :, :]
 
                 # Create heatmap
-                im = ax.imshow(data_slice, cmap="plasma", aspect="equal")
+                im = ax.imshow(data_slice, cmap="seismic", aspect="equal")
 
                 # Remove ticks
                 ax.set_xticks([])
