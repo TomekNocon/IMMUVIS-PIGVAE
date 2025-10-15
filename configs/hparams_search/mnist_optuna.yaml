@@ -27,7 +27,7 @@ hydra:
     study_name: null
 
     # number of parallel workers
-    n_jobs: 7
+    n_jobs: 1
 
     # 'minimize' or 'maximize' the objective
     direction: minimize
@@ -48,14 +48,14 @@ hydra:
       model.optimizer.lr: interval(0.0001, 0.01)
       data.hparams.batch_size: choice(8)  # Added more options for meaningful optimization
       model.graph_ae.hparams.input_size: choice(512)
-      model.graph_ae.hparams.num_layers: choice(4, 6, 8)
+      model.graph_ae.hparams.num_layers: choice(4, 6)
       model.graph_ae.hparams.num_heads: choice(4, 8, 16)
-      model.graph_ae.hparams.emb_dim: choice(128, 256, 512)
+      model.graph_ae.hparams.emb_dim: choice(512, 1024)
       model.temperature_scheduler.hparams.initial_tau: interval(0.5, 1.0)
       model.temperature_scheduler.hparams.final_tau: interval(0.05, 0.2)
       model.entropy_weight_scheduler.hparams.initial_weight: interval(0.2, 0.5)
       model.entropy_weight_scheduler.hparams.final_weight:  interval(0.01, 0.1)  # Fixed reference
-      model.critic.hparams.kld_loss_scale: interval(0.0001, 0.01)
+      model.critic.hparams.kld_loss_scale: interval(0.00001, 0.01)
       model.critic.hparams.perm_loss_scale: interval(0.0001, 0.9)
       model.critic.hparams.contrastive_loss_scale: interval(0.001, 0.07)
       model.critic.hparams.temperature: interval(0.5, 0.7)

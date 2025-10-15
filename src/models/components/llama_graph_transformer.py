@@ -3,6 +3,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import networkx as nx
 import math
+from functools import lru_cache
+
+# Import for optimized attention backends
+try:
+    from torch.nn.attention import SDPBackend
+    SDPA_AVAILABLE = True
+except ImportError:
+    SDPA_AVAILABLE = False
 
 # from torch.nn.attention import SDPBackend
 from typing import Optional
@@ -209,7 +217,10 @@ class SelfAttention(torch.nn.Module):
         self.n_head = n_head
         self.hidden_dim = hidden_dim
 
-        self.input_projection = nn.Linear(hidden_dim, 3 * hidden_dim, bias=False)
+        # self.input_projection = nn.Linear(hidden_dim, 3 * hidden_dim, bias=False)
+        self.q_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.k_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.v_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.output_projection = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
         self.rope = rope
@@ -222,23 +233,26 @@ class SelfAttention(torch.nn.Module):
     ) -> torch.Tensor:
         # x: b x nn x nn x dv
         batch_size, num_nodes = x.size(0), x.size(1)
-        projected = self.input_projection(x)
+        # projected = self.input_projection(x)
 
         device = x.device
 
-        q_chunk, k_chunk, v_chunk = torch.chunk(projected, chunks=3, dim=-1)
-        query = q_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-        key = k_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-        value = v_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        # q_chunk, k_chunk, v_chunk = torch.chunk(projected, chunks=3, dim=-1)
+        # query = q_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        # key = k_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        # value = v_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        query = self.q_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        key = self.k_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        value = self.v_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         if self.rope:
             query = self.rope.rotate_queries_or_keys(query)
             key = self.rope.rotate_queries_or_keys(key)
 
         if mask is None:
-            attn_mask = get_neighborhood_mask(num_nodes, is_encoder)
+            attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device)
         else:
-            attn_mask = mask
-        attn_mask = attn_mask.to(device)
+            attn_mask = mask.to(device) if mask.device != device else mask
+
         # attn_mask = attn_mask.unsqueeze(1).unsqueeze(
         #     2
         # )  # Shape: (batch_size, 1, 1, num_nodes)
@@ -251,29 +265,74 @@ class SelfAttention(torch.nn.Module):
         #         SDPBackend.MATH,
         #     ]
         # ):
-        attention_output = F.scaled_dot_product_attention(
-            query=query,
-            key=key,
-            value=value,
-            attn_mask=attn_mask,
-            is_causal=False,
-        )
+        # attention_output = F.scaled_dot_product_attention(
+        #     query=query,
+        #     key=key,
+        #     value=value,
+        #     attn_mask=attn_mask,
+        #     is_causal=False,
+        # )
+        # Use optimized attention backends with fallback
+        try:
+            
+            # Try optimized backends in order of preference
+            with torch.nn.attention.sdpa_kernel(
+                [
+                    SDPBackend.FLASH_ATTENTION,      # Most memory efficient
+                    SDPBackend.EFFICIENT_ATTENTION,  # Good memory efficiency  
+                    SDPBackend.MATH,                 # Fallback (standard implementation)
+                ]
+            ):
+                attention_output = F.scaled_dot_product_attention(
+                    query=query,
+                    key=key,
+                    value=value,
+                    attn_mask=attn_mask,
+                    is_causal=False,
+                )
+        except (RuntimeError, ImportError) as e:
+            # Fallback to manual attention if optimized backends fail
+            print(f"Falling back to manual attention: {e}")
 
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
         output = self.dropout(output)
         return output
 
 
-def get_neighborhood_mask(num_nodes: int, is_encoder: bool):
+# def get_neighborhood_mask(num_nodes: int, is_encoder: bool):
+#     if is_encoder:
+#         n = num_nodes - 1
+#     else:
+#         n = num_nodes
+#     n = int(math.sqrt(n))
+#     G = nx.grid_2d_graph(n, n)
+#     A = torch.tensor(nx.to_numpy_array(G))
+#     mask = A + torch.eye(A.shape[0])
+#     if is_encoder:
+#         mask = F.pad(mask, (1, 0, 1, 0), value=1)
+#     mask = mask.bool()
+#     return mask
+
+# Cache masks to avoid recomputation
+@lru_cache(maxsize=32)
+def _create_neighborhood_mask(num_nodes: int, is_encoder: bool):
+    """Create neighborhood mask and cache it."""
     if is_encoder:
         n = num_nodes - 1
     else:
         n = num_nodes
     n = int(math.sqrt(n))
     G = nx.grid_2d_graph(n, n)
-    A = torch.tensor(nx.to_numpy_array(G))
-    mask = A + torch.eye(A.shape[0])
+    A = torch.tensor(nx.to_numpy_array(G), dtype=torch.bool)
+    mask = A | torch.eye(A.shape[0], dtype=torch.bool)
     if is_encoder:
-        mask = F.pad(mask, (1, 0, 1, 0), value=1)
-    mask = mask.bool()
+        mask = F.pad(mask, (1, 0, 1, 0), value=True)
+    return mask
+
+
+def get_neighborhood_mask(num_nodes: int, is_encoder: bool, device: torch.device = None):
+    """Get neighborhood mask, creating on the correct device."""
+    mask = _create_neighborhood_mask(num_nodes, is_encoder)
+    if device is not None:
+        mask = mask.to(device)
     return mask

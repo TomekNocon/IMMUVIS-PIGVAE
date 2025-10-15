@@ -6,22 +6,43 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 import torchvision.transforms as T
 import networkx as nx
+import h5py
 
+# class PickleDataset(Dataset):
+#     def __init__(self, pickle_path, transform=None):
+#         self.transform = transform
+#         with open(pickle_path, "rb") as f:
+#             self.data = pickle.load(f)
+
+#     def __len__(self):
+#         return len(self.data)
+
+#     def __getitem__(self, idx):
+#         x = self.data[idx]
+#         if self.transform:
+#             x = self.transform(x)
+#         return x
 
 class PickleDataset(Dataset):
-    def __init__(self, pickle_path, transform=None):
+    def __init__(self, hdf5_path, transform=None):
+        self.hdf5_path = hdf5_path
         self.transform = transform
-        with open(pickle_path, "rb") as f:
-            self.data = pickle.load(f)
-
+        
+        # Only open to get length
+        with h5py.File(hdf5_path, 'r') as f:
+            self._length = len(f[list(f.keys())[0]])
+    
     def __len__(self):
-        return len(self.data)
-
+        return self._length
+    
     def __getitem__(self, idx):
-        x = self.data[idx]
+        with h5py.File(self.hdf5_path, 'r') as f:
+            # Load only the item at index idx
+            item = {key: f[key][idx] for key in f.keys()}
+        
         if self.transform:
-            x = self.transform(x)
-        return x
+            item = self.transform(item)
+        return item
 
 
 class PatchAugmentations(nn.Module):
@@ -58,7 +79,8 @@ class PatchAugmentations(nn.Module):
             if transform_key == "img_path":
                 continue
 
-            transformed_grid = self.apply_transform(grid, transform_key)
+            # transformed_grid = self.apply_transform(grid, transform_key)
+            transformed_grid = grid
             flat_idx = transformed_grid.flatten()
 
             aug_list.append(patch_embedding)  # or patch_embedding if already Tensor
@@ -93,7 +115,7 @@ class PatchAugmentations(nn.Module):
 
         # Apply rotation
         k = angle // 90
-        out = torch.rot90(grid, k=k, dims=[0, 1]) if k > 0 else grid
+        out = torch.rot90(grid, k=-k, dims=[0, 1]) if k > 0 else grid
 
         # Apply flip
         if flip:
@@ -184,6 +206,7 @@ class GridGraphDataset(Dataset):
         g = nx.grid_graph((self.grid_size, self.grid_size))
         augmented, argsort_augmented, perm = self.dataset[idx]
         augmented = augmented.to(torch.float32)
+        augmented = augmented[:, : , self.channels]
         target = -1
         return (g, augmented, argsort_augmented, perm, target)
 

@@ -1,0 +1,7 @@
+gradient_accumulation_scheduler:
+  _target_: lightning.pytorch.callbacks.GradientAccumulationScheduler
+  scheduling:
+    0: 2   # Start small for memory - accumulate 2 batches for epochs 0-9
+    10: 4  # Increase to 4 batches for epochs 10-19
+    20: 8  # Further increase to 8 batches for epochs 20+
+    50: 16 # Maximum accumulation for later epochs

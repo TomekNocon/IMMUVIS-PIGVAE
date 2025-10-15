@@ -4,6 +4,7 @@ defaults:
   - model_summary
   - rich_progress_bar
   - learning_rate
+  - gradient_accumulation_scheduler
   # - interpretability
   - _self_
 
@@ -17,7 +18,7 @@ model_checkpoint:
 
 early_stopping:
   monitor: "val_loss"
-  patience: 50
+  patience: 100
   mode: "min"
   check_finite: True
   # min_delta: 0.01

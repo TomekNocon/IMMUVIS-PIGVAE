@@ -141,7 +141,7 @@ class PLGraphAE(L.LightningModule):
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph, training=True, tau=tau
         )
-
+       
         if perm is not None:
             self.perms.append(perm)
         outputs = {
@@ -235,23 +235,33 @@ class PLGraphAE(L.LightningModule):
         restore_subset_predictions = torch.stack(
             [img[arg, :] for img, arg in zip(subset_predictions, subset_argsort)], dim=0
         )
-
+       
         restore_subset_ground_truths = torch.stack(
             [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
             dim=0,
         )
         subset_batch_size = subset_predictions.shape[0]
-        pred_imgs = restore_subset_predictions.detach().cpu().squeeze()
-        ground_truth_imgs = restore_subset_ground_truths.detach().cpu().squeeze()
+        pred_imgs = restore_subset_predictions.detach().cpu()#.squeeze()
+        ground_truth_imgs = restore_subset_ground_truths.detach().cpu()#.squeeze()
 
         diff = pred_imgs - ground_truth_imgs
 
         # pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
 
+        # Calculate shared color scale for predictions and ground truth
+        pred_min, pred_max = pred_imgs.min().item(), pred_imgs.max().item()
+        gt_min, gt_max = ground_truth_imgs.min().item(), ground_truth_imgs.max().item()
+        vmin = min(pred_min, gt_min)
+        vmax = max(pred_max, gt_max)
+        
+        # For diff, use symmetric scale around zero
+        diff_abs_max = diff.abs().max().item()
+        diff_vmin, diff_vmax = -diff_abs_max, diff_abs_max
+
         mse = R.mse_per_transform(ground_truth_imgs, pred_imgs, n_examples, 8)
-        fig_prediction = pL.plot_feature_map(pred_imgs, n_examples)
-        fig_ground_truth = pL.plot_feature_map(ground_truth_imgs, n_examples)
-        fig_diff = pL.plot_feature_map(diff, n_examples)
+        fig_prediction = pL.plot_feature_map(pred_imgs, n_examples, vmin=vmin, vmax=vmax)
+        fig_ground_truth = pL.plot_feature_map(ground_truth_imgs, n_examples, vmin=vmin, vmax=vmax)
+        fig_diff = pL.plot_feature_map(diff, n_examples, vmin=diff_vmin, vmax=diff_vmax)
         fig_perms = pL.plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
         # fig_pca = pL.plot_pca(
         #     pca_predictions, subset_targets, n_rows=n_examples, n_cols=8

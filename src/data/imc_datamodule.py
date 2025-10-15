@@ -120,8 +120,8 @@ class IMCDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        train_path = Path(self.data_dir) / "IMC-sample" / "test.pkl"
-        test_path = Path(self.data_dir) / "IMC-sample" / "test.pkl"
+        train_path = Path(self.data_dir) / "IMC-sample" / "test.h5"
+        test_path = Path(self.data_dir) / "IMC-sample" / "test.h5"
         if not train_path.exists() or not test_path.exists():
             raise FileNotFoundError(f"Expected dataset at {train_path} and {test_path}")
 
@@ -146,8 +146,8 @@ class IMCDataModule(LightningDataModule):
 
         # load and split datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
-            train_path = Path(self.data_dir) / "IMC-sample" / "train.pkl"
-            test_path = Path(self.data_dir) / "IMC-sample" / "test.pkl"
+            train_path = Path(self.data_dir) / "IMC-sample" / "train.h5"
+            test_path = Path(self.data_dir) / "IMC-sample" / "test.h5"
             trainset = PickleDataset(train_path, transform=self.dual_transforms_train)
             testset = PickleDataset(test_path, transform=self.dual_transforms_val)
             train_ratio, val_ratio, test_ratio, leftover_ratio = (

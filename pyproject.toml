@@ -24,4 +24,5 @@ dependencies = [
     "einops>=0.8.1",
     "ruff>=0.12.2",
     "ipykernel>=6.29.5",
+    "h5py>=3.14.0",
 ]
