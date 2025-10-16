@@ -4,7 +4,7 @@ import torch
 from omegaconf import DictConfig
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset, random_split
-from torchvision.datasets import MNIST
+from torchvision.datasets import FashionMNIST
 from torchvision.transforms import transforms
 from src.data.components.graphs_datamodules import (
     SplitPatches,
@@ -16,14 +16,13 @@ from src.data.components.graphs_datamodules import (
 
 
 class MNISTDataModule(LightningDataModule):
-    """`LightningDataModule` for the MNIST dataset.
+    """`LightningDataModule` for the Fashion-MNIST dataset.
 
-    The MNIST database of handwritten digits has a training set of 60,000 examples, and a test set of 10,000 examples.
-    It is a subset of a larger set available from NIST. The digits have been size-normalized and centered in a
-    fixed-size image. The original black and white images from NIST were size normalized to fit in a 20x20 pixel box
-    while preserving their aspect ratio. The resulting images contain grey levels as a result of the anti-aliasing
-    technique used by the normalization algorithm. the images were centered in a 28x28 image by computing the center of
-    mass of the pixels, and translating the image so as to position this point at the center of the 28x28 field.
+    Fashion-MNIST is a dataset of Zalando's article images consisting of a training set of 60,000 examples and 
+    a test set of 10,000 examples. Each example is a 28x28 grayscale image, associated with a label from 10 classes:
+    T-shirt/top, Trouser, Pullover, Dress, Coat, Sandal, Shirt, Sneaker, Bag, and Ankle boot.
+    Fashion-MNIST is intended to serve as a direct drop-in replacement for the original MNIST dataset for 
+    benchmarking machine learning algorithms.
 
     A `LightningDataModule` implements 7 key methods:
 
@@ -78,7 +77,7 @@ class MNISTDataModule(LightningDataModule):
         self.base_transforms = transforms.Compose(
             [
                 transforms.ToTensor(),
-                transforms.Normalize((0.1307,), (0.3081,)),
+                transforms.Normalize((0.2860,), (0.3530,)),
                 transforms.Resize((hparams.size, hparams.size)),
                 add_channel,
                 SplitPatches(hparams.patch_size),
@@ -123,7 +122,7 @@ class MNISTDataModule(LightningDataModule):
     def num_classes(self) -> int:
         """Get the number of classes.
 
-        :return: The number of MNIST classes (10).
+        :return: The number of Fashion-MNIST classes (10).
         """
         return 10
 
@@ -135,8 +134,8 @@ class MNISTDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        MNIST(self.data_dir, train=True, download=True)
-        MNIST(self.data_dir, train=False, download=True)
+        FashionMNIST(self.data_dir, train=True, download=True)
+        FashionMNIST(self.data_dir, train=False, download=True)
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -159,10 +158,10 @@ class MNISTDataModule(LightningDataModule):
 
         # load and split datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
-            trainset = MNIST(
+            trainset = FashionMNIST(
                 self.data_dir, train=True, transform=self.dual_transforms_train
             )
-            testset = MNIST(
+            testset = FashionMNIST(
                 self.data_dir, train=False, transform=self.dual_transforms_val
             )
             train_ratio, val_ratio, test_ratio, leftover_ratio = (
