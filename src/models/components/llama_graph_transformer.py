@@ -251,30 +251,8 @@ class SelfAttention(torch.nn.Module):
         if mask is None:
             attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device)
         else:
-            attn_mask = mask.to(device) if mask.device != device else mask
-
-        # attn_mask = attn_mask.unsqueeze(1).unsqueeze(
-        #     2
-        # )  # Shape: (batch_size, 1, 1, num_nodes)
-        # attn_mask = attn_mask.expand(-1, self.n_head, num_nodes, -1)
-
-        # with torch.nn.attention.sdpa_kernel(
-        #     [
-        #         SDPBackend.FLASH_ATTENTION,
-        #         SDPBackend.EFFICIENT_ATTENTION,
-        #         SDPBackend.MATH,
-        #     ]
-        # ):
-        # attention_output = F.scaled_dot_product_attention(
-        #     query=query,
-        #     key=key,
-        #     value=value,
-        #     attn_mask=attn_mask,
-        #     is_causal=False,
-        # )
-        # Use optimized attention backends with fallback
+            attn_mask = get_full_mask(mask, is_encoder, device)
         try:
-            
             # Try optimized backends in order of preference
             with torch.nn.attention.sdpa_kernel(
                 [
@@ -298,21 +276,6 @@ class SelfAttention(torch.nn.Module):
         output = self.dropout(output)
         return output
 
-
-# def get_neighborhood_mask(num_nodes: int, is_encoder: bool):
-#     if is_encoder:
-#         n = num_nodes - 1
-#     else:
-#         n = num_nodes
-#     n = int(math.sqrt(n))
-#     G = nx.grid_2d_graph(n, n)
-#     A = torch.tensor(nx.to_numpy_array(G))
-#     mask = A + torch.eye(A.shape[0])
-#     if is_encoder:
-#         mask = F.pad(mask, (1, 0, 1, 0), value=1)
-#     mask = mask.bool()
-#     return mask
-
 # Cache masks to avoid recomputation
 @lru_cache(maxsize=32)
 def _create_neighborhood_mask(num_nodes: int, is_encoder: bool):
@@ -329,10 +292,36 @@ def _create_neighborhood_mask(num_nodes: int, is_encoder: bool):
         mask = F.pad(mask, (1, 0, 1, 0), value=True)
     return mask
 
-
 def get_neighborhood_mask(num_nodes: int, is_encoder: bool, device: torch.device = None):
     """Get neighborhood mask, creating on the correct device."""
     mask = _create_neighborhood_mask(num_nodes, is_encoder)
     if device is not None:
         mask = mask.to(device)
     return mask
+
+
+def get_full_mask(mask: torch.Tensor, is_encoder: bool, device: torch.device = None):
+    """
+    Create full attention mask where all nodes can attend to all nodes.
+    Returns shape (num_nodes, num_nodes) for broadcasting across batch.
+    """
+    # Get number of nodes from the mask
+    if mask.dim() == 2:  # Shape: (batch_size, num_nodes)
+        num_nodes = mask.size(1)
+    elif mask.dim() == 3:  # Shape: (batch_size, num_nodes, num_nodes)
+        num_nodes = mask.size(1)
+    else:
+        raise ValueError(f"Mask should be 2D or 3D, got shape {mask.shape}")
+    
+    # Add 1 for CLS token if encoder
+    if is_encoder:
+        num_nodes = num_nodes + 1
+    
+    # Create full attention mask (all True) - shape (num_nodes, num_nodes)
+    attn_mask = torch.ones(num_nodes, num_nodes, dtype=torch.bool)
+    
+    # Move to correct device
+    if device is not None:
+        attn_mask = attn_mask.to(device)
+    
+    return attn_mask

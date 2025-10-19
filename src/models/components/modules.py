@@ -183,10 +183,10 @@ class GraphDecoder(torch.nn.Module):
         # This is more memory-friendly than expand() which creates views
         x = graph_emb.unsqueeze(1).repeat(1, num_nodes, 1)  # Explicit copy instead of view
         
-        # Get positional embeddings
+        # Get positional embeddings and permute them based on predicted permutation
         pos_emb = self.positional_embedding(batch_size, num_nodes)
         if perm is not None:
-            # MEMORY OPTIMIZATION: Use in-place operation where possible
+            # Permute positional embeddings: tells each position which node to reconstruct
             pos_emb = torch.matmul(perm, pos_emb)
 
         # Add positional embeddings
@@ -219,7 +219,7 @@ class GraphDecoder(torch.nn.Module):
         self, graph_emb: torch.Tensor, perm: torch.Tensor, mask: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
-        x = self.graph_transformer(x, mask=None, is_encoder=False)
+        x = self.graph_transformer(x, mask=mask, is_encoder=False)
         node_features, edge_features = self.read_out_message_matrix(x)
         return node_features, edge_features
 
@@ -471,7 +471,6 @@ class SimplePermuter(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=2,
             dropout=hparams.dropout,
-            rope=LLamaRotaryEmbedding(hparams.head_dim)
         )
         self.perm_node = nn.Parameter(
             torch.randn(1, 1, hparams.graph_decoder_hidden_dim)
@@ -520,10 +519,10 @@ class SimplePermuter(torch.nn.Module):
         node_features = self.spectral_embeddings(node_features)
         cls_tokens = self.perm_node.expand(batch_size * 8, -1, -1)
         node_features = torch.cat([cls_tokens, node_features], dim=1)
-        
         # Use gradient checkpointing for transformer
+
         node_features = self.graph_transformer(
-            node_features, mask=None, is_encoder=True
+            node_features, mask=mask, is_encoder=True
         )
         
         # Score each permutation option
@@ -553,6 +552,7 @@ class SimplePermuter(torch.nn.Module):
         batch_size = probs.shape[0]
         n = self.grid_size
         n_nodes = n * n
+
         
         # Initialize result
         perm = torch.zeros(batch_size, n_nodes, n_nodes, device=device, dtype=probs.dtype)

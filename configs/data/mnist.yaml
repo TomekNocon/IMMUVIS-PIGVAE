@@ -5,8 +5,8 @@ hparams:
   train_val_test_split: [32, 16, 16, 8]
   num_workers: 7
   pin_memory: False
-  grid_size: 13
-  size: 13
+  grid_size: 6
+  size: 6
   patch_size: 1
   augmentation_prob: 1.0
   is_contrastive: True

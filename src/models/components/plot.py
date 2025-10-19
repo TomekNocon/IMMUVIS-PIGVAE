@@ -289,7 +289,7 @@ def plot_feature_map(features: torch.Tensor, num_example: int, vmin: float = Non
         if vmax is None:
             vmax = tensor_data[:, :, channel, :, :].max().item()
 
-        for img_idx in range(4):  # 4 images
+        for img_idx in range(num_example):  # 4 images
             for trans_idx in range(8):  # 8 transformations
                 ax = fig.add_subplot(gs[img_idx, trans_idx])
 

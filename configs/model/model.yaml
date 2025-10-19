@@ -18,7 +18,7 @@ graph_ae:
       graph_encoder_num_layers: ${model.graph_ae.hparams.num_layers}
       emb_dim: ${model.graph_ae.hparams.emb_dim}
       dropout: ${model.graph_ae.hparams.dropout}
-      grid_size: 13
+      grid_size: 6
       project: True
 
     decoder:
@@ -29,7 +29,7 @@ graph_ae:
       graph_decoder_num_layers: ${model.graph_ae.hparams.num_layers}
       dropout: ${model.graph_ae.hparams.dropout}
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
-      num_embeddings: 786 # not use if is_rope is True
+      num_embeddings: 170 # not use if is_rope is True
       num_node_features: 1
       num_edge_features: 0
       project: True
@@ -56,7 +56,7 @@ graph_ae:
       graph_decoder_ppf_hidden_dim: ${multiply:${model.graph_ae.hparams.input_size},4}
       dropout: ${model.graph_ae.hparams.dropout}
       num_permutations: ${data.hparams.num_aug_per_sample}
-      grid_size: 13
+      grid_size: 6
       break_symmetry_scale: 0.05
       emb_dim: ${model.graph_ae.hparams.emb_dim}
       turn_off: False

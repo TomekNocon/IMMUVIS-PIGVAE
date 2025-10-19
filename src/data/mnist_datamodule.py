@@ -161,7 +161,7 @@ class MNISTDataModule(LightningDataModule):
         if not self.data_train and not self.data_val and not self.data_test:
             trainset = MNIST(
                 self.data_dir, train=True, transform=self.dual_transforms_train
-            )
+            testset = MNIST(
             testset = MNIST(
                 self.data_dir, train=False, transform=self.dual_transforms_val
             )

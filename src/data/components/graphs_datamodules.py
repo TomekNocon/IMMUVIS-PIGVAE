@@ -115,7 +115,7 @@ class PatchAugmentations(nn.Module):
 
         # Apply rotation
         k = angle // 90
-        out = torch.rot90(grid, k=-k, dims=[0, 1]) if k > 0 else grid
+        out = torch.rot90(grid, k=k, dims=[0, 1]) if k > 0 else grid
 
         # Apply flip
         if flip:
@@ -125,9 +125,10 @@ class PatchAugmentations(nn.Module):
 
 
 class IMCBaseDictTransform(nn.Module):
-    def __init__(self, exclude_metadata: Optional[List[str]] = ["img_path"]):
+    def __init__(self, exclude_metadata: Optional[List[str]] = ["img_path"], apply_center_crop: bool = True):
         super().__init__()  # numpy -> tensor (HWC -> CHW)
         self.exclude_metadata = exclude_metadata
+        self.apply_center_crop = apply_center_crop
 
     def forward(self, embeddings: dict) -> dict:
         for key, embedding in embeddings.items():
@@ -136,8 +137,15 @@ class IMCBaseDictTransform(nn.Module):
                 and key not in self.exclude_metadata
             ):
                 embedding = torch.from_numpy(embedding)
-                c, _, _ = embedding.shape
-                embedding = embedding.view(c, -1).T
+                c, h, w = embedding.shape
+                
+                # Apply center crop if enabled
+                if self.apply_center_crop:
+                    center_crop = T.CenterCrop((h // 2, w // 2))
+                    embedding = center_crop(embedding)
+                    c, h, w = embedding.shape  # Update dimensions after crop
+                
+                embedding = embedding.reshape(c, -1).T
 
             embeddings[key] = embedding
         return embeddings
