@@ -6,18 +6,31 @@ from typing import Dict, Any
 
 
 class GraphReconstructionLoss(torch.nn.Module):
-    def __init__(self, use_gradient_loss: bool = False, gradient_loss_weight: float = 0.1):
+    def __init__(
+        self, 
+        use_gradient_loss: bool = False, 
+        gradient_loss_weight: float = 0.1,
+        use_cosine_loss: bool = True,
+        cosine_loss_weight: float = 0.1
+    ):
         """
-        Reconstruction loss with optional gradient/detail preservation.
+        Reconstruction loss with optional gradient/detail preservation and cosine similarity.
         
         Args:
             use_gradient_loss: If True, adds gradient-based loss to preserve details
             gradient_loss_weight: Weight for gradient loss term
+            use_cosine_loss: If True, adds cosine similarity to preserve feature directions
+            cosine_loss_weight: Weight for cosine similarity term (helps in feature space)
         """
         super().__init__()
-        self.node_loss = MSELoss()  # BCEWithLogitsLoss() #MSE
+        self.node_loss = MSELoss()  # Primary reconstruction loss
         self.use_gradient_loss = use_gradient_loss
         self.gradient_loss_weight = gradient_loss_weight
+        self.use_cosine_loss = use_cosine_loss
+        self.cosine_loss_weight = cosine_loss_weight
+        
+        if use_cosine_loss:
+            self.cosine_sim = CosineSimilarity(dim=-1)
 
     def forward(
         self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch
@@ -32,10 +45,21 @@ class GraphReconstructionLoss(torch.nn.Module):
         nodes_true = nodes_true[mask]
         nodes_pred = graph_pred.node_features[mask]
 
-        # Compute the node-based loss
+        # Compute the node-based loss (MSE)
         node_loss = self.node_loss(input=nodes_pred, target=nodes_true)
 
         total_loss = node_loss
+        loss_dict = {"node_loss": node_loss}
+        
+        # Add cosine similarity loss to preserve feature directions
+        # This is especially important for high-dimensional feature spaces
+        if self.use_cosine_loss:
+            # Cosine similarity per sample: shape [batch*nodes]
+            cosine_sim = self.cosine_sim(nodes_pred, nodes_true)
+            # Convert to loss: 1 - similarity
+            cosine_loss = 1.0 - cosine_sim.mean()
+            total_loss = total_loss + self.cosine_loss_weight * cosine_loss
+            loss_dict["cosine_loss"] = cosine_loss
         
         # Add gradient loss to preserve high-frequency details
         if self.use_gradient_loss:
@@ -62,19 +86,12 @@ class GraphReconstructionLoss(torch.nn.Module):
                     torch.mean(torch.abs(pred_grad_y - true_grad_y))
                 )
                 
-                total_loss = node_loss + self.gradient_loss_weight * gradient_loss
-                
-                # Return the loss dictionary
-                loss = {
-                    "node_loss": node_loss, 
-                    "gradient_loss": gradient_loss,
-                    "loss": total_loss
-                }
-                return loss
+                total_loss = total_loss + self.gradient_loss_weight * gradient_loss
+                loss_dict["gradient_loss"] = gradient_loss
 
-        # Return the loss dictionary (no gradient loss)
-        loss = {"node_loss": node_loss, "loss": total_loss}
-        return loss
+        # Return the complete loss dictionary
+        loss_dict["loss"] = total_loss
+        return loss_dict
 
 
 class MAELoss(torch.nn.Module):

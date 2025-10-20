@@ -1,7 +1,7 @@
 from __future__ import annotations
 import torch
 import pickle
-from typing import Optional, Callable, Union, Tuple, List
+from typing import Optional, Callable, Union, Tuple, List, Dict
 import torch.nn as nn
 from torch.utils.data import Dataset
 import torchvision.transforms as T
@@ -125,10 +125,30 @@ class PatchAugmentations(nn.Module):
 
 
 class IMCBaseDictTransform(nn.Module):
-    def __init__(self, exclude_metadata: Optional[List[str]] = ["img_path"], apply_center_crop: bool = True):
-        super().__init__()  # numpy -> tensor (HWC -> CHW)
+    def __init__(
+        self, 
+        exclude_metadata: Optional[List[str]] = ["img_path"], 
+        apply_center_crop: bool = True,
+        normalize: bool = True,
+        norm_type: str = "channel_wise"  # "channel_wise", "global", or "none"
+    ):
+        """
+        Transform for IMC embeddings with proper normalization.
+        
+        Args:
+            exclude_metadata: Keys to exclude from processing
+            apply_center_crop: Whether to apply center crop
+            normalize: Whether to normalize features
+            norm_type: Type of normalization:
+                - "channel_wise": Normalize each channel independently (recommended)
+                - "global": Normalize all features together
+                - "none": No normalization
+        """
+        super().__init__()
         self.exclude_metadata = exclude_metadata
         self.apply_center_crop = apply_center_crop
+        self.normalize = normalize
+        self.norm_type = norm_type
 
     def forward(self, embeddings: dict) -> dict:
         for key, embedding in embeddings.items():
@@ -145,10 +165,47 @@ class IMCBaseDictTransform(nn.Module):
                     embedding = center_crop(embedding)
                     c, h, w = embedding.shape  # Update dimensions after crop
                 
+                # CRITICAL FIX: Apply normalization BEFORE reshaping
+                if self.normalize:
+                    if self.norm_type == "channel_wise":
+                        # Normalize each channel independently (preserves relative structure)
+                        # Shape: [C, H, W]
+                        embedding = self._normalize_channel_wise(embedding)
+                    elif self.norm_type == "global":
+                        # Normalize all features together
+                        embedding = self._normalize_global(embedding)
+                
+                # Reshape to [N, C] where N = H*W
                 embedding = embedding.reshape(c, -1).T
 
             embeddings[key] = embedding
         return embeddings
+    
+    def _normalize_channel_wise(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Normalize each channel (feature dimension) independently.
+        This is critical for feature maps from encoders.
+        """
+        # x shape: [C, H, W]
+        eps = 1e-6
+        
+        # Compute mean and std per channel
+        mean = x.mean(dim=(1, 2), keepdim=True)  # [C, 1, 1]
+        std = x.std(dim=(1, 2), keepdim=True) + eps  # [C, 1, 1]
+        
+        # Standardize
+        x_norm = (x - mean) / std
+        
+        return x_norm
+    
+    def _normalize_global(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Normalize all features together.
+        """
+        eps = 1e-6
+        mean = x.mean()
+        std = x.std() + eps
+        return (x - mean) / std
 
 
 class DualOutputTransform:
