@@ -82,6 +82,9 @@ class GraphEncoder(torch.nn.Module):
                 hparams.num_node_features, hparams.graph_encoder_hidden_dim
             )
         self.project = hparams.project
+        
+        # Add feature normalization for IMC embeddings to handle scale differences
+        self.feature_norm = nn.LayerNorm(hparams.num_node_features if not hparams.project else hparams.graph_encoder_hidden_dim)
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_encoder_hidden_dim,
             num_heads=hparams.graph_encoder_num_heads,
@@ -134,6 +137,9 @@ class GraphEncoder(torch.nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.project:
             node_features = self.projection_in(node_features)
+            node_features = self.feature_norm(node_features)  # Normalize after projection
+        else:
+            node_features = self.feature_norm(node_features)  # Normalize raw features
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=None, is_encoder=True)
         graph_emb, node_features = self.read_out_message_matrix(x)

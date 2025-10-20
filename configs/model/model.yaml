@@ -6,7 +6,7 @@ graph_ae:
     input_size: 512 # 128
     num_heads: 4
     num_layers: 4
-    emb_dim: 1024
+    emb_dim: 2048  # Increased from 1024 for higher capacity with 512D features
     vae: true
     dropout: 0.1
     encoder:
@@ -63,7 +63,7 @@ graph_ae:
       use_ce: False
       use_context: False
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
-      n_components: 2
+      n_components: 16  # Increased from 2 to preserve more spatial information
 
 temperature_scheduler:
   _target_: "src.models.components.schedulers.TemperatureScheduler"
@@ -86,7 +86,7 @@ critic:
   _target_: "src.models.components.model.Critic"
   hparams:
     kld_loss_scale: 0.0001  # Reduced to preserve more detail (was 0.01)
-    kld_free_bits: 0.5  # Free bits to prevent posterior collapse (0.0 = disabled)
+    kld_free_bits: 8.0  # Increased for 512D feature space - prevents posterior collapse
     perm_loss_scale: 0.8
     contrastive_loss_scale: 0.01
     temperature: 0.07

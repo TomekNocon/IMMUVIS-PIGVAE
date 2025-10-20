@@ -24,12 +24,20 @@ class Critic(torch.nn.Module):
         # self.beta = hparams.perm_loss_scale
         # self.gamma = hparams.contrastive_loss_scale
         self.vae = hparams.vae
-        self.reconstruction_loss = GraphReconstructionLoss()
+        # Initialize reconstruction loss with gradient preservation for IMC features
+        self.reconstruction_loss = GraphReconstructionLoss(
+            use_gradient_loss=hparams.get('use_gradient_loss', True),
+            gradient_loss_weight=hparams.get('gradient_loss_weight', 0.5)
+        )
         # self.contrastive_loss = ContrastiveLoss(
         #     temperature=hparams.temperature,
         #     num_aug_per_sample=hparams.num_aug_per_sample,
         # )
-        self.kld_loss = KLDLoss()
+        # Initialize KLD loss with free bits to prevent posterior collapse
+        self.kld_loss = KLDLoss(
+            normalize_by_latent_dim=True,
+            free_bits=hparams.get('kld_free_bits', 0.0)
+        )
         self.permutation_loss = PermutationLoss()
         self.mae_loss = MAELoss()
         self.cosine_similarity_loss = CosineSimilarityLoss()
