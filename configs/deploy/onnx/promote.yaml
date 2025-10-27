@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - paths: default
+  - /hydra: default
+
+task_name: "promote_onnx"
+
+candidate: null  # e.g. entity/project/model-onnx:candidate
+entity: null
+project: PIGVAE
+production_name: model-onnx
+metric_key: mse
+mode: min
+

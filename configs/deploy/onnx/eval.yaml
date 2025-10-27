@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - /data: mnist
+  - /trainer: default
+  - /paths: default
+  - /extras: default
+  - /hydra: default
+
+task_name: "eval_onnx"
+
+onnx_path: null
+limit: 50
+

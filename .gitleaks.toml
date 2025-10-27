@@ -1,0 +1,13 @@
+# Minimal Gitleaks config: allow common false positives (tests, fixtures) and local data dirs
+
+title = "immuvis gitleaks config"
+
+[[rules.allowlist.paths]]
+description = "Ignore data and logs directories"
+regex = '''^(data/|logs/).*'''
+
+[[rules.allowlist.paths]]
+description = "Ignore test artifacts"
+regex = '''^(tests/.*\.(json|txt|md)|tests/fixtures/.*)'''
+
+

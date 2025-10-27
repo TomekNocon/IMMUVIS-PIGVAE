@@ -23,5 +23,50 @@ dependencies = [
     "plotly>=6.2.0",
     "einops>=0.8.1",
     "ruff>=0.12.2",
+    "mypy>=1.11.2",
     "ipykernel>=6.29.5",
+    "onnx>=1.19.1",
+    "onnxruntime>=1.23.2",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.format]
+preview = true
+quote-style = "double"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "S",   # bandit (security)
+    "C4",  # flake8-comprehensions
+    "PIE", # flake8-pie
+    "PERF",
+    "RUF",
+    "TID",
+    "ISC",
+    "COM",
+    "DTZ",
+]
+ignore = [
+    "E203",  # black/ruff formatting compatibility
+    "E501",  # handled by formatter; keep long lines when needed
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S301", "S403", "S404"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+check_untyped_defs = false
+no_implicit_optional = false
+disallow_untyped_defs = false

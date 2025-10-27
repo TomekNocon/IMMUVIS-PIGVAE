@@ -1,0 +1,31 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - /data: mnist
+  - /model: model
+  - /trainer: default
+  - /paths: default
+  - /extras: default
+  - /hydra: default
+
+task_name: "export_onnx"
+
+tags: ["onnx"]
+
+# Provide one of the two
+ckpt_path: null
+ckpt_artifact: null  # e.g. entity/project/model-ckpt:latest
+
+onnx_path: null  # defaults to ${paths.output_dir}/model.onnx
+
+wandb_log: false
+wandb_project: PIGVAE
+wandb_entity: tomeknocon
+onnx_artifact_name: model-onnx
+
+# Synthetic input overrides for ONNX tracing (optional)
+export_batch_size: 1
+export_grid_size: ${data.hparams.grid_size}
+export_num_node_features: ${model.graph_ae.hparams.encoder.num_node_features}
+

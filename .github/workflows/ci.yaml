@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, Typecheck, Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install -U pip
+          pip install -e .
+          pip install pip-audit
+
+      - name: Pre-commit (Ruff, Black, isort, basic checks)
+        run: |
+          pre-commit run --all-files --show-diff-on-failure
+
+      - name: Type checking (mypy)
+        run: |
+          mypy --install-types --non-interactive || true
+          mypy .
+
+      - name: Run tests
+        env:
+          PYTHONWARNINGS: default
+        run: |
+          pytest -q
+
+      - name: Dependency vulnerability scan
+        run: |
+          pip-audit -r <(pip freeze)
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          args: detect --no-banner -v --redact --config=.gitleaks.toml
+
+  formatting_check:
+    name: Verify Ruff formatting only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff format check
+        run: ruff format --check .
+
+
