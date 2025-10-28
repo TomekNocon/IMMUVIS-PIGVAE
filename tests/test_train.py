@@ -21,7 +21,7 @@ def test_train_fast_dev_run(cfg_train: DictConfig) -> None:
     train(cfg_train)
 
 
-@RunIf(min_gpus=1)
+@RunIf(min_gpus=1)  # type: ignore[operator]
 def test_train_fast_dev_run_gpu(cfg_train: DictConfig) -> None:
     """Run for 1 train, val and test step on GPU.
 
@@ -34,7 +34,7 @@ def test_train_fast_dev_run_gpu(cfg_train: DictConfig) -> None:
     train(cfg_train)
 
 
-@RunIf(min_gpus=1)
+@RunIf(min_gpus=1)  # type: ignore[operator]
 @pytest.mark.slow
 def test_train_epoch_gpu_amp(cfg_train: DictConfig) -> None:
     """Train 1 epoch on GPU with mixed-precision.

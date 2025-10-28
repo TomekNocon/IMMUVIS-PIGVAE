@@ -1,9 +1,8 @@
-import wandb
 import hydra
+import wandb
 from omegaconf import DictConfig
 
 from src.utils.pylogger import RankedLogger
-
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -17,7 +16,11 @@ def is_better(new: float, old: float, mode: str) -> bool:
     raise ValueError("mode must be 'min' or 'max'")
 
 
-@hydra.main(version_base="1.3", config_path="../../../configs", config_name="deploy/onnx/promote.yaml")
+@hydra.main(
+    version_base="1.3",
+    config_path="../../../configs",
+    config_name="deploy/onnx/promote.yaml",
+)
 def main(cfg: DictConfig) -> None:
     api = wandb.Api()
 
@@ -28,14 +31,15 @@ def main(cfg: DictConfig) -> None:
     prod_spec = f"{cfg.entity}/{cfg.project}/{cfg.production_name}:production"
     try:
         current = api.artifact(prod_spec)
-        old_val = float(current.metadata[cfg.metric_key])
+        old_raw = current.metadata[cfg.metric_key]
+        old_val = float(old_raw) if old_raw is not None else float("inf")
         log.info(f"Current production {current.name} {cfg.metric_key}={old_val}")
     except wandb.CommError:
         current = None
         old_val = None
         log.warning("No existing production; promoting candidate")
 
-    promote = current is None or is_better(new_val, old_val, cfg.mode)
+    promote = current is None or (old_val is not None and is_better(new_val, old_val, cfg.mode))
     if not promote:
         log.info("Candidate worse than production; skip promotion")
         return
@@ -56,5 +60,3 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     main()
-
-

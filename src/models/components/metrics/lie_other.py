@@ -1,16 +1,21 @@
+import lie_transforms as lT
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
-import pandas as pd
-import numpy as np
-
-import lie_transforms as lT
 
 
 # Needs TBC since I need a graph input of this so will see
 def translation_sample_invariance(
-    model, img, model_out, axis="x", repetitions: int = 10, eta=2.0
+    model,
+    img,
+    model_out,
+    axis="x",
+    repetitions: int = 10,
+    eta=2.0,
 ):
-    """Lie derivative of model with respect to translation vector, assumes scalar output"""
+    """Lie derivative of model with respect to translation vector, assumes scalar
+    output."""
     shifted_model = lambda t: model(lT.translate(img, t, axis))
     errors = []
     for _ in range(repetitions):
@@ -21,9 +26,13 @@ def translation_sample_invariance(
 
 
 def rotation_sample_invariance(
-    model, img, model_out, repetitions: int = 10, eta=np.pi // 16
+    model,
+    img,
+    model_out,
+    repetitions: int = 10,
+    eta=np.pi // 16,
 ):
-    """Lie derivative of model with respect to rotation, assumes scalar output"""
+    """Lie derivative of model with respect to rotation, assumes scalar output."""
     rotated_model = lambda theta: model(lT.rotate(img, theta))
     errors = []
     for _ in range(repetitions):

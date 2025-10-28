@@ -1,7 +1,8 @@
-import warnings
 import math
+import warnings
+from collections.abc import Callable
 from importlib.util import find_spec
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any
 
 from omegaconf import DictConfig
 
@@ -42,7 +43,8 @@ def extras(cfg: DictConfig) -> None:
 
 
 def task_wrapper(task_func: Callable) -> Callable:
-    """Optional decorator that controls the failure behavior when executing the task function.
+    """Optional decorator that controls the failure behavior when executing the task
+    function.
 
     This wrapper can be used to:
         - make sure loggers are closed even if the task function raises an exception (prevents multirun failure)
@@ -63,7 +65,7 @@ def task_wrapper(task_func: Callable) -> Callable:
     :return: The wrapped task function.
     """
 
-    def wrap(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def wrap(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
         # execute the task
         try:
             metric_dict, object_dict = task_func(cfg=cfg)
@@ -97,10 +99,10 @@ def task_wrapper(task_func: Callable) -> Callable:
 
 
 def get_metric_value(
-    metric_dict: Dict[str, Any],
-    metric_name: Optional[str],
+    metric_dict: dict[str, Any],
+    metric_name: str | None,
     penalty_value: float = 999.0,
-) -> Optional[float]:
+) -> float | None:
     """Safely retrieves value of the metric logged in LightningModule.
 
     :param metric_dict: A dict containing metric values.
@@ -115,7 +117,7 @@ def get_metric_value(
         raise Exception(
             f"Metric value not found! <metric_name={metric_name}>\n"
             "Make sure metric name logged in LightningModule is correct!\n"
-            "Make sure `optimized_metric` name in `hparams_search` config is correct!"
+            "Make sure `optimized_metric` name in `hparams_search` config is correct!",
         )
 
     try:
@@ -124,14 +126,14 @@ def get_metric_value(
         # Check for NaN values
         if math.isnan(metric_value):
             log.warning(
-                f"Retrieved metric value is NaN! <{metric_name}=nan>. Returning penalty value: {penalty_value}"
+                f"Retrieved metric value is NaN! <{metric_name}=nan>. Returning penalty value: {penalty_value}",
             )
             return penalty_value
 
         # Check for infinite values
         if math.isinf(metric_value):
             log.warning(
-                f"Retrieved metric value is infinite! <{metric_name}={metric_value}>. Returning penalty value: {penalty_value}"
+                f"Retrieved metric value is infinite! <{metric_name}={metric_value}>. Returning penalty value: {penalty_value}",
             )
             return penalty_value
 
@@ -141,6 +143,6 @@ def get_metric_value(
     except (AttributeError, ValueError) as e:
         log.error(f"Error extracting metric value: {e}")
         log.warning(
-            f"Could not extract metric value from {metric_dict[metric_name]}. Returning penalty value: {penalty_value}"
+            f"Could not extract metric value from {metric_dict[metric_name]}. Returning penalty value: {penalty_value}",
         )
         return penalty_value

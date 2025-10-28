@@ -1,16 +1,12 @@
-import rootutils
-
-from typing import Any, Dict, List, Optional, Tuple
-
+import operator
+from typing import Any
 
 import hydra
 import lightning as L
-
+import rootutils
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
-from omegaconf import OmegaConf
-import operator
+from omegaconf import DictConfig, OmegaConf
 
 # Register a custom resolver to multiply values in Hydra configs
 OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)))
@@ -50,12 +46,12 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 @task_wrapper
-def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
-    training.
+def train(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Trains the model. Can additionally evaluate on a testset, using best weights
+    obtained during training.
 
-    This method is wrapped in optional @task_wrapper decorator, that controls the behavior during
-    failure. Useful for multiruns, saving info about the crash, etc.
+    This method is wrapped in optional @task_wrapper decorator, that controls the
+    behavior during failure. Useful for multiruns, saving info about the crash, etc.
 
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.
@@ -71,14 +67,16 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     model: LightningModule = hydra.utils.instantiate(cfg.model)
 
     log.info("Instantiating callbacks...")
-    callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
+    callbacks: list[Callback] = instantiate_callbacks(cfg.get("callbacks"))
 
     log.info("Instantiating loggers...")
-    logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+    logger: list[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(
-        cfg.trainer, callbacks=callbacks, logger=logger
+        cfg.trainer,
+        callbacks=callbacks,
+        logger=logger,
     )
 
     object_dict = {
@@ -118,7 +116,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
 
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
-def main(cfg: DictConfig) -> Optional[float]:
+def main(cfg: DictConfig) -> float | None:
     """Main entry point for training.
 
     :param cfg: DictConfig configuration composed by Hydra.
@@ -135,7 +133,8 @@ def main(cfg: DictConfig) -> Optional[float]:
 
     # safely retrieve metric value for hydra-based hyperparameter optimization
     metric_value = get_metric_value(
-        metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
+        metric_dict=metric_dict,
+        metric_name=cfg.get("optimized_metric"),
     )
 
     # return optimized metric

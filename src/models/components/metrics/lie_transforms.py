@@ -1,6 +1,6 @@
+import numpy as np
 import torch
 import torch.nn.functional as F
-import numpy as np
 
 
 def grid_sample(image, optical):
@@ -43,16 +43,24 @@ def grid_sample(image, optical):
     image = image.view(N, C, IH * IW)
 
     nw_val = torch.gather(
-        image, 2, (iy_nw * IW + ix_nw).long().view(N, 1, H * W).repeat(1, C, 1)
+        image,
+        2,
+        (iy_nw * IW + ix_nw).long().view(N, 1, H * W).repeat(1, C, 1),
     )
     ne_val = torch.gather(
-        image, 2, (iy_ne * IW + ix_ne).long().view(N, 1, H * W).repeat(1, C, 1)
+        image,
+        2,
+        (iy_ne * IW + ix_ne).long().view(N, 1, H * W).repeat(1, C, 1),
     )
     sw_val = torch.gather(
-        image, 2, (iy_sw * IW + ix_sw).long().view(N, 1, H * W).repeat(1, C, 1)
+        image,
+        2,
+        (iy_sw * IW + ix_sw).long().view(N, 1, H * W).repeat(1, C, 1),
     )
     se_val = torch.gather(
-        image, 2, (iy_se * IW + ix_se).long().view(N, 1, H * W).repeat(1, C, 1)
+        image,
+        2,
+        (iy_se * IW + ix_se).long().view(N, 1, H * W).repeat(1, C, 1),
     )
 
     out_val = (
@@ -109,7 +117,9 @@ def affine_transform(affineMatrices, img):
     else:
         x = img
     flowgrid = F.affine_grid(
-        affineMatrices, size=x.size(), align_corners=True
+        affineMatrices,
+        size=x.size(),
+        align_corners=True,
     )  # .double()
     # uses manual grid sample implementation to be able to compute 2nd derivatives
     # img_out = F.grid_sample(img, flowgrid,padding_mode="reflection",align_corners=True)
@@ -132,7 +142,7 @@ def translate(img, t, axis="x"):
 
 
 def rotate(img, angle):
-    """Rotates an image by angle"""
+    """Rotates an image by angle."""
     affineMatrices = torch.zeros(img.shape[0], 2, 3).to(img.device)
     affineMatrices[:, 0, 0] = torch.cos(angle)
     affineMatrices[:, 0, 1] = torch.sin(angle)
@@ -142,7 +152,7 @@ def rotate(img, angle):
 
 
 def shear(img, t, axis="x"):
-    """Shear an image by an amount t"""
+    """Shear an image by an amount t."""
     affineMatrices = torch.zeros(img.shape[0], 2, 3).to(img.device)
     affineMatrices[:, 0, 0] = 1
     affineMatrices[:, 1, 1] = 1
@@ -156,10 +166,8 @@ def shear(img, t, axis="x"):
 
 
 def stretch(img, x, axis="x"):
-    """
-    Stretches the image along the specified axis by (1 + x),
-    where x is a fractional stretch factor.
-    """
+    """Stretches the image along the specified axis by (1 + x), where x is a fractional
+    stretch factor."""
     affineMatrices = torch.zeros(img.shape[0], 2, 3).to(img.device)
     x = x.to(img.device)
     # Set both diagonal entries to preserve the image unless stretched
@@ -226,7 +234,7 @@ def restore_tensor(
     # Step 2: Reshape back to (B, C, H, W) by folding the patches
     # Calculate the grid size (L) which is the number of patches in each row and column
     grid_size = int(
-        a.size(1) ** 0.5
+        a.size(1) ** 0.5,
     )  # Assumes square grid (height = width for the patches)
 
     # Unfold back into the original image size

@@ -1,15 +1,16 @@
-import matplotlib.pyplot as plt
-import matplotlib.figure as figure
-from typing import Dict, Optional, Tuple
-import torch
-import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 from collections import defaultdict
-import plotly.express as px
+
+import matplotlib.figure as figure
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+import plotly.express as px
+import torch
+from plotly.graph_objs import Figure as PlotlyFigure
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score, silhouette_samples
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_samples, silhouette_score
+from sklearn.preprocessing import StandardScaler
 
 
 def restore_tensor(
@@ -28,7 +29,7 @@ def restore_tensor(
     # Step 2: Reshape back to (B, C, H, W) by folding the patches
     # Calculate the grid size (L) which is the number of patches in each row and column
     grid_size = int(
-        a.size(1) ** 0.5
+        a.size(1) ** 0.5,
     )  # Assumes square grid (height = width for the patches)
 
     # Unfold back into the original image size
@@ -60,20 +61,20 @@ def reshape_images_array(images: np.ndarray, n_rows: int, n_cols: int) -> np.nda
     new_images = []
     for idx in range(n_rows):
         new_images.append(images[idx])
-        temp = images[
-            idx * n_cols + n_rows - idx : (idx + 1) * n_cols + n_rows - 1 - idx
-        ]
-        for img in temp:
-            new_images.append(img)
+        temp = images[idx * n_cols + n_rows - idx : (idx + 1) * n_cols + n_rows - 1 - idx]
+        new_images.extend(temp)
     return np.array(new_images)
 
 
 def plot_images_all_perm(
-    images: np.ndarray, n_rows: int, n_cols: int
-) -> Optional[figure.Figure]:
+    images: np.ndarray,
+    n_rows: int,
+    n_cols: int,
+) -> figure.Figure | None:
     if not len(images):
-        return
-    assert images.shape[0] >= n_rows * n_cols, "Not enough images to fill the grid."
+        return None
+    if images.shape[0] < n_rows * n_cols:
+        raise ValueError("Not enough images to fill the grid.")
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
     axes = axes.flatten()  # Flatten in case of multiple rows
@@ -88,7 +89,7 @@ def plot_images_all_perm(
     return fig
 
 
-def plot_barchart_from_dict(data: Dict[str, float], title: str) -> figure.Figure:
+def plot_barchart_from_dict(data: dict[str, float], title: str) -> figure.Figure:
     # Plotting
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.bar(list(data.keys()), list(data.values()), color="skyblue")
@@ -100,15 +101,18 @@ def plot_barchart_from_dict(data: Dict[str, float], title: str) -> figure.Figure
 
 
 def plot_pca(
-    images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int
+    images: np.ndarray,
+    targets: np.ndarray,
+    n_rows: int,
+    n_cols: int,
 ) -> figure.Figure:
     # new_images = reshape_images_array(images, n_rows, n_cols)
-    counter = defaultdict(int)
-    new_targets = []
+    counter: dict[int, int] = defaultdict(int)
+    labels_list: list[str] = []
     for val in targets:
         counter[int(val)] += 1
-        new_targets.append(f"{val.item()}-{counter[int(val)]}")
-    new_targets = np.repeat(new_targets, n_cols)
+        labels_list.append(f"{val.item()}-{counter[int(val)]}")
+    labels = np.repeat(labels_list, n_cols)
 
     batch_flat = images.reshape(images.shape[0], -1)
     # Step 2: Run PCA
@@ -118,12 +122,12 @@ def plot_pca(
     batch_pca_scaled = scaler.fit_transform(batch_pca)  # shape: [64, 2]
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    if new_targets is not None:
-        classes = np.unique(new_targets)
+    if labels is not None:
+        classes = np.unique(labels)
         cmap = plt.cm.get_cmap("tab10", len(classes))
 
         for idx, cls in enumerate(classes):
-            mask = new_targets == cls
+            mask = labels == cls
             ax.scatter(
                 batch_pca_scaled[mask, 0],
                 batch_pca_scaled[mask, 1],
@@ -140,10 +144,15 @@ def plot_pca(
     return fig
 
 
-def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int):
+def plot_pca_plotly(
+    images: np.ndarray,
+    targets: np.ndarray,
+    n_rows: int,
+    n_cols: int,
+) -> PlotlyFigure:
     # Reshape images into grid format (assuming you already have this helper)
     # new_images = reshape_images_array(images, n_rows, n_cols)
-    counter = defaultdict(int)
+    counter: dict[int, int] = defaultdict(int)
     rotations = [
         "identity",
         "hflip",
@@ -154,12 +163,12 @@ def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols
         "270",
         "270-hflip",
     ] * n_rows
-    new_targets = []
+    labels_list: list[str] = []
 
     for val in targets:
         counter[int(val)] += 1
-        new_targets.append(f"{val.item()}-{counter[int(val)]}")
-    new_targets = np.repeat(new_targets, n_cols)
+        labels_list.append(f"{val.item()}-{counter[int(val)]}")
+    labels = np.repeat(labels_list, n_cols)
 
     # Flatten images for PCA
     batch_flat = images.reshape(images.shape[0], -1)
@@ -168,7 +177,7 @@ def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols
 
     # Create DataFrame for Plotly
     df = pd.DataFrame(batch_pca, columns=["PC1", "PC2"])
-    df["Label"] = new_targets
+    df["Label"] = labels
     df["Rotations"] = rotations
 
     # Plotly scatter plot
@@ -186,8 +195,11 @@ def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols
 
 
 def plot_silhouette(
-    images: np.ndarray, k_range=range(2, 11)
-) -> Tuple[int, figure.Figure]:
+    images: np.ndarray,
+    k_range: range | None = None,
+) -> tuple[int, figure.Figure]:
+    if k_range is None:
+        k_range = range(2, 11)
     best_k = 0
     best_score = -1
     silhouette_scores = []

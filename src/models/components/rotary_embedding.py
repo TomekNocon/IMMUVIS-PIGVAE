@@ -1,13 +1,14 @@
 from __future__ import annotations
+
 from math import pi
+from typing import Literal
 
 import torch
 
 # from torch.amp import autocast
 import torch.nn as nn
-from torch import einsum, broadcast_tensors, Tensor
 from einops import rearrange, repeat
-from typing import Literal
+from torch import Tensor, broadcast_tensors, einsum
 
 # helper functions
 
@@ -57,7 +58,12 @@ def rotate_half(x):
 
 # @autocast('cuda', enabled = False)
 def apply_rotary_emb(
-    freqs, t, start_index=0, scale=1.0, seq_dim=-2, freqs_seq_dim=None
+    freqs,
+    t,
+    start_index=0,
+    scale=1.0,
+    seq_dim=-2,
+    freqs_seq_dim=None,
 ):
     dtype = t.dtype
 
@@ -72,9 +78,10 @@ def apply_rotary_emb(
     rot_dim = freqs.shape[-1]
     end_index = start_index + rot_dim
 
-    assert rot_dim <= t.shape[-1], (
-        f"feature dimension {t.shape[-1]} is not of sufficient size to rotate in all the positions {rot_dim}"
-    )
+    if not (rot_dim <= t.shape[-1]):
+        raise ValueError(
+            f"feature dimension {t.shape[-1]} is not of sufficient size to rotate in all the positions {rot_dim}",
+        )
 
     # Split t into three parts: left, middle (to be transformed), and right
     t_left = t[..., :start_index]
@@ -82,9 +89,7 @@ def apply_rotary_emb(
     t_right = t[..., end_index:]
 
     # Apply rotary embeddings without modifying t in place
-    t_transformed = (t_middle * freqs.cos() * scale) + (
-        rotate_half(t_middle) * freqs.sin() * scale
-    )
+    t_transformed = (t_middle * freqs.cos() * scale) + (rotate_half(t_middle) * freqs.sin() * scale)
 
     out = torch.cat((t_left, t_transformed, t_right), dim=-1)
 
@@ -136,9 +141,7 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
         if exists(custom_freqs):
             freqs = custom_freqs
         elif freqs_for == "lang":
-            freqs = 1.0 / (
-                theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim)
-            )
+            freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
         elif freqs_for == "pixel":
             freqs = torch.linspace(1.0, max_freq / 2, dim // 2) * pi
         elif freqs_for == "constant":
@@ -148,7 +151,9 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
         self.cache_max_seq_len = cache_max_seq_len
 
         self.register_buffer(
-            "cached_freqs", torch.zeros(cache_max_seq_len, dim), persistent=False
+            "cached_freqs",
+            torch.zeros(cache_max_seq_len, dim),
+            persistent=False,
         )
         self.cached_freqs_seq_len = 0
 
@@ -167,7 +172,8 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
 
         # interpolation factors
 
-        assert interpolate_factor >= 1.0
+        if interpolate_factor < 1.0:
+            raise ValueError("interpolate_factor must be >= 1.0")
         self.interpolate_factor = interpolate_factor
 
         # xpos
@@ -182,7 +188,9 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
 
         self.register_buffer("scale", scale, persistent=False)
         self.register_buffer(
-            "cached_scales", torch.zeros(cache_max_seq_len, dim), persistent=False
+            "cached_scales",
+            torch.zeros(cache_max_seq_len, dim),
+            persistent=False,
         )
         self.cached_scales_seq_len = 0
 
@@ -202,9 +210,10 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
     def rotate_queries_or_keys(self, x, seq_dim=None, offset=0, scale=None):
         seq_dim = default(seq_dim, self.default_seq_dim)
 
-        assert not self.use_xpos or exists(scale), (
-            "you must use `.rotate_queries_and_keys` method instead and pass in both queries and keys, for length extrapolatable rotary embeddings"
-        )
+        if self.use_xpos and not exists(scale):
+            raise ValueError(
+                "you must use `.rotate_queries_and_keys` method instead and pass in both queries and keys, for length extrapolatable rotary embeddings",
+            )
 
         device, dtype, seq_len = x.device, x.dtype, x.shape[seq_dim]
 
@@ -225,7 +234,8 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
         )
 
         q_len, k_len = q.shape[seq_dim], k.shape[seq_dim]
-        assert q_len <= k_len
+        if q_len > k_len:
+            raise ValueError("q length must be <= k length when using cached keys")
 
         q_scale = k_scale = 1.0
 
@@ -236,7 +246,10 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
             k_scale = self.get_scale(seq).type(dtype)
 
         rotated_q = self.rotate_queries_or_keys(
-            q, seq_dim=seq_dim, scale=q_scale, offset=k_len - q_len + offset
+            q,
+            seq_dim=seq_dim,
+            scale=q_scale,
+            offset=k_len - q_len + offset,
         )
         rotated_k = self.rotate_queries_or_keys(k, seq_dim=seq_dim, scale=k_scale**-1)
 
@@ -248,7 +261,8 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
     def rotate_queries_and_keys(self, q, k, seq_dim=None):
         seq_dim = default(seq_dim, self.default_seq_dim)
 
-        assert self.use_xpos
+        if not self.use_xpos:
+            raise ValueError("use_xpos must be True to call rotate_queries_and_keys")
         device, dtype, seq_len = q.device, q.dtype, q.shape[seq_dim]
 
         seq = self.get_seq_pos(seq_len, dtype=dtype, device=device)
@@ -269,7 +283,8 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
         return rotated_q, rotated_k
 
     def get_scale(self, x: Tensor, seq_len: int | None = None, offset=0):
-        assert self.use_xpos
+        if not self.use_xpos:
+            raise ValueError("use_xpos must be True to call get_scale")
 
         should_cache = (
             self.cache_if_possible
@@ -290,14 +305,16 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
             scale = self.scale ** rearrange(power, "n -> n 1")
             scale = repeat(scale, "n d -> n (d r)", r=2)
 
-        if should_cache and offset == 0:
-            self.cached_scales[:seq_len] = scale.detach()
+        if should_cache and offset == 0 and isinstance(seq_len, int):
+            self.cached_scales[:seq_len] = (
+                scale.detach() if isinstance(scale, torch.Tensor) else scale
+            )
             self.cached_scales_seq_len = seq_len
 
         return scale
 
     def get_axial_freqs(self, *dims):
-        Colon = slice(None)
+        colon = slice(None)
         all_freqs = []
 
         for ind, dim in enumerate(dims):
@@ -309,9 +326,9 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
             freqs = self.forward(pos, seq_len=dim)
 
             all_axis = [None] * len(dims)
-            all_axis[ind] = Colon
+            all_axis[ind] = colon
 
-            new_axis_slice = (Ellipsis, *all_axis, Colon)
+            new_axis_slice = (Ellipsis, *all_axis, colon)
             all_freqs.append(freqs[new_axis_slice])
 
         all_freqs = broadcast_tensors(*all_freqs)
@@ -339,7 +356,7 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
         freqs = einsum("..., f -> ... f", t.type(freqs.dtype), freqs)
         freqs = repeat(freqs, "... n -> ... (n r)", r=2)
 
-        if should_cache and offset == 0:
+        if should_cache and offset == 0 and isinstance(seq_len, int):
             self.cached_freqs[:seq_len] = freqs.detach()
             self.cached_freqs_seq_len = seq_len
 
@@ -348,29 +365,36 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
 
 class RotaryEmbedding(BaseRotaryEmbedding):
     def __init__(self, dim: int, max_seq_len: int = 2048):
-        """
-        Rotary Positional Encoding (RoPE).
+        """Rotary Positional Encoding (RoPE).
+
         Args:
             dim (int): Dimensionality of each head (dim_head, must be even).
             max_seq_len (int): Maximum sequence length.
         """
         super().__init__()
-        assert dim % 2 == 0, "RoPE requires even-dimensional input"
+        if dim % 2 != 0:
+            raise ValueError("RoPE requires even-dimensional input")
 
         inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
         t = torch.arange(max_seq_len, dtype=torch.float)
         freqs = torch.einsum("i,j->ij", t, inv_freq)  # [max_seq_len, dim//2]
 
         self.register_buffer(
-            "cos", freqs.cos()[None, :, None, :], persistent=False
+            "cos",
+            freqs.cos()[None, :, None, :],
+            persistent=False,
         )  # [1, seq_len, 1, dim//2]
         self.register_buffer("sin", freqs.sin()[None, :, None, :], persistent=False)
 
     def rotate_queries_or_keys(
-        self, x: torch.Tensor, seq_dim=-2, offset=0, scale=None
+        self,
+        x: torch.Tensor,
+        seq_dim=-2,
+        offset=0,
+        scale=None,
     ) -> torch.Tensor:
-        """
-        Apply RoPE to tensor x.
+        """Apply RoPE to tensor x.
+
         Args:
             x (torch.Tensor): Shape (batch_size, seq_len, dim)
             seq_len (int): Current sequence length (for slicing cos/sin)
@@ -381,13 +405,18 @@ class RotaryEmbedding(BaseRotaryEmbedding):
         x_rotated = self(x, seq_len)
         return x_rotated
 
-    def forward(self, x: torch.Tensor, seq_len: int) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, seq_len: int | None = None, offset=0) -> torch.Tensor:
         """
         Args:
             x (torch.Tensor): Input tensor of shape [bs, seq_len, n_head, dim_head]
         Returns:
             torch.Tensor: RoPE-applied tensor with same shape
         """
+
+        # Fallback to inferring sequence length when not provided
+        if seq_len is None:
+            # assume sequence dimension is at index 1 by default
+            seq_len = x.shape[1]
 
         cos = self.cos[:, :seq_len, :, :]  # [1, seq_len, 1, dim//2]
         sin = self.sin[:, :seq_len, :, :]

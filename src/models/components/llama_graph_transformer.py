@@ -1,14 +1,13 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import networkx as nx
 import math
 
 # from torch.nn.attention import SDPBackend
-from typing import Optional
+import networkx as nx
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 from src.models.components.custom_pytorch_functions import RMSNorm
 from src.models.components.rotary_embedding import BaseRotaryEmbedding
-
 
 """
 adapted from https://github.com/jadore801120/attention-is-all-you-need-pytorch
@@ -23,7 +22,7 @@ class Transformer(nn.Module):
         ppf_hidden_dim: int,
         num_layers: int,
         dropout: float = 0.1,
-        rope: Optional[BaseRotaryEmbedding] = None,
+        rope: BaseRotaryEmbedding | None = None,
     ):
         super().__init__()
         self.num_layers = num_layers
@@ -35,7 +34,7 @@ class Transformer(nn.Module):
             [
                 TransformerBlock(hidden_dim, num_heads, dropout, num_layers, rope)
                 for _ in range(num_layers)
-            ]
+            ],
         )
 
         self.rope = rope
@@ -43,7 +42,10 @@ class Transformer(nn.Module):
         # self.head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
     def forward(
-        self, x: torch.Tensor, is_encoder: bool, mask: Optional[torch.Tensor] = None
+        self,
+        x: torch.Tensor,
+        is_encoder: bool,
+        mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # output = self.embedding_layer(input_ids)
 
@@ -75,16 +77,15 @@ class TransformerBlock(nn.Module):
         layer_id (int): Identifier for the layer.
         attention_norm (RMSNorm): Layer normalization for attention output.
         ffn_norm (RMSNorm): Layer normalization for feedforward output.
-
     """
 
     def __init__(
         self,
-        hidden_dim: torch.Tensor,
-        n_head: torch.Tensor,
+        hidden_dim: int,
+        n_head: int,
         dropout: float,
-        num_layers: Optional[int] = None,
-        rope: Optional[BaseRotaryEmbedding] = None,
+        num_layers: int | None = None,
+        rope: BaseRotaryEmbedding | None = None,
     ):
         super().__init__()
         self.attention_layer = SelfAttention(n_head, hidden_dim, dropout, rope)
@@ -104,7 +105,8 @@ class TransformerBlock(nn.Module):
         # else:
         #     self.weight_init_std = 0.02 / (2 * self.num_layers) ** 0.5
 
-        self.weight_init_std = 0.02 / (2 * self.num_layers) ** 0.5
+        num_layers_eff = self.num_layers if self.num_layers is not None else 1
+        self.weight_init_std = 0.02 / (2 * num_layers_eff) ** 0.5
 
     # def forward(
     #     self,
@@ -128,10 +130,12 @@ class TransformerBlock(nn.Module):
         self,
         x: torch.Tensor,
         is_encoder: bool,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         out_attention = self.attention_layer(
-            self.attention_norm(x), is_encoder, attention_mask
+            self.attention_norm(x),
+            is_encoder,
+            attention_mask,
         )
         x = x + out_attention
 
@@ -159,7 +163,6 @@ class FeedForward(nn.Module):
         w1 (Linear): Linear transformation for the first layer.
         w2 (Linear): Linear transformation for the second layer.
         w3 (Linear): Linear transformation for the third layer.
-
     """
 
     def __init__(
@@ -167,17 +170,15 @@ class FeedForward(nn.Module):
         hidden_dim: int,
         ffn_hidden_dim: int,
         multiple_of: int,
-        dropout: Optional[float] = 0.0,
-        ffn_dim_multiplier: Optional[float] = None,
+        dropout: float | None = 0.0,
+        ffn_dim_multiplier: float | None = None,
     ):
         super().__init__()
         ffn_hidden_dim = int(2 * ffn_hidden_dim / 3)
         # custom dim factor multiplier
         if ffn_dim_multiplier is not None:
             ffn_hidden_dim = int(ffn_dim_multiplier * ffn_hidden_dim)
-        ffn_hidden_dim = multiple_of * (
-            (ffn_hidden_dim + multiple_of - 1) // multiple_of
-        )
+        ffn_hidden_dim = multiple_of * ((ffn_hidden_dim + multiple_of - 1) // multiple_of)
 
         self.w1 = nn.Linear(hidden_dim, ffn_hidden_dim, bias=False)
         self.w2 = nn.Linear(ffn_hidden_dim, hidden_dim, bias=False)
@@ -202,7 +203,7 @@ class SelfAttention(torch.nn.Module):
         n_head: int,
         hidden_dim: int,
         dropout: float,
-        rope: Optional[BaseRotaryEmbedding] = None,
+        rope: BaseRotaryEmbedding | None = None,
     ):
         super().__init__()
 
@@ -218,7 +219,7 @@ class SelfAttention(torch.nn.Module):
         self,
         x: torch.Tensor,
         is_encoder: bool = True,
-        mask: Optional[torch.Tensor] = None,
+        mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # x: b x nn x nn x dv
         batch_size, num_nodes = x.size(0), x.size(1)
@@ -270,9 +271,9 @@ def get_neighborhood_mask(num_nodes: int, is_encoder: bool):
     else:
         n = num_nodes
     n = int(math.sqrt(n))
-    G = nx.grid_2d_graph(n, n)
-    A = torch.tensor(nx.to_numpy_array(G))
-    mask = A + torch.eye(A.shape[0])
+    graph = nx.grid_2d_graph(n, n)
+    adjacency_matrix = torch.tensor(nx.to_numpy_array(graph))
+    mask = adjacency_matrix + torch.eye(adjacency_matrix.shape[0])
     if is_encoder:
         mask = F.pad(mask, (1, 0, 1, 0), value=1)
     mask = mask.bool()

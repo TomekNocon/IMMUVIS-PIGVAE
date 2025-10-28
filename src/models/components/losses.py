@@ -1,8 +1,10 @@
+from typing import Any
+
 import torch
-from torch.nn import MSELoss
 import torch.nn.functional as F
+from torch.nn import MSELoss
+
 from src.data.components.graphs_datamodules import DenseGraphBatch
-from typing import Dict, Any
 
 
 class GraphReconstructionLoss(torch.nn.Module):
@@ -11,12 +13,21 @@ class GraphReconstructionLoss(torch.nn.Module):
         self.node_loss = MSELoss()  # BCEWithLogitsLoss() #MSE
 
     def forward(
-        self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch
-    ) -> Dict[str, Any]:
+        self,
+        graph_true: DenseGraphBatch,
+        graph_pred: DenseGraphBatch,
+    ) -> dict[str, Any]:
         # Use the mask to identify valid nodes
         device = graph_pred.node_features.device
         mask = graph_true.mask
-        mask = mask.to(device)
+        if mask is None:
+            mask = torch.ones(
+                graph_true.node_features.shape[:-1],
+                dtype=torch.bool,
+                device=device,
+            )
+        else:
+            mask = mask.to(device)
         # Extract the node features for the true and predicted graphs, filtered
         # by the mask
         nodes_true = graph_true.node_features.to(device)
@@ -84,11 +95,12 @@ class ContrastiveLoss(torch.nn.Module):
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         # computing contrastive loss as in SimCLR
         features = F.normalize(features, dim=-1)
-        N = features.shape[0]
+        n = features.shape[0]
         samples_per_group = 1 + self.num_aug_per_sample
-        original_batch_size = N // samples_per_group  # number of original images
+        original_batch_size = n // samples_per_group  # number of original images
         labels = torch.cat(
-            [torch.arange(original_batch_size) for _ in range(samples_per_group)], dim=0
+            [torch.arange(original_batch_size) for _ in range(samples_per_group)],
+            dim=0,
         )
         label_matrix = (labels.unsqueeze(0) == labels.unsqueeze(1)).bool()
         label_matrix = label_matrix.to(features.device)
@@ -97,7 +109,7 @@ class ContrastiveLoss(torch.nn.Module):
         sim = sim / self.temperature
 
         # Mask out self-similarity
-        mask = torch.eye(N, dtype=torch.bool, device=features.device)
+        mask = torch.eye(n, dtype=torch.bool, device=features.device)
         sim.masked_fill_(mask, float("-inf"))  # ignore diagonal
 
         # Extract positives and negatives
@@ -126,7 +138,13 @@ class PermutationLoss(torch.nn.Module):
         avg_probs = probs.mean(dim=0)  # (num_classes,)
         log_avg_probs = torch.log(avg_probs + 1e-12)
         entropy = -torch.sum(avg_probs * log_avg_probs)  # scalar
-        max_entropy = torch.log(torch.tensor(avg_probs.size(0), dtype=avg_probs.dtype, device=avg_probs.device))
+        max_entropy = torch.log(
+            torch.tensor(
+                avg_probs.size(0),
+                dtype=avg_probs.dtype,
+                device=avg_probs.device,
+            ),
+        )
         return max_entropy - entropy  # always positive, minimizing this maximizes entropy
 
 
@@ -136,7 +154,10 @@ class PermutaionMatrixLoss(torch.nn.Module):
 
     @staticmethod
     def entropy(
-        p: torch.Tensor, axis: int, normalize: bool = True, eps=10e-12
+        p: torch.Tensor,
+        axis: int,
+        normalize: bool = True,
+        eps=10e-12,
     ) -> torch.Tensor:
         if normalize:
             p = p / (p.sum(axis=axis, keepdim=True) + eps)

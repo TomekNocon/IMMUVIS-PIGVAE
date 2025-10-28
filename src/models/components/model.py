@@ -1,15 +1,16 @@
+import os
+from typing import Any
+
+import rootutils
 import torch
+from omegaconf import DictConfig
+
+from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.losses import (
     GraphReconstructionLoss,
     KLDLoss,
     PermutationLoss,
 )
-from omegaconf import DictConfig
-from src.data.components.graphs_datamodules import DenseGraphBatch
-from typing import Dict, Any, Optional
-
-import os
-import rootutils
 
 rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
 
@@ -37,15 +38,16 @@ class Critic(torch.nn.Module):
         beta: float,
         mu: torch.Tensor,
         logvar: torch.Tensor,
-        soft_probs: Optional[torch.Tensor] = None,
-        perm: Optional[torch.Tensor] = None,
-    ) -> Dict[str, Any]:
+        soft_probs: torch.Tensor | None = None,
+        perm: torch.Tensor | None = None,
+    ) -> dict[str, Any]:
         recon_loss = self.reconstruction_loss(
-            graph_true=graph_true, graph_pred=graph_pred
+            graph_true=graph_true,
+            graph_pred=graph_pred,
         )
         # contrastive_loss = self.contrastive_loss(graph_emb)
         permutation_loss = self.permutation_loss(
-            soft_probs if soft_probs is not None else perm
+            soft_probs if soft_probs is not None else perm,
         )
         loss = {
             **recon_loss,
@@ -69,10 +71,10 @@ class Critic(torch.nn.Module):
         beta: float,
         mu: torch.Tensor,
         logvar: torch.Tensor,
-        prefix: Optional[str] = None,
-        soft_probs: Optional[torch.Tensor] = None,
-        perm: Optional[torch.Tensor] = None,
-    ) -> Dict[str, Any]:
+        prefix: str | None = None,
+        soft_probs: torch.Tensor | None = None,
+        perm: torch.Tensor | None = None,
+    ) -> dict[str, Any]:
         loss = self(
             graph_emb=graph_emb,
             graph_true=graph_true,
@@ -92,7 +94,3 @@ class Critic(torch.nn.Module):
                 metrics2[new_key] = metrics[key]
             metrics = metrics2
         return metrics
-
-
-if __name__ == "__main__":
-    _ = Critic()

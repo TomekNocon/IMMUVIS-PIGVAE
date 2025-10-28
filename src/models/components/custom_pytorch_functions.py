@@ -1,6 +1,6 @@
-import torch
 import math
-from typing import Optional
+
+import torch
 
 
 # Efficient implementation equivalent to the following:
@@ -9,20 +9,25 @@ def scaled_dot_product_attention(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    attn_mask: Optional[torch.Tensor] = None,
+    attn_mask: torch.Tensor | None = None,
     dropout_p: float = 0.0,
     is_causal: bool = False,
-    scale: Optional[float] = None,
+    scale: float | None = None,
     enable_gqa: bool = False,
 ) -> torch.Tensor:
-    L, S = query.size(-2), key.size(-2)
+    query_length, key_length = query.size(-2), key.size(-2)
     scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
     attn_bias = torch.zeros(
-        (*query.shape[:-2], L, S), dtype=query.dtype, device=query.device
+        (*query.shape[:-2], query_length, key_length),
+        dtype=query.dtype,
+        device=query.device,
     )
     if is_causal:
-        assert attn_mask is None
-        temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
+        if attn_mask is not None:
+            raise ValueError("attn_mask must be None when is_causal=True")
+        temp_mask = torch.ones(query_length, key_length, dtype=torch.bool).tril(
+            diagonal=0,
+        )
         attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
         attn_bias.to(query.dtype)
 
@@ -53,7 +58,6 @@ class RMSNorm(torch.nn.Module):
     Attributes:
         eps (float): A small value added to the denominator for numerical stability.
         weight (nn.Parameter): Learnable scaling parameter.
-
     """
 
     def __init__(self, hidden_dim: int, eps: float = 1e-6):
@@ -69,4 +73,4 @@ class RMSNorm(torch.nn.Module):
         return output * self.weight
 
     def reset_parameters(self):
-        torch.nn.init.ones_(self.weight)  # type: ignore
+        torch.nn.init.ones_(self.weight)

@@ -12,4 +12,3 @@ task_name: "eval_onnx"
 
 onnx_path: null
 limit: 50
-

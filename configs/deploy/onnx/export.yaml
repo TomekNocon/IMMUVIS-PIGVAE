@@ -28,4 +28,3 @@ onnx_artifact_name: model-onnx
 export_batch_size: 1
 export_grid_size: ${data.hparams.grid_size}
 export_num_node_features: ${model.graph_ae.hparams.encoder.num_node_features}
-

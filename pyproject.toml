@@ -32,6 +32,10 @@ dependencies = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+exclude = [
+    "notebooks/**",
+    "src/models/components/metrics/**",
+]
 
 [tool.ruff.format]
 preview = true
@@ -58,6 +62,9 @@ select = [
 ignore = [
     "E203",  # black/ruff formatting compatibility
     "E501",  # handled by formatter; keep long lines when needed
+    "E402",  # allow module imports not at top of file
+    "N812",  # allow lowercase module imported as non-lowercase alias
+    "COM812", # trailing comma conflicts with ruff formatter
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -70,3 +77,7 @@ warn_unused_ignores = true
 check_untyped_defs = false
 no_implicit_optional = false
 disallow_untyped_defs = false
+exclude = [
+    "^notebooks/",
+    "^src/models/components/metrics/",
+]

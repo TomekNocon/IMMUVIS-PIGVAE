@@ -13,4 +13,3 @@ project: PIGVAE
 production_name: model-onnx
 metric_key: mse
 mode: min
-

@@ -1,15 +1,11 @@
+import operator
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
 
+import hydra
+import rootutils
 import torch
 import torch.nn as nn
-import hydra
-import wandb
 from omegaconf import DictConfig, OmegaConf
-import operator
-
-import rootutils
-
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
@@ -19,13 +15,12 @@ OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y))
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.utils import RankedLogger, extras, task_wrapper
 
-
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class GraphAEExportWrapper(nn.Module):
-    """
-    Tensor-only forward for ONNX export.
+    """Tensor-only forward for ONNX export.
+
     Inputs:
       - node_features: (B, N, Din)
       - mask: (B, N)
@@ -39,8 +34,10 @@ class GraphAEExportWrapper(nn.Module):
         self.graph_ae = graph_ae
 
     def forward(
-        self, node_features: torch.Tensor, mask: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self,
+        node_features: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         device = node_features.device
         edge_features = torch.empty(0, device=device)
         batch = DenseGraphBatch(
@@ -49,17 +46,19 @@ class GraphAEExportWrapper(nn.Module):
             mask=mask,
         )
         graph_emb, graph_pred, _, _, _, _ = self.graph_ae(
-            graph=batch, training=False, tau=1.0
+            graph=batch,
+            training=False,
+            tau=1.0,
         )
         return graph_pred.node_features, graph_emb
 
 
 @task_wrapper
-def export(cfg: DictConfig) -> None:
+def export(cfg: DictConfig) -> tuple[dict, dict]:
     if not cfg.get("ckpt_path") and not cfg.get("ckpt_artifact"):
         raise ValueError("Provide ckpt_path=... or ckpt_artifact=entity/project:name")
 
-    onnx_path: Optional[str] = cfg.get("onnx_path")
+    onnx_path: str | None = cfg.get("onnx_path")
     if onnx_path is None:
         out_dir = Path(cfg.paths.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -68,9 +67,10 @@ def export(cfg: DictConfig) -> None:
     datamodule = hydra.utils.instantiate(cfg.data)
     pl_module = hydra.utils.instantiate(cfg.model)
 
-    ckpt_path: Optional[str] = cfg.get("ckpt_path")
+    ckpt_path: str | None = cfg.get("ckpt_path")
     if not ckpt_path and cfg.get("ckpt_artifact"):
-        
+        import wandb
+
         run = wandb.init(
             project=cfg.get("wandb_project", None),
             entity=cfg.get("wandb_entity", None),
@@ -114,7 +114,11 @@ def export(cfg: DictConfig) -> None:
     example_batch: DenseGraphBatch = next(iter(val_loader))
     example_batch = example_batch.to(torch.device("cpu"))
     node_features = example_batch.node_features
-    mask = example_batch.mask
+    mask = (
+        example_batch.mask
+        if example_batch.mask is not None
+        else torch.ones(node_features.shape[:2], dtype=torch.bool)
+    )
 
     wrapper = GraphAEExportWrapper(graph_ae).cpu()
 
@@ -134,7 +138,7 @@ def export(cfg: DictConfig) -> None:
             (node_features, mask),
             onnx_path,
             export_params=True,
-            opset_version=17, # important for modules like GELU or LayerNorm
+            opset_version=17,  # important for modules like GELU or LayerNorm
             do_constant_folding=True,
             input_names=input_names,
             output_names=output_names,
@@ -144,8 +148,6 @@ def export(cfg: DictConfig) -> None:
     log.info(f"ONNX model saved to: {onnx_path}")
 
     if bool(cfg.get("wandb_log", False)):
-        import json
-        import subprocess
         import wandb
 
         metadata = {
@@ -162,8 +164,8 @@ def export(cfg: DictConfig) -> None:
                 __import__("subprocess").check_output(["git", "rev-parse", "HEAD"]).decode().strip()
             )
             metadata["git_commit"] = git_sha
-        except Exception:
-            pass
+        except Exception as exc:  # S110: log instead of pass
+            log.debug("Could not resolve git SHA for metadata: %s", exc)
 
         run = wandb.init(
             project=cfg.get("wandb_project", None),
@@ -177,8 +179,8 @@ def export(cfg: DictConfig) -> None:
         if cfg.get("ckpt_artifact"):
             try:
                 artifact.add_reference(f"wandb-artifact://{cfg.ckpt_artifact}")
-            except Exception:
-                pass
+            except Exception as exc:  # S110: log instead of pass
+                log.debug("Could not add ckpt artifact reference: %s", exc)
         run.log_artifact(artifact)
         log.info(f"Logged ONNX artifact to W&B: {run.project}/{art_name}")
 
@@ -186,12 +188,15 @@ def export(cfg: DictConfig) -> None:
     return {}, {"onnx_path": onnx_path}
 
 
-@hydra.main(version_base="1.3", config_path="../../../configs", config_name="deploy/onnx/export.yaml")
+@hydra.main(
+    version_base="1.3",
+    config_path="../../../configs",
+    config_name="deploy/onnx/export.yaml",
+)
 def main(cfg: DictConfig) -> None:
     extras(cfg)
     export(cfg)
 
+
 if __name__ == "__main__":
     main()
-
-

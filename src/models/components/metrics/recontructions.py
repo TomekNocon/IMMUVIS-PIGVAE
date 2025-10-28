@@ -1,12 +1,13 @@
-from typing import Dict
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
-import numpy as np
 
 
 def batch_augmented_indices(
-    batch_size: int, num_permutations: int, n_examples: int
+    batch_size: int,
+    num_permutations: int,
+    n_examples: int,
 ) -> np.ndarray:
     indices = []
     base_idx = np.arange(num_permutations) * batch_size
@@ -16,11 +17,11 @@ def batch_augmented_indices(
 
 
 def to_original_orientation(
-    predictions: torch.Tensor, num_permutations: int = 8
+    predictions: torch.Tensor,
+    num_permutations: int = 8,
 ) -> torch.Tensor:
-    """
-    Inverts the 8 augmentations (original, hflip, rot90, rot90_hflip, rot180, rot180_hflip, rot270, rot270_hflip)
-    back to the original orientation.
+    """Inverts the 8 augmentations (original, hflip, rot90, rot90_hflip, rot180,
+    rot180_hflip, rot270, rot270_hflip) back to the original orientation.
 
     Args:
         predictions: [8 * batch_size, C, H, W]
@@ -55,7 +56,7 @@ def mse_per_transform(
     predictions: torch.Tensor,
     batch_size: int,
     num_permutations: int,
-) -> Dict:
+) -> dict:
     transform_losses = {}
     transform_names = [
         "original",

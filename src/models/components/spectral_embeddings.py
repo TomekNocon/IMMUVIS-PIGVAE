@@ -1,7 +1,7 @@
+import networkx as nx
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-import networkx as nx
 from sklearn.manifold import SpectralEmbedding
 
 
@@ -26,8 +26,8 @@ class CustomSpectralEmbedding(nn.Module):
         x = x + embbeding
         return self.dropout(x)
 
-    def compute_eigen(self, L: np.array) -> torch.Tensor:
-        eigenvals, eigenvecs = np.linalg.eigh(L)
+    def compute_eigen(self, laplacian: np.array) -> torch.Tensor:
+        eigenvals, eigenvecs = np.linalg.eigh(laplacian)
         sorted_eigenvecs = eigenvecs[:, np.argsort(eigenvals)]
         sorted_eigenvecs = torch.tensor(sorted_eigenvecs, dtype=torch.float32)
         return sorted_eigenvecs
@@ -39,7 +39,8 @@ class NetworkXSpectralEmbedding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
         self.G = nx.grid_2d_graph(grid_size, grid_size)
         sorted_eigenvecs = torch.tensor(
-            list(nx.spectral_layout(self.G, dim=d_model).values()), dtype=torch.float32
+            list(nx.spectral_layout(self.G, dim=d_model).values()),
+            dtype=torch.float32,
         )
 
         self.register_buffer("sorted_eigenvecs", sorted_eigenvecs)
@@ -67,7 +68,9 @@ class SklearnSpectralEmbedding(nn.Module):
         self.G = nx.grid_2d_graph(grid_size, grid_size)
         self.A = nx.to_numpy_array(self.G)
         transformation = SpectralEmbedding(
-            n_components=num_nodes, affinity="precomputed", **kwargs
+            n_components=num_nodes,
+            affinity="precomputed",
+            **kwargs,
         )
         sorted_eigenvecs = transformation.fit_transform(self.A)
         sorted_eigenvecs = torch.tensor(sorted_eigenvecs, dtype=torch.float32)

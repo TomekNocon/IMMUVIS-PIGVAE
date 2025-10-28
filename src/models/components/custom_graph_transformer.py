@@ -1,12 +1,13 @@
-import torch
 import math
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Optional
-from src.models.components.rotary_embedding import BaseRotaryEmbedding
 
 # from torch.nn.attention import SDPBackend
 from collections import OrderedDict
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from src.models.components.rotary_embedding import BaseRotaryEmbedding
 
 """
 adapted from https://github.com/jadore801120/attention-is-all-you-need-pytorch
@@ -21,7 +22,7 @@ class Transformer(nn.Module):
         ppf_hidden_dim: int,
         num_layers: int,
         dropout: float = 0.1,
-        rope: Optional[BaseRotaryEmbedding] = None,
+        rope: BaseRotaryEmbedding | None = None,
     ):
         super().__init__()
         self.num_layers = num_layers
@@ -30,10 +31,7 @@ class Transformer(nn.Module):
         #     config.vocab_size, config.d_model, config.max_len
         # )
         self.blocks = nn.ModuleList(
-            [
-                TransformerBlock(hidden_dim, num_heads, dropout, rope)
-                for _ in range(num_layers)
-            ]
+            [TransformerBlock(hidden_dim, num_heads, dropout, rope) for _ in range(num_layers)],
         )
         self.rope = rope
 
@@ -66,12 +64,12 @@ class TransformerBlock(nn.Module):
         hidden_dim: torch.Tensor,
         n_head: torch.Tensor,
         dropout: float,
-        num_layers: Optional[int] = None,
-        rope: Optional[BaseRotaryEmbedding] = None,
+        num_layers: int | None = None,
+        rope: BaseRotaryEmbedding | None = None,
     ):
         super().__init__()
         self.attention_layer = SelfAttention(n_head, hidden_dim, dropout, rope)
-        self.feed_forward_layer = FeedForward(hidden_dim, dropout)
+        self.feed_forward_layer = feed_forward(hidden_dim, dropout)
 
     def forward(self, x: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         out_attention = self.attention_layer(x, attention_mask)
@@ -82,7 +80,7 @@ class TransformerBlock(nn.Module):
         return x
 
 
-def FeedForward(hidden_size: int, dropout: float) -> nn.Sequential:
+def feed_forward(hidden_size: int, dropout: float) -> nn.Sequential:
     return nn.Sequential(
         OrderedDict(
             [
@@ -105,8 +103,8 @@ def FeedForward(hidden_size: int, dropout: float) -> nn.Sequential:
                     ),
                 ),
                 ("dropout", nn.Dropout(dropout)),
-            ]
-        )
+            ],
+        ),
     )
 
 
@@ -116,7 +114,7 @@ class SelfAttention(torch.nn.Module):
         n_head: torch.Tensor,
         hidden_dim: torch.Tensor,
         dropout: float,
-        rope: Optional[BaseRotaryEmbedding] = None,
+        rope: BaseRotaryEmbedding | None = None,
     ):
         super().__init__()
 
@@ -149,7 +147,7 @@ class SelfAttention(torch.nn.Module):
         attn_mask = mask.to(device)
 
         attn_mask = attn_mask.unsqueeze(1).unsqueeze(
-            2
+            2,
         )  # Shape: (batch_size, 1, 1, num_nodes)
         attn_mask = attn_mask.expand(-1, self.n_head, num_nodes, -1)
 
@@ -180,20 +178,23 @@ def scaled_dot_product_attention(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    attn_mask: Optional[torch.Tensor] = None,
+    attn_mask: torch.Tensor | None = None,
     dropout_p: float = 0.0,
     is_causal: bool = False,
-    scale: Optional[float] = None,
+    scale: float | None = None,
     enable_gqa: bool = False,
 ) -> torch.Tensor:
-    L, S = query.size(-2), key.size(-2)
+    query_size, key_size = query.size(-2), key.size(-2)
     scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
     attn_bias = torch.zeros(
-        (*query.shape[:-2], L, S), dtype=query.dtype, device=query.device
+        (*query.shape[:-2], query_size, key_size),
+        dtype=query.dtype,
+        device=query.device,
     )
     if is_causal:
-        assert attn_mask is None
-        temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
+        if attn_mask is not None:
+            raise ValueError("attn_mask must be None when is_causal=True")
+        temp_mask = torch.ones(query_size, key_size, dtype=torch.bool).tril(diagonal=0)
         attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
         attn_bias.to(query.dtype)
 

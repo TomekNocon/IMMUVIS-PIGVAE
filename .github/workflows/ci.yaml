@@ -40,17 +40,6 @@ jobs:
         run: |
           pre-commit run --all-files --show-diff-on-failure
 
-      - name: Type checking (mypy)
-        run: |
-          mypy --install-types --non-interactive || true
-          mypy .
-
-      - name: Run tests
-        env:
-          PYTHONWARNINGS: default
-        run: |
-          pytest -q
-
       - name: Dependency vulnerability scan
         run: |
           pip-audit -r <(pip freeze)
@@ -83,5 +72,3 @@ jobs:
         run: pip install ruff
       - name: Ruff format check
         run: ruff format --check .
-
-

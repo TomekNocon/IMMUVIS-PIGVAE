@@ -1,20 +1,26 @@
-import torch
-import models.components.metrics.lie_transforms as lT
+from collections.abc import Callable
 from functools import wraps
-from typing import Callable, Literal
+from typing import Literal
+
+import torch
+
+import models.components.metrics.lie_transforms as lT
 
 
 def jvp(f, x, u):
     """Jacobian vector product Df(x)u vs typical autograd VJP vTDF(x).
-    Uses two backwards passes: computes (vTDF(x))u and then derivative wrt to v to get DF(x)u"""
+
+    Uses two backwards passes: computes (vTDF(x))u and then derivative wrt to v to get DF(x)u
+    """
     with torch.enable_grad():
         y = f(x)
         v = torch.ones_like(
-            y, requires_grad=True
+            y,
+            requires_grad=True,
         )  # Dummy variable (could take any value)
-        vJ = torch.autograd.grad(y, [x], [v], create_graph=True)
-        Ju = torch.autograd.grad(vJ, [v], [u], create_graph=True)
-        return Ju[0]
+        vj = torch.autograd.grad(y, [x], [v], create_graph=True)
+        ju = torch.autograd.grad(vj, [v], [u], create_graph=True)
+        return ju[0]
 
 
 def lie_derivative(
@@ -37,7 +43,12 @@ def lie_derivative(
         def wrapper(model: Callable, graph):
             batch_size = graph.node_features.shape[0]
             inp_imgs = lT.restore_tensor(
-                graph.node_features, batch_size, 1, 24, 24, patch_size
+                graph.node_features,
+                batch_size,
+                1,
+                24,
+                24,
+                patch_size,
             )
 
             if not lT.img_like(inp_imgs.shape):
@@ -55,7 +66,12 @@ def lie_derivative(
 
                 _, z, *_ = model(graph, training=False, tau=1.0)
                 z_tensor = lT.restore_tensor(
-                    z.node_features, batch_size, 1, 24, 24, patch_size
+                    z.node_features,
+                    batch_size,
+                    1,
+                    24,
+                    24,
+                    patch_size,
                 )
 
                 if lT.img_like(z_tensor.shape):

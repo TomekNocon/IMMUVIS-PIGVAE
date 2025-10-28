@@ -44,7 +44,9 @@ def cfg_eval_global() -> DictConfig:
     """
     with initialize(version_base="1.3", config_path="../configs"):
         cfg = compose(
-            config_name="eval.yaml", return_hydra_config=True, overrides=["ckpt_path=."]
+            config_name="eval.yaml",
+            return_hydra_config=True,
+            overrides=["ckpt_path=."],
         )
 
         # set defaults for all tests
@@ -65,8 +67,8 @@ def cfg_eval_global() -> DictConfig:
 
 @pytest.fixture(scope="function")
 def cfg_train(cfg_train_global: DictConfig, tmp_path: Path) -> DictConfig:
-    """A pytest fixture built on top of the `cfg_train_global()` fixture, which accepts a temporary
-    logging path `tmp_path` for generating a temporary logging path.
+    """A pytest fixture built on top of the `cfg_train_global()` fixture, which accepts
+    a temporary logging path `tmp_path` for generating a temporary logging path.
 
     This is called by each test which uses the `cfg_train` arg. Each test generates its own temporary logging path.
 
@@ -88,8 +90,8 @@ def cfg_train(cfg_train_global: DictConfig, tmp_path: Path) -> DictConfig:
 
 @pytest.fixture(scope="function")
 def cfg_eval(cfg_eval_global: DictConfig, tmp_path: Path) -> DictConfig:
-    """A pytest fixture built on top of the `cfg_eval_global()` fixture, which accepts a temporary
-    logging path `tmp_path` for generating a temporary logging path.
+    """A pytest fixture built on top of the `cfg_eval_global()` fixture, which accepts a
+    temporary logging path `tmp_path` for generating a temporary logging path.
 
     This is called by each test which uses the `cfg_eval` arg. Each test generates its own temporary logging path.
 

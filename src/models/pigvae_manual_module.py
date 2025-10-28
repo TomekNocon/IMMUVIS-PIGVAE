@@ -1,11 +1,9 @@
-from typing import Tuple
-
-import torch
 import lightning as L
-from models.components.modules import GraphAE
-from ..utils.warmups import get_cosine_schedule_with_warmup
+import torch
 import wandb
 
+from models.components.modules import GraphAE
+from src.model.components.warmups import get_cosine_schedule_with_warmup
 
 DATASET_LEN = 2_000
 
@@ -58,11 +56,11 @@ class PLGraphAE(L.LightningModule):
         """Lightning hook that is called when training begins."""
         # by default lightning executes validation step sanity checks before training starts,
         # so it's worth to make sure validation metrics don't store results from these checks
-        pass
 
     def model_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self,
+        batch: tuple[torch.Tensor, torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
@@ -72,7 +70,7 @@ class PLGraphAE(L.LightningModule):
             - A tensor of predictions.
             - A tensor of target labels.
         """
-        pass
+        raise NotImplementedError("model_step is not implemented.")
 
     def training_step(self, graph, batch_idx):
         opt = self.optimizers()
@@ -106,10 +104,11 @@ class PLGraphAE(L.LightningModule):
 
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a training epoch ends."
-        pass
 
     def validation_step(
-        self, graph: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self,
+        graph: tuple[torch.Tensor, torch.Tensor],
+        batch_idx: int,
     ) -> None:
         graph_pred, perm, mu, logvar = self(
             graph=graph,
@@ -141,39 +140,38 @@ class PLGraphAE(L.LightningModule):
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
-        pass
 
     def test_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self,
+        batch: tuple[torch.Tensor, torch.Tensor],
+        batch_idx: int,
     ) -> None:
         """Perform a single test step on a batch of data from the test set.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target
-            labels.
+        :param batch: A batch of data (a tuple) containing the input tensor of images
+            and target labels.
         :param batch_idx: The index of the current batch.
         """
-        pass
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
-        pass
 
     def setup(self, stage: str) -> None:
-        """Lightning hook that is called at the beginning of fit (train + validate), validate,
-        test, or predict.
+        """Lightning hook that is called at the beginning of fit (train + validate),
+        validate, test, or predict.
 
-        This is a good hook when you need to build models dynamically or adjust something about
-        them. This hook is called on every process when using DDP.
+        This is a good hook when you need to build models dynamically or adjust
+        something about them. This hook is called on every process when using DDP.
 
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         # if self.hparams.compile and stage == "fit":
         #     self.net = torch.compile(self.net)
-        pass
 
     def configure_optimizers(self):
-        """Choose what optimizers and learning-rate schedulers to use in your optimization.
-        Normally you'd need one. But in the case of GANs or similar you might have multiple.
+        """Choose what optimizers and learning-rate schedulers to use in your
+        optimization. Normally you'd need one. But in the case of GANs or similar you
+        might have multiple.
 
         Examples:
             https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
@@ -181,11 +179,13 @@ class PLGraphAE(L.LightningModule):
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
         optimizer = torch.optim.Adam(
-            self.graph_ae.parameters(), lr=self.hparams["lr"], betas=(0.9, 0.98)
+            self.graph_ae.parameters(),
+            lr=self.hparams["lr"],
+            betas=(0.9, 0.98),
         )
         # Calculate total training steps (num_epochs * batches_per_epoch)
         num_training_steps = self.hparams["num_epochs"] * int(
-            DATASET_LEN // self.hparams["batch_size"] + 1
+            DATASET_LEN // self.hparams["batch_size"] + 1,
         )
         num_warmup_steps = int(0.01 * num_training_steps)
 
