@@ -159,7 +159,6 @@ python src/train.py
 
 ---
 
-**Date:** 2025-10-20  
-**Status:** Ready for testing  
+**Date:** 2025-10-20
+**Status:** Ready for testing
 **Next Step:** Run diagnostic script, then train model
-

@@ -61,7 +61,7 @@ kld_free_bits: 2.0         # Increased 4x from 0.5
 
 ---
 
-### 3. **MSE IN FEATURE SPACE ENCOURAGES AVERAGING** 
+### 3. **MSE IN FEATURE SPACE ENCOURAGES AVERAGING**
 
 **Problem:**
 - MSE in high-dimensional space (512 dims) minimizes error by **predicting the mean**
@@ -379,4 +379,3 @@ If issues persist after these fixes:
 - ✅ Different samples produce different reconstructions (diversity)
 
 Good luck! 🚀
-

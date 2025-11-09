@@ -72,9 +72,9 @@ def apply_rotary_emb(
     rot_dim = freqs.shape[-1]
     end_index = start_index + rot_dim
 
-    assert rot_dim <= t.shape[-1], (
-        f"feature dimension {t.shape[-1]} is not of sufficient size to rotate in all the positions {rot_dim}"
-    )
+    assert (
+        rot_dim <= t.shape[-1]
+    ), f"feature dimension {t.shape[-1]} is not of sufficient size to rotate in all the positions {rot_dim}"
 
     # Split t into three parts: left, middle (to be transformed), and right
     t_left = t[..., :start_index]
@@ -202,9 +202,9 @@ class LLamaRotaryEmbedding(BaseRotaryEmbedding):
     def rotate_queries_or_keys(self, x, seq_dim=None, offset=0, scale=None):
         seq_dim = default(seq_dim, self.default_seq_dim)
 
-        assert not self.use_xpos or exists(scale), (
-            "you must use `.rotate_queries_and_keys` method instead and pass in both queries and keys, for length extrapolatable rotary embeddings"
-        )
+        assert (
+            not self.use_xpos or exists(scale)
+        ), "you must use `.rotate_queries_and_keys` method instead and pass in both queries and keys, for length extrapolatable rotary embeddings"
 
         device, dtype, seq_len = x.device, x.dtype, x.shape[seq_dim]
 

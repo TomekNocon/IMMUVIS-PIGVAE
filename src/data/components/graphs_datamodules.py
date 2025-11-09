@@ -1,12 +1,14 @@
 from __future__ import annotations
 import torch
-import pickle
 from typing import Optional, Callable, Union, Tuple, List, Dict
 import torch.nn as nn
 from torch.utils.data import Dataset
 import torchvision.transforms as T
 import networkx as nx
 import h5py
+from collections import defaultdict
+import numpy as np
+import math
 
 # class PickleDataset(Dataset):
 #     def __init__(self, pickle_path, transform=None):
@@ -23,23 +25,24 @@ import h5py
 #             x = self.transform(x)
 #         return x
 
+
 class PickleDataset(Dataset):
     def __init__(self, hdf5_path, transform=None):
         self.hdf5_path = hdf5_path
         self.transform = transform
-        
+
         # Only open to get length
-        with h5py.File(hdf5_path, 'r') as f:
+        with h5py.File(hdf5_path, "r") as f:
             self._length = len(f[list(f.keys())[0]])
-    
+
     def __len__(self):
         return self._length
-    
+
     def __getitem__(self, idx):
-        with h5py.File(self.hdf5_path, 'r') as f:
+        with h5py.File(self.hdf5_path, "r") as f:
             # Load only the item at index idx
             item = {key: f[key][idx] for key in f.keys()}
-        
+
         if self.transform:
             item = self.transform(item)
         return item
@@ -49,12 +52,21 @@ class PatchAugmentations(nn.Module):
     NUM_PERM = 8  # 4 rotations × {no flip, flip}
 
     def __init__(
-        self, prob: float, size: int, patch_size: int, is_validation: bool = False
+        self,
+        prob: float,
+        size: int,
+        patch_size: int,
+        is_validation: bool = False,
+        center_crop_size: Optional[int] = None,
     ):
         super().__init__()
         self.prob = prob
         self.is_validation = is_validation
-        num_nodes_per_dim = size // patch_size
+        num_nodes_per_dim = (
+            size // patch_size
+            if center_crop_size is None
+            else center_crop_size // patch_size
+        )
         self.register_buffer(
             "grid", self.make_grid(num_nodes_per_dim), persistent=False
         )
@@ -125,16 +137,27 @@ class PatchAugmentations(nn.Module):
 
 
 class IMCBaseDictTransform(nn.Module):
+    keys = [
+        "r0_f",
+        "r0_nf",
+        "r180_f",
+        "r180_nf",
+        "r270_f",
+        "r270_nf",
+        "r90_f",
+        "r90_nf",
+    ]
+
     def __init__(
-        self, 
-        exclude_metadata: Optional[List[str]] = ["img_path"], 
-        apply_center_crop: bool = True,
+        self,
+        exclude_metadata: Optional[List[str]] = ["img_path"],
+        center_crop_size: Optional[int] = None,
         normalize: bool = True,
-        norm_type: str = "channel_wise"  # "channel_wise", "global", or "none"
+        norm_type: str = "channel_wise",  # "channel_wise", "global", or "none"
     ):
         """
         Transform for IMC embeddings with proper normalization.
-        
+
         Args:
             exclude_metadata: Keys to exclude from processing
             apply_center_crop: Whether to apply center crop
@@ -146,25 +169,28 @@ class IMCBaseDictTransform(nn.Module):
         """
         super().__init__()
         self.exclude_metadata = exclude_metadata
-        self.apply_center_crop = apply_center_crop
+        self.center_crop_size = center_crop_size
         self.normalize = normalize
         self.norm_type = norm_type
 
     def forward(self, embeddings: dict) -> dict:
-        for key, embedding in embeddings.items():
+        data = defaultdict(torch.Tensor)
+        for key, embedding in zip(self.keys, embeddings):
             if (
                 not isinstance(embedding, torch.Tensor)
                 and key not in self.exclude_metadata
             ):
                 embedding = torch.from_numpy(embedding)
+                embedding = embedding.squeeze(0)
                 c, h, w = embedding.shape
-                
                 # Apply center crop if enabled
-                if self.apply_center_crop:
-                    center_crop = T.CenterCrop((h // 2, w // 2))
+                if self.center_crop_size:
+                    center_crop = T.CenterCrop(
+                        (self.center_crop_size, self.center_crop_size)
+                    )
                     embedding = center_crop(embedding)
                     c, h, w = embedding.shape  # Update dimensions after crop
-                
+
                 # CRITICAL FIX: Apply normalization BEFORE reshaping
                 if self.normalize:
                     if self.norm_type == "channel_wise":
@@ -174,13 +200,13 @@ class IMCBaseDictTransform(nn.Module):
                     elif self.norm_type == "global":
                         # Normalize all features together
                         embedding = self._normalize_global(embedding)
-                
+
                 # Reshape to [N, C] where N = H*W
                 embedding = embedding.reshape(c, -1).T
 
-            embeddings[key] = embedding
-        return embeddings
-    
+            data[key] = embedding
+        return data
+
     def _normalize_channel_wise(self, x: torch.Tensor) -> torch.Tensor:
         """
         Normalize each channel (feature dimension) independently.
@@ -188,16 +214,16 @@ class IMCBaseDictTransform(nn.Module):
         """
         # x shape: [C, H, W]
         eps = 1e-6
-        
+
         # Compute mean and std per channel
         mean = x.mean(dim=(1, 2), keepdim=True)  # [C, 1, 1]
         std = x.std(dim=(1, 2), keepdim=True) + eps  # [C, 1, 1]
-        
+
         # Standardize
         x_norm = (x - mean) / std
-        
+
         return x_norm
-    
+
     def _normalize_global(self, x: torch.Tensor) -> torch.Tensor:
         """
         Normalize all features together.
@@ -225,11 +251,20 @@ class DualOutputTransform:
         # Apply base transformations to get the original version
         original = img
         if self.base_transforms is not None:
-            original = self.base_transforms(img)
+            original["embeddings"] = self.base_transforms(img["embeddings"])
 
         # Apply the same base transformations + augmentations to get the augmented version
-        augmented, argsort_augmented, perm = self.augmentation_transforms(original)
-        return (augmented, argsort_augmented, perm)
+        augmented, argsort_augmented, perm = self.augmentation_transforms(
+            original["embeddings"]
+        )
+        return (
+            augmented,
+            argsort_augmented,
+            perm,
+            original["metadata"],
+            original["paths"],
+            original["positions"],
+        )
 
 
 class SplitPatches(nn.Module):
@@ -268,12 +303,27 @@ class GridGraphDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, idx: int) -> Tuple:
-        g = nx.grid_graph((self.grid_size, self.grid_size))
-        augmented, argsort_augmented, perm = self.dataset[idx]
+        augmented, argsort_augmented, perm, metadata, paths, positions = self.dataset[
+            idx
+        ]
         augmented = augmented.to(torch.float32)
-        augmented = augmented[:, : , self.channels]
+        metadata = torch.from_numpy(metadata)
+        positions = torch.from_numpy(positions)
+        true_grid_size = int(math.sqrt(augmented.shape[1]))
+        true_grid_size = min(true_grid_size, self.grid_size)
+        g = nx.grid_graph((true_grid_size, true_grid_size))
+        # augmented = augmented[:, : , self.channels]
         target = -1
-        return (g, augmented, argsort_augmented, perm, target)
+        return (
+            g,
+            augmented,
+            argsort_augmented,
+            perm,
+            target,
+            metadata,
+            paths,
+            positions,
+        )
 
 
 class DenseGraphBatch:
@@ -284,6 +334,9 @@ class DenseGraphBatch:
         mask: Optional[torch.Tensor] = None,
         argsort_augmented_features: Optional[torch.Tensor] = None,
         perms: Optional[torch.Tensor] = None,
+        metadata: Optional[torch.Tensor] = None,
+        paths: Optional[np.ndarray] = None,
+        positions: Optional[torch.Tensor] = None,
         **kwargs,
     ):
         self.node_features = node_features
@@ -292,6 +345,9 @@ class DenseGraphBatch:
         self.argsort_augmented_features = argsort_augmented_features
         self.perms = perms
         self.properties = kwargs.get("properties", None)
+        self.metadata = metadata
+        self.paths = paths
+        self.positions = positions
 
     def to(self, device):
         """Move all tensors in the batch to the specified device."""
@@ -307,6 +363,10 @@ class DenseGraphBatch:
             self.properties = self.properties.to(device)
         if hasattr(self, "y") and self.y is not None:
             self.y = self.y.to(device)
+        if self.metadata is not None:
+            self.metadata = self.metadata.to(device)
+        if self.positions is not None:
+            self.positions = self.positions.to(device)
         return self
 
     @classmethod
@@ -315,15 +375,18 @@ class DenseGraphBatch:
     ) -> DenseGraphBatch:
         if labels:
             max_num_nodes = max(
-                [graph.number_of_nodes() for graph, _, _, _, _ in data_list]
+                [graph.number_of_nodes() for graph, _, _, _, _, _, _, _ in data_list]
             )
         else:
             max_num_nodes = max(
-                [graph.number_of_nodes() for graph, _, _, _, _ in data_list]
+                [graph.number_of_nodes() for graph, _, _, _, _, _, _, _ in data_list]
             )
         node_features = []
         edge_features = []
         argsort_augmented_indices = []
+        metadata_list = []
+        paths_list = []
+        positions_list = []
         mask = []
         y = []
         props = []
@@ -334,6 +397,9 @@ class DenseGraphBatch:
             argsort_augmented,
             perm,
             label,
+            metadata_item,
+            paths_item,
+            positions_item,
         ) in data_list:
             y.append(label)
             num_nodes = graph.number_of_nodes()
@@ -343,6 +409,9 @@ class DenseGraphBatch:
             argsort_augmented_indices.append(argsort_augmented[perm].squeeze(1))
             perms.append(perm.squeeze(0))
             mask.append((torch.arange(max_num_nodes) < num_nodes).unsqueeze(0))
+            metadata_list.append(metadata_item)
+            paths_list.append(paths_item)
+            positions_list.append(positions_item)
         node_features = torch.stack(node_features, dim=1).flatten(0, 1)
         argsort_augmented_indices = torch.stack(
             argsort_augmented_indices, dim=1
@@ -355,6 +424,13 @@ class DenseGraphBatch:
         factor = int(batch_size / batch_size_mask)
         mask = mask.repeat_interleave(factor, dim=0)
         props = torch.cat(props, dim=0)
+        metadata = torch.cat(metadata_list, dim=0)
+        # Keep paths as numpy array (could be strings or non-tensor types)
+        try:
+            paths = np.stack(paths_list, axis=0)
+        except Exception:
+            paths = np.array(paths_list)
+        positions = torch.cat(positions_list, dim=0)
         batch = DenseGraphBatch(
             node_features=node_features,
             edge_features=edge_features,
@@ -362,6 +438,9 @@ class DenseGraphBatch:
             perms=perms,
             mask=mask,
             properties=props,
+            metadata=metadata,
+            paths=paths,
+            positions=positions,
         )
         if labels:
             batch.y = torch.Tensor(y)
@@ -374,7 +453,9 @@ class DenseGraphBatch:
         properties = self.properties
         argsort_augmented_features = self.argsort_augmented_features
         perms = self.perms
-
+        metadata = self.metadata
+        paths = self.paths
+        positions = self.positions
         return DenseGraphBatch(
             node_features=node_features[:n, :, :],
             edge_features=edge_features[:n],
@@ -384,6 +465,11 @@ class DenseGraphBatch:
             else None,
             perms=perms[:n, :],
             properties=properties[:n],
+            metadata=metadata[:n, :],
+            paths=paths[:n]
+            if isinstance(paths, np.ndarray) and paths.ndim == 1
+            else paths[:n, :],
+            positions=positions[:n, :],
         )
 
 

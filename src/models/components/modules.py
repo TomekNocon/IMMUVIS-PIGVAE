@@ -178,11 +178,13 @@ class GraphDecoder(torch.nn.Module):
     ) -> torch.Tensor:
         batch_size = graph_emb.size(0)
         device = graph_emb.device
-        
+
         # MEMORY OPTIMIZATION: Instead of expand(), use repeat() for explicit memory allocation
         # This is more memory-friendly than expand() which creates views
-        x = graph_emb.unsqueeze(1).repeat(1, num_nodes, 1)  # Explicit copy instead of view
-        
+        x = graph_emb.unsqueeze(1).repeat(
+            1, num_nodes, 1
+        )  # Explicit copy instead of view
+
         # Get positional embeddings and permute them based on predicted permutation
         pos_emb = self.positional_embedding(batch_size, num_nodes)
         if perm is not None:
@@ -198,12 +200,12 @@ class GraphDecoder(torch.nn.Module):
 
         x = x + pos_emb
         del pos_emb  # Explicit cleanup
-        
+
         # MEMORY OPTIMIZATION: Apply operations in sequence to minimize peak memory
         x = self.fc_in(x)
         x = self.dropout(x)
         x = self.layer_norm(x)
-        
+
         return x
 
     def read_out_message_matrix(
@@ -481,11 +483,11 @@ class SimplePermuter(torch.nn.Module):
             hparams.grid_size,
         )
         self.perm_context = torch.nn.Linear(hparams.num_permutations, hparams.emb_dim)
-        
+
         # Store grid_size for efficient permutation computation
         self.grid_size = hparams.grid_size
         self.num_permutations = hparams.num_permutations
-        
+
         # Don't precompute large matrices - compute on demand
         # predefined_permutations = self.create_predefine_permutations(hparams.grid_size)
         # self.register_buffer("predefined_permutations", predefined_permutations)
@@ -511,10 +513,8 @@ class SimplePermuter(torch.nn.Module):
 
         # Add noise to break symmetry (reduce scale to save memory)
         noise_scale = min(self.break_symmetry_scale, 0.01)  # Cap noise to save memory
-        node_features = (
-            node_features + torch.randn_like(node_features) * noise_scale
-        )
-        
+        node_features = node_features + torch.randn_like(node_features) * noise_scale
+
         # Clear intermediate tensors explicitly
         node_features = self.spectral_embeddings(node_features)
         cls_tokens = self.perm_node.expand(batch_size * 8, -1, -1)
@@ -524,7 +524,7 @@ class SimplePermuter(torch.nn.Module):
         node_features = self.graph_transformer(
             node_features, mask=mask, is_encoder=True
         )
-        
+
         # Score each permutation option
         cls_out = node_features[:, 0, :]
         scores = self.scoring_fc(cls_out)
@@ -540,8 +540,12 @@ class SimplePermuter(torch.nn.Module):
 
         # MEMORY-EFFICIENT PERMUTATION COMPUTATION
         # Instead of storing large matrices, compute permutations on-the-fly
+        # If hard==False (e.g., validation soft metrics), use true soft weights.
+        # If hard==True (training with straight-through), keep ST argmax probs.
+        # if not hard:
+        #     probs = soft_probs
         perm = self._compute_weighted_permutation_efficient(probs, device)
-        
+
         return perm, context, soft_probs, ce_loss
 
     def _compute_weighted_permutation_efficient(self, probs, device):
@@ -553,37 +557,58 @@ class SimplePermuter(torch.nn.Module):
         n = self.grid_size
         n_nodes = n * n
 
-        
         # Initialize result
-        perm = torch.zeros(batch_size, n_nodes, n_nodes, device=device, dtype=probs.dtype)
-        
+        perm = torch.zeros(
+            batch_size, n_nodes, n_nodes, device=device, dtype=probs.dtype
+        )
+
         # Compute each permutation type contribution efficiently
         for perm_idx in range(8):  # 8 predefined permutations
             weight = probs[:, perm_idx].unsqueeze(-1).unsqueeze(-1)  # (B, 1, 1)
-            
+
             if perm_idx == 0:  # Identity
                 perm += weight * torch.eye(n_nodes, device=device, dtype=probs.dtype)
             elif perm_idx == 1:  # 90-degree rotation
-                perm += weight * self._get_rotation_matrix_efficient(n, 1, device, probs.dtype)
+                perm += weight * self._get_rotation_matrix_efficient(
+                    n, 1, device, probs.dtype
+                )
             elif perm_idx == 2:  # 180-degree rotation
-                perm += weight * self._get_rotation_matrix_efficient(n, 2, device, probs.dtype)
+                perm += weight * self._get_rotation_matrix_efficient(
+                    n, 2, device, probs.dtype
+                )
             elif perm_idx == 3:  # 270-degree rotation
-                perm += weight * self._get_rotation_matrix_efficient(n, 3, device, probs.dtype)
+                perm += weight * self._get_rotation_matrix_efficient(
+                    n, 3, device, probs.dtype
+                )
             elif perm_idx == 4:  # Y-axis reflection
-                perm += weight * self._get_reflection_matrix_efficient(n, device, probs.dtype)
+                perm += weight * self._get_reflection_matrix_efficient(
+                    n, device, probs.dtype
+                )
             elif perm_idx == 5:  # Y-reflection + 90
-                reflection = self._get_reflection_matrix_efficient(n, device, probs.dtype)
-                rotation = self._get_rotation_matrix_efficient(n, 1, device, probs.dtype)
+                reflection = self._get_reflection_matrix_efficient(
+                    n, device, probs.dtype
+                )
+                rotation = self._get_rotation_matrix_efficient(
+                    n, 1, device, probs.dtype
+                )
                 perm += weight * torch.matmul(reflection, rotation)
             elif perm_idx == 6:  # Y-reflection + 180
-                reflection = self._get_reflection_matrix_efficient(n, device, probs.dtype)
-                rotation = self._get_rotation_matrix_efficient(n, 2, device, probs.dtype)
+                reflection = self._get_reflection_matrix_efficient(
+                    n, device, probs.dtype
+                )
+                rotation = self._get_rotation_matrix_efficient(
+                    n, 2, device, probs.dtype
+                )
                 perm += weight * torch.matmul(reflection, rotation)
             elif perm_idx == 7:  # Y-reflection + 270
-                reflection = self._get_reflection_matrix_efficient(n, device, probs.dtype)
-                rotation = self._get_rotation_matrix_efficient(n, 3, device, probs.dtype)
+                reflection = self._get_reflection_matrix_efficient(
+                    n, device, probs.dtype
+                )
+                rotation = self._get_rotation_matrix_efficient(
+                    n, 3, device, probs.dtype
+                )
                 perm += weight * torch.matmul(reflection, rotation)
-        
+
         return perm
 
     def _get_rotation_matrix_efficient(self, n, num_rotations, device, dtype):
@@ -625,11 +650,18 @@ class SimplePermuter(torch.nn.Module):
         perm_y_reflection_180 = torch.matmul(perm_y_reflection, perm_180)
         perm_y_reflection_270 = torch.matmul(perm_y_reflection, perm_270)
 
-        permutations = torch.stack([
-            perm, perm_90, perm_180, perm_270,
-            perm_y_reflection, perm_y_reflection_90,
-            perm_y_reflection_180, perm_y_reflection_270,
-        ])
+        permutations = torch.stack(
+            [
+                perm,
+                perm_90,
+                perm_180,
+                perm_270,
+                perm_y_reflection,
+                perm_y_reflection_90,
+                perm_y_reflection_180,
+                perm_y_reflection_270,
+            ]
+        )
         return permutations
 
     @staticmethod

@@ -1,0 +1,13 @@
+# Example Modal deployment config for ONNX inference
+# Copy this file, edit the values, and mount it during deploy.
+
+# Option 1: Mount a local ONNX file into the container at /weights/model.onnx
+# Then set onnx_path to that location inside the container.
+onnx_path: /weights/model.onnx
+
+# Option 2: Download from a URL at startup (leave onnx_path unset)
+# onnx_url: https://your-bucket/path/to/model.onnx
+
+# Option 3: Fetch from a Weights & Biases artifact at startup
+# Requires a Modal secret named "wandb" with WANDB_API_KEY set.
+# wandb_onnx_artifact: YOUR_ENTITY/YOUR_PROJECT:model-onnx:latest

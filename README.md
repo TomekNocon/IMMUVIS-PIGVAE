@@ -49,7 +49,7 @@ This project implements a Graph Variational Autoencoder for analyzing and visual
    ```bash
    uv sync
    ```
-   
+
    Or using pip:
    ```bash
    pip install -e .
@@ -197,7 +197,7 @@ uv run ruff check --fix
 ### Key Metrics Tracked
 
 - 📈 **Reconstruction Loss**: VAE reconstruction quality
-- 🔄 **KL Divergence**: Latent space regularization  
+- 🔄 **KL Divergence**: Latent space regularization
 - ⚖️ **Equivariance Error**: Lie group structure preservation
 - 🎯 **Graph Metrics**: Node and edge reconstruction accuracy
 
@@ -259,7 +259,7 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
 ---
 
 <div align="center">
-  
+
 **⭐ Star this repo if you found it helpful!**
 
 Made with ❤️ for the immunology research community

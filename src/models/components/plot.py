@@ -102,11 +102,23 @@ def plot_pca(
 ) -> figure.Figure:
     # new_images = reshape_images_array(images, n_rows, n_cols)
     counter = defaultdict(int)
-    new_targets = []
+    # Build label list (string labels with running index per class)
+    base_labels = []
     for val in targets:
-        counter[int(val)] += 1
-        new_targets.append(f"{val.item()}-{counter[int(val)]}")
-    new_targets = np.repeat(new_targets, n_cols)
+        cls = int(val)
+        counter[cls] += 1
+        base_labels.append(f"{cls}-{counter[cls]}")
+
+    # Align label count with number of samples in `images`
+    num_samples = int(images.shape[0])
+    if num_samples == len(base_labels) * n_cols:
+        new_targets = np.repeat(base_labels, n_cols)
+    elif num_samples == len(base_labels):
+        new_targets = np.asarray(base_labels)
+    else:
+        # Generic fallback: tile/truncate to match samples
+        reps = max(1, int(np.ceil(num_samples / max(1, len(base_labels)))))
+        new_targets = np.tile(base_labels, reps)[:num_samples]
 
     batch_flat = images.reshape(images.shape[0], -1)
     # Step 2: Run PCA
@@ -258,7 +270,9 @@ def plot_inter_silhouette(images: np.ndarray, k: int) -> figure.Figure:
 
 
 # Option 2: Card-like appearance with shadows
-def plot_feature_map(features: torch.Tensor, num_example: int, vmin: float = None, vmax: float = None) -> List[figure.Figure]:
+def plot_feature_map(
+    features: torch.Tensor, num_example: int, vmin: float = None, vmax: float = None
+) -> List[figure.Figure]:
     """
     Visualize 5D tensor data: (4, 8, 512, 13, 13)
     Shows first 2 channels for all 4 images and 8 transformations
@@ -274,7 +288,7 @@ def plot_feature_map(features: torch.Tensor, num_example: int, vmin: float = Non
     tensor_data = reshape_feature_map(features, num_example)
     figures = []
 
-    for channel in range(1):  # First 2 channels
+    for channel in range(2):  # First 2 channels
         fig = plt.figure(figsize=(20, 10))
         fig.patch.set_facecolor("#f8f9fa")
 
@@ -282,7 +296,7 @@ def plot_feature_map(features: torch.Tensor, num_example: int, vmin: float = Non
         gs = fig.add_gridspec(
             4, 8, hspace=0.4, wspace=0.25, left=0.06, right=0.94, top=0.92, bottom=0.08
         )
-        
+
         # Calculate global min/max for consistent color scaling if not provided
         if vmin is None:
             vmin = tensor_data[:, :, channel, :, :].min().item()
@@ -297,7 +311,9 @@ def plot_feature_map(features: torch.Tensor, num_example: int, vmin: float = Non
                 data_slice = tensor_data[img_idx, trans_idx, channel, :, :]
 
                 # Create heatmap with consistent color scale
-                im = ax.imshow(data_slice, cmap="seismic", aspect="equal", vmin=vmin, vmax=vmax)
+                im = ax.imshow(
+                    data_slice, cmap="seismic", aspect="equal", vmin=vmin, vmax=vmax
+                )
 
                 # Remove ticks
                 ax.set_xticks([])

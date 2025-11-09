@@ -8,6 +8,7 @@ from functools import lru_cache
 # Import for optimized attention backends
 try:
     from torch.nn.attention import SDPBackend
+
     SDPA_AVAILABLE = True
 except ImportError:
     SDPA_AVAILABLE = False
@@ -241,9 +242,15 @@ class SelfAttention(torch.nn.Module):
         # query = q_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         # key = k_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         # value = v_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-        query = self.q_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-        key = self.k_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-        value = self.v_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        query = (
+            self.q_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        )
+        key = (
+            self.k_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        )
+        value = (
+            self.v_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        )
         if self.rope:
             query = self.rope.rotate_queries_or_keys(query)
             key = self.rope.rotate_queries_or_keys(key)
@@ -256,9 +263,9 @@ class SelfAttention(torch.nn.Module):
             # Try optimized backends in order of preference
             with torch.nn.attention.sdpa_kernel(
                 [
-                    SDPBackend.FLASH_ATTENTION,      # Most memory efficient
-                    SDPBackend.EFFICIENT_ATTENTION,  # Good memory efficiency  
-                    SDPBackend.MATH,                 # Fallback (standard implementation)
+                    SDPBackend.FLASH_ATTENTION,  # Most memory efficient
+                    SDPBackend.EFFICIENT_ATTENTION,  # Good memory efficiency
+                    SDPBackend.MATH,  # Fallback (standard implementation)
                 ]
             ):
                 attention_output = F.scaled_dot_product_attention(
@@ -276,6 +283,7 @@ class SelfAttention(torch.nn.Module):
         output = self.dropout(output)
         return output
 
+
 # Cache masks to avoid recomputation
 @lru_cache(maxsize=32)
 def _create_neighborhood_mask(num_nodes: int, is_encoder: bool):
@@ -292,7 +300,10 @@ def _create_neighborhood_mask(num_nodes: int, is_encoder: bool):
         mask = F.pad(mask, (1, 0, 1, 0), value=True)
     return mask
 
-def get_neighborhood_mask(num_nodes: int, is_encoder: bool, device: torch.device = None):
+
+def get_neighborhood_mask(
+    num_nodes: int, is_encoder: bool, device: torch.device = None
+):
     """Get neighborhood mask, creating on the correct device."""
     mask = _create_neighborhood_mask(num_nodes, is_encoder)
     if device is not None:
@@ -312,16 +323,16 @@ def get_full_mask(mask: torch.Tensor, is_encoder: bool, device: torch.device = N
         num_nodes = mask.size(1)
     else:
         raise ValueError(f"Mask should be 2D or 3D, got shape {mask.shape}")
-    
+
     # Add 1 for CLS token if encoder
     if is_encoder:
         num_nodes = num_nodes + 1
-    
+
     # Create full attention mask (all True) - shape (num_nodes, num_nodes)
     attn_mask = torch.ones(num_nodes, num_nodes, dtype=torch.bool)
-    
+
     # Move to correct device
     if device is not None:
         attn_mask = attn_mask.to(device)
-    
+
     return attn_mask

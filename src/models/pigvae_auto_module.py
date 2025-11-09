@@ -128,20 +128,13 @@ class PLGraphAE(L.LightningModule):
         "Lightning hook that is called when a training epoch ends."
         pass
 
-    # def on_after_backward(self) -> None:
-    #     for name, param in self.named_parameters():
-    #         if param.grad is not None:
-    #             grad_norm = torch.norm(param.grad)
-    #             if torch.isnan(grad_norm) or grad_norm > 1e3:
-    #                 print(f"🚨 Problematic gradient: {name} = {grad_norm}")
-
     def validation_step(self, graph: DenseGraphBatch, batch_idx: int) -> Dict[str, Any]:
         tau = self.temperature_scheduler(self.current_epoch)
         beta = self.entropy_weight_scheduler(self.current_epoch)
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph, training=True, tau=tau
         )
-       
+
         if perm is not None:
             self.perms.append(perm)
         outputs = {
@@ -167,29 +160,29 @@ class PLGraphAE(L.LightningModule):
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph, training=False, tau=1.0
         )
-        metrics_hard = self.critic.evaluate(
-            graph_emb=graph_emb,
-            graph_true=graph,
-            graph_pred=graph_pred,
-            soft_probs=soft_probs,
-            perm=perm,
-            beta=0.0,
-            mu=mu,
-            logvar=logvar,
-            prefix="val_hard",
-        )
+        # metrics_hard = self.critic.evaluate(
+        #     graph_emb=graph_emb,
+        #     graph_true=graph,
+        #     graph_pred=graph_pred,
+        #     soft_probs=soft_probs,
+        #     perm=perm,
+        #     beta=0.0,
+        #     mu=mu,
+        #     logvar=logvar,
+        #     prefix="val_hard",
+        # )
         # sample_graph = graph.take_sample(16)
         # lie_metrics = lE.get_equivariance_metrics(self, sample_graph)
         metrics = {
             **metrics_soft,
-            **metrics_hard,
+            # **metrics_hard,
             # **lie_metrics,
             "tau": tau,
             "beta": beta,
         }
         self.log_dict(
             metrics,
-            sync_dist=False,
+            sync_dist=True,
             on_epoch=True,
             on_step=False,
             batch_size=batch_size,
@@ -198,117 +191,130 @@ class PLGraphAE(L.LightningModule):
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
-        # Log one example to W&B
-        n_examples = 4
-        predictions = self.validation_step_outputs[0]["prediction"].node_features
-        ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
-        argsort = self.validation_step_outputs[0][
-            "ground_truth"
-        ].argsort_augmented_features
-        graph_emb = self.validation_step_outputs[0]["graph_emb"]
-        targets = self.validation_step_outputs[0]["ground_truth"].y
-        soft_probs = self.validation_step_outputs[0]["soft_probs"]
+        # Log one example to W&B only on the global zero process
+        if self.trainer.is_global_zero:
+            n_examples = 4
+            predictions = self.validation_step_outputs[0]["prediction"].node_features
+            ground_truths = self.validation_step_outputs[0][
+                "ground_truth"
+            ].node_features
+            argsort = self.validation_step_outputs[0][
+                "ground_truth"
+            ].argsort_augmented_features
+            graph_emb = self.validation_step_outputs[0]["graph_emb"]
+            targets = self.validation_step_outputs[0]["ground_truth"].y
+            soft_probs = self.validation_step_outputs[0]["soft_probs"]
 
-        if soft_probs is not None:
-            perm_preds = torch.argmax(soft_probs, dim=1).detach().cpu().numpy().tolist()
-            perm_preds_counter = Counter(perm_preds)
-            fig_perm_preds_counter = pL.plot_barchart_from_dict(
-                dict(perm_preds_counter), "Perm Preds Counter"
+            if soft_probs is not None:
+                perm_preds = (
+                    torch.argmax(soft_probs, dim=1).detach().cpu().numpy().tolist()
+                )
+                perm_preds_counter = Counter(perm_preds)
+                fig_perm_preds_counter = pL.plot_barchart_from_dict(
+                    dict(perm_preds_counter), "Perm Preds Counter"
+                )
+
+            batch_size = predictions.shape[0] // 8
+            idx_to_show = R.batch_augmented_indices(
+                batch_size, num_permutations=8, n_examples=n_examples
+            )
+            if self.perms:
+                perms = self.perms[0]
+                subset_perms = perms[idx_to_show, :, :]
+                permutations = subset_perms.detach().cpu().squeeze().numpy()
+            else:
+                permutations = np.array([])
+            subset_predictions = predictions[idx_to_show, :, :]
+            subset_targets = targets[:n_examples].to(torch.int)
+            subset_ground_truths = ground_truths[idx_to_show, :, :]
+            subset_graph_emb = graph_emb[idx_to_show, :]
+            subset_argsort = argsort[idx_to_show, :]
+
+            restore_subset_predictions = torch.stack(
+                [img[arg, :] for img, arg in zip(subset_predictions, subset_argsort)],
+                dim=0,
             )
 
-        batch_size = predictions.shape[0] // 8
-        idx_to_show = R.batch_augmented_indices(
-            batch_size, num_permutations=8, n_examples=n_examples
-        )
-        if self.perms:
-            perms = self.perms[0]
-            subset_perms = perms[idx_to_show, :, :]
-            permutations = subset_perms.detach().cpu().squeeze().numpy()
-        else:
-            permutations = np.array([])
-        subset_predictions = predictions[idx_to_show, :, :]
-        subset_targets = targets[:n_examples].to(torch.int)
-        subset_ground_truths = ground_truths[idx_to_show, :, :]
-        subset_graph_emb = graph_emb[idx_to_show, :]
-        subset_argsort = argsort[idx_to_show, :]
+            restore_subset_ground_truths = torch.stack(
+                [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
+                dim=0,
+            )
+            _ = subset_predictions.shape[0]
+            pred_imgs = restore_subset_predictions.detach().cpu()
+            ground_truth_imgs = restore_subset_ground_truths.detach().cpu()
 
-        restore_subset_predictions = torch.stack(
-            [img[arg, :] for img, arg in zip(subset_predictions, subset_argsort)], dim=0
-        )
-       
-        restore_subset_ground_truths = torch.stack(
-            [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
-            dim=0,
-        )
-        subset_batch_size = subset_predictions.shape[0]
-        pred_imgs = restore_subset_predictions.detach().cpu()#.squeeze()
-        ground_truth_imgs = restore_subset_ground_truths.detach().cpu()#.squeeze()
+            diff = pred_imgs - ground_truth_imgs
 
-        diff = pred_imgs - ground_truth_imgs
+            pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
 
-        # pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
+            # Calculate shared color scale for predictions and ground truth
+            pred_min, pred_max = pred_imgs.min().item(), pred_imgs.max().item()
+            gt_min, gt_max = (
+                ground_truth_imgs.min().item(),
+                ground_truth_imgs.max().item(),
+            )
+            vmin = min(pred_min, gt_min)
+            vmax = max(pred_max, gt_max)
 
-        # Calculate shared color scale for predictions and ground truth
-        pred_min, pred_max = pred_imgs.min().item(), pred_imgs.max().item()
-        gt_min, gt_max = ground_truth_imgs.min().item(), ground_truth_imgs.max().item()
-        vmin = min(pred_min, gt_min)
-        vmax = max(pred_max, gt_max)
-        
-        # For diff, use symmetric scale around zero
-        diff_abs_max = diff.abs().max().item()
-        diff_vmin, diff_vmax = -diff_abs_max, diff_abs_max
+            # For diff, use symmetric scale around zero
+            diff_abs_max = diff.abs().max().item()
+            diff_vmin, diff_vmax = -diff_abs_max, diff_abs_max
 
-        mse = R.mse_per_transform(ground_truth_imgs, pred_imgs, n_examples, 8)
-        fig_prediction = pL.plot_feature_map(pred_imgs, n_examples, vmin=vmin, vmax=vmax)
-        fig_ground_truth = pL.plot_feature_map(ground_truth_imgs, n_examples, vmin=vmin, vmax=vmax)
-        fig_diff = pL.plot_feature_map(diff, n_examples, vmin=diff_vmin, vmax=diff_vmax)
-        fig_perms = pL.plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
-        # fig_pca = pL.plot_pca(
-        #     pca_predictions, subset_targets, n_rows=n_examples, n_cols=8
-        # )
-        fig_mse = pL.plot_barchart_from_dict(mse, "MSE per transform")
+            mse = R.mse_per_transform(ground_truth_imgs, pred_imgs, n_examples, 8)
+            fig_prediction = pL.plot_feature_map(
+                pred_imgs, n_examples, vmin=vmin, vmax=vmax
+            )
+            fig_ground_truth = pL.plot_feature_map(
+                ground_truth_imgs, n_examples, vmin=vmin, vmax=vmax
+            )
+            fig_diff = pL.plot_feature_map(
+                diff, n_examples, vmin=diff_vmin, vmax=diff_vmax
+            )
+            fig_perms = pL.plot_images_all_perm(
+                permutations, n_rows=n_examples, n_cols=8
+            )
+            fig_pca = pL.plot_pca(
+                pca_predictions, subset_targets, n_rows=n_examples, n_cols=8
+            )
+            fig_mse = pL.plot_barchart_from_dict(mse, "MSE per transform")
 
-        # best_k, fig_silhouette = pL.plot_silhouette(pca_predictions)
-        # fig_inter = pL.plot_inter_silhouette(pca_predictions, best_k)
-        wandb.log(
-            {
-                "Predictions": [
-                    wandb.Image(fig, caption=f"Predictions {i + 1}")
-                    for i, fig in enumerate(fig_prediction)
-                ],
-                "Ground Truth": [
-                    wandb.Image(fig, caption=f"Ground Truth {i + 1}")
-                    for i, fig in enumerate(fig_ground_truth)
-                ],
-                "Diff": [
-                    wandb.Image(fig, caption=f"Diff {i + 1}")
-                    for i, fig in enumerate(fig_diff)
-                ],
-                "Perms": wandb.Image(fig_perms, caption="Perms")
-                if self.perms
-                else None,
-                # "PCA": wandb.Image(fig_pca, caption="PCA"),
-                "MSE Per Transform": wandb.Image(fig_mse, caption="MSE"),
-                "Perm Preds Counter": wandb.Image(
-                    fig_perm_preds_counter, caption="Perm Preds Counter"
-                )
-                if soft_probs is not None
-                else None,
-                # "Silhouette": wandb.Image(fig_silhouette, caption="Silhouette"),
-                # "Inter Silhouette": wandb.Image(fig_inter, caption="Inter Silhouette"),
-            }
-        )
-        for fig in fig_prediction:
-            plt.close(fig)
-        for fig in fig_ground_truth:
-            plt.close(fig)
-        for fig in fig_diff:
-            plt.close(fig)
-        plt.close(fig_perms)
-        # plt.close(fig_pca)
-        plt.close(fig_mse)
-        if soft_probs is not None:
-            plt.close(fig_perm_preds_counter)
+            wandb.log(
+                {
+                    "Predictions": [
+                        wandb.Image(fig, caption=f"Predictions {i + 1}")
+                        for i, fig in enumerate(fig_prediction)
+                    ],
+                    "Ground Truth": [
+                        wandb.Image(fig, caption=f"Ground Truth {i + 1}")
+                        for i, fig in enumerate(fig_ground_truth)
+                    ],
+                    "Diff": [
+                        wandb.Image(fig, caption=f"Diff {i + 1}")
+                        for i, fig in enumerate(fig_diff)
+                    ],
+                    "Perms": wandb.Image(fig_perms, caption="Perms")
+                    if self.perms
+                    else None,
+                    "PCA": wandb.Image(fig_pca, caption="PCA"),
+                    "MSE Per Transform": wandb.Image(fig_mse, caption="MSE"),
+                    "Perm Preds Counter": wandb.Image(
+                        fig_perm_preds_counter, caption="Perm Preds Counter"
+                    )
+                    if soft_probs is not None
+                    else None,
+                }
+            )
+            for fig in fig_prediction:
+                plt.close(fig)
+            for fig in fig_ground_truth:
+                plt.close(fig)
+            for fig in fig_diff:
+                plt.close(fig)
+            plt.close(fig_perms)
+            plt.close(fig_pca)
+            plt.close(fig_mse)
+            if soft_probs is not None:
+                plt.close(fig_perm_preds_counter)
         # plt.close(fig_silhouette)
         # plt.close(fig_inter)
         self.validation_step_outputs.clear()
@@ -338,77 +344,91 @@ class PLGraphAE(L.LightningModule):
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
-        n_examples = 10
-        predictions = self.test_step_outputs[0]["prediction"].node_features
-        ground_truths = self.test_step_outputs[0]["ground_truth"].node_features
-        argsort = self.test_step_outputs[0]["ground_truth"].argsort_augmented_features
-        graph_emb = torch.cat([el["graph_emb"] for el in self.test_step_outputs], dim=0)
-        targets = np.concatenate(
-            [el["ground_truth"].y for el in self.test_step_outputs], axis=0
-        )
-        batch_size = predictions.shape[0] // 8
-        idx_to_show = R.batch_augmented_indices(
-            batch_size, num_permutations=8, n_examples=n_examples
-        )
-        if self.perms:
-            perms = self.perms[0]
-            subset_perms = perms[idx_to_show, :, :]
-            permutations = subset_perms.detach().cpu().squeeze().numpy()
-        else:
-            permutations = np.array([])
-        subset_predictions = predictions[idx_to_show, :, :]
-        subset_ground_truths = ground_truths[idx_to_show, :, :]
-        subset_argsort = argsort[idx_to_show, :]
-
-        restore_subset_predictions = torch.stack(
-            [img[arg, :] for img, arg in zip(subset_predictions, subset_argsort)], dim=0
-        )
-
-        restore_subset_ground_truths = torch.stack(
-            [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
-            dim=0,
-        )
-
-        subset_batch_size = subset_predictions.shape[0]
-        pred_imgs = (
-            pL.restore_tensor(
-                restore_subset_predictions, subset_batch_size, 1, 24, 24, 4
+        if self.trainer.is_global_zero:
+            n_examples = 10
+            predictions = self.test_step_outputs[0]["prediction"].node_features
+            ground_truths = self.test_step_outputs[0]["ground_truth"].node_features
+            argsort = self.test_step_outputs[0][
+                "ground_truth"
+            ].argsort_augmented_features
+            graph_emb = torch.cat(
+                [el["graph_emb"] for el in self.test_step_outputs], dim=0
             )
-            .detach()
-            .cpu()
-            .squeeze()
-            .numpy()
-        )
-        ground_truth_imgs = (
-            pL.restore_tensor(
-                restore_subset_ground_truths, subset_batch_size, 1, 24, 24, 4
+            targets = np.concatenate(
+                [el["ground_truth"].y for el in self.test_step_outputs], axis=0
             )
-            .detach()
-            .cpu()
-            .squeeze()
-            .numpy()
-        )
-        pca_predictions = graph_emb.detach().cpu().squeeze().numpy()
-        fig_prediction = pL.plot_images_all_perm(pred_imgs, n_rows=n_examples, n_cols=8)
-        fig_ground_truth = pL.plot_images_all_perm(
-            ground_truth_imgs, n_rows=n_examples, n_cols=8
-        )
-        fig_perms = pL.plot_images_all_perm(permutations, n_rows=n_examples, n_cols=8)
-        fig_pca = pL.plot_pca(pca_predictions, targets, n_rows=100, n_cols=8)
-        wandb.log(
-            {
-                "Prediction": wandb.Image(fig_prediction, caption="Predicted Image"),
-                "Ground Truth": wandb.Image(fig_ground_truth, caption="Ground Truth"),
-                "Perms": wandb.Image(fig_perms, caption="Perms")
-                if self.perms
-                else None,
-                "PCA": wandb.Image(fig_pca, caption="PCA"),
-            }
-        )
-        plt.close(fig_prediction)
-        plt.close(fig_ground_truth)
-        plt.close(fig_perms)
-        plt.close(fig_pca)
+            batch_size = predictions.shape[0] // 8
+            idx_to_show = R.batch_augmented_indices(
+                batch_size, num_permutations=8, n_examples=n_examples
+            )
+            if self.perms:
+                perms = self.perms[0]
+                subset_perms = perms[idx_to_show, :, :]
+                permutations = subset_perms.detach().cpu().squeeze().numpy()
+            else:
+                permutations = np.array([])
+            subset_predictions = predictions[idx_to_show, :, :]
+            subset_ground_truths = ground_truths[idx_to_show, :, :]
+            subset_argsort = argsort[idx_to_show, :]
+
+            restore_subset_predictions = torch.stack(
+                [img[arg, :] for img, arg in zip(subset_predictions, subset_argsort)],
+                dim=0,
+            )
+
+            restore_subset_ground_truths = torch.stack(
+                [img[arg, :] for img, arg in zip(subset_ground_truths, subset_argsort)],
+                dim=0,
+            )
+
+            subset_batch_size = subset_predictions.shape[0]
+            pred_imgs = (
+                pL.restore_tensor(
+                    restore_subset_predictions, subset_batch_size, 1, 24, 24, 4
+                )
+                .detach()
+                .cpu()
+                .squeeze()
+                .numpy()
+            )
+            ground_truth_imgs = (
+                pL.restore_tensor(
+                    restore_subset_ground_truths, subset_batch_size, 1, 24, 24, 4
+                )
+                .detach()
+                .cpu()
+                .squeeze()
+                .numpy()
+            )
+            pca_predictions = graph_emb.detach().cpu().squeeze().numpy()
+            fig_prediction = pL.plot_images_all_perm(
+                pred_imgs, n_rows=n_examples, n_cols=8
+            )
+            fig_ground_truth = pL.plot_images_all_perm(
+                ground_truth_imgs, n_rows=n_examples, n_cols=8
+            )
+            fig_perms = pL.plot_images_all_perm(
+                permutations, n_rows=n_examples, n_cols=8
+            )
+            fig_pca = pL.plot_pca(pca_predictions, targets, n_rows=100, n_cols=8)
+            wandb.log(
+                {
+                    "Prediction": wandb.Image(
+                        fig_prediction, caption="Predicted Image"
+                    ),
+                    "Ground Truth": wandb.Image(
+                        fig_ground_truth, caption="Ground Truth"
+                    ),
+                    "Perms": wandb.Image(fig_perms, caption="Perms")
+                    if self.perms
+                    else None,
+                    "PCA": wandb.Image(fig_pca, caption="PCA"),
+                }
+            )
+            plt.close(fig_prediction)
+            plt.close(fig_ground_truth)
+            plt.close(fig_perms)
+            plt.close(fig_pca)
         self.test_step_outputs.clear()
         self.perms.clear()
 
@@ -434,9 +454,58 @@ class PLGraphAE(L.LightningModule):
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
         optimizer = self.hparams.optimizer(params=self.parameters())
-        # Calculate total training steps based on the actual number of batches
-        # This is more accurate than using a fixed DATASET_LEN
-        num_training_steps = self.trainer.estimated_stepping_batches
+        # Calculate total optimizer steps accounting for dynamic grad accumulation
+        # Lightning's estimated_stepping_batches assumes fixed accumulation; here we
+        # integrate the configured GradientAccumulationScheduler schedule to avoid
+        # getting stuck in warmup.
+        try:
+            from lightning.pytorch.callbacks import GradientAccumulationScheduler  # type: ignore
+        except Exception:
+            GradientAccumulationScheduler = None  # type: ignore
+
+        # Guard: in early setup, Lightning can report `inf` for num_training_batches.
+        # If so, fall back to `estimated_stepping_batches` (finite) and skip
+        # manual accumulation-aware computation.
+        try:
+            train_batches_per_epoch = int(self.trainer.num_training_batches)
+        except Exception:
+            train_batches_per_epoch = None
+        max_epochs = int(self.trainer.max_epochs)
+
+        # Default: fixed accumulate_grad_batches from trainer/strategy
+        default_accum = int(getattr(self.trainer, "accumulate_grad_batches", 1)) or 1
+        schedule = None
+        for cb in self.trainer.callbacks:
+            if GradientAccumulationScheduler is not None and isinstance(
+                cb, GradientAccumulationScheduler
+            ):
+                schedule = dict(cb.scheduling)
+                break
+
+        def accum_for_epoch(epoch: int) -> int:
+            if not schedule:
+                return default_accum
+            # Find the largest milestone <= epoch
+            milestone = max([k for k in schedule.keys() if k <= epoch], default=0)
+            return int(schedule.get(milestone, default_accum)) or 1
+
+        if train_batches_per_epoch is None or train_batches_per_epoch == float("inf"):
+            # Fallback: use Lightning's estimate (already finite and accounts for many trainer flags)
+            num_training_steps = int(self.trainer.estimated_stepping_batches)
+        else:
+            total_steps = 0
+            for epoch in range(max_epochs):
+                accum = accum_for_epoch(epoch)
+                # Number of optimizer steps this epoch
+                steps_this_epoch = (train_batches_per_epoch + accum - 1) // accum
+                total_steps += steps_this_epoch
+
+            # Respect an explicit max_steps if provided
+            max_steps = getattr(self.trainer, "max_steps", None)
+            if isinstance(max_steps, int) and max_steps > 0:
+                num_training_steps = min(total_steps, max_steps)
+            else:
+                num_training_steps = total_steps
         scheduler_type = getattr(self.hparams.scheduler, "type", "cosine_warmup")
 
         if scheduler_type == "one_cycle":
@@ -450,7 +519,12 @@ class PLGraphAE(L.LightningModule):
                 anneal_strategy="cos",
             )
 
-            scheduler = {"scheduler": lr_scheduler, "interval": "step", "frequency": 1, "name": "OneCycleLR"}
+            scheduler = {
+                "scheduler": lr_scheduler,
+                "interval": "step",
+                "frequency": 1,
+                "name": "OneCycleLR",
+            }
 
         else:
             num_warmup_steps = int(
@@ -462,8 +536,13 @@ class PLGraphAE(L.LightningModule):
                 num_warmup_steps=num_warmup_steps,
                 num_training_steps=num_training_steps,
             )
-        # Step scheduler every batch
-            scheduler = {"scheduler": lr_scheduler, "interval": "step", "frequency": 1, "name": "CosineWarmupLR"}
+            # Step scheduler every batch
+            scheduler = {
+                "scheduler": lr_scheduler,
+                "interval": "step",
+                "frequency": 1,
+                "name": "CosineWarmupLR",
+            }
         return [optimizer], [scheduler]
 
     def optimizer_step(
