@@ -1,14 +1,13 @@
 import argparse
 import sys
-from typing import Optional, Tuple
 
 import numpy as np
 import requests
 
 
-def resolve_dims_from_onnx(onnx_path: str) -> Tuple[int, int]:
+def resolve_dims_from_onnx(onnx_path: str) -> tuple[int, int]:
     try:
-        import onnx  # type: ignore
+        import onnx
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("onnx is required to infer dims from --onnx-path") from exc
 
@@ -26,7 +25,7 @@ def resolve_dims_from_onnx(onnx_path: str) -> Tuple[int, int]:
         raise ValueError(f"Unexpected node_features rank: {len(dims)} (expected 3)")
 
     # dims[0] is batch, dims[1] is N, dims[2] is Din
-    def _to_int(d) -> Optional[int]:
+    def _to_int(d) -> int | None:
         return int(d.dim_value) if d.dim_value not in (None, 0) else None
 
     n = _to_int(dims[1])
@@ -39,9 +38,7 @@ def resolve_dims_from_onnx(onnx_path: str) -> Tuple[int, int]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Test Modal /infer endpoint for ONNX model"
-    )
+    parser = argparse.ArgumentParser(description="Test Modal /infer endpoint for ONNX model")
     parser.add_argument(
         "--url",
         required=True,
@@ -60,14 +57,10 @@ def main() -> None:
     parser.add_argument(
         "--din", type=int, default=None, help="Din dimension if not using --onnx-path"
     )
-    parser.add_argument(
-        "--timeout", type=float, default=60.0, help="HTTP timeout seconds"
-    )
+    parser.add_argument("--timeout", type=float, default=60.0, help="HTTP timeout seconds")
     args = parser.parse_args()
 
-    infer_url = (
-        args.url if args.url.endswith("/infer") else args.url.rstrip("/") + "/infer"
-    )
+    infer_url = args.url if args.url.endswith("/infer") else args.url.rstrip("/") + "/infer"
 
     if args.onnx_path:
         try:
