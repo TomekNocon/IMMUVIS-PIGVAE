@@ -14,7 +14,7 @@ repos:
     rev: v0.14.2
     hooks:
       - id: ruff
-        args: ["--fix"]
+        args: ["--fix", "--extend-ignore", "E402"]
         exclude: ^(notebooks/|src/models/components/metrics/)
       - id: ruff-format
         exclude: ^(notebooks/|src/models/components/metrics/)
@@ -38,7 +38,7 @@ repos:
     rev: v1.18.2
     hooks:
       - id: mypy
-        additional_dependencies: ["types-requests"]
+        additional_dependencies: ["types-requests", "types-PyYAML"]
         exclude: ^(notebooks/|src/models/components/metrics/)
 
 default_language_version:

@@ -1,8 +1,10 @@
+from typing import Any
+
 import torch
-from torch.nn import MSELoss, L1Loss, CosineSimilarity
 import torch.nn.functional as F
+from torch.nn import CosineSimilarity, L1Loss, MSELoss
+
 from src.data.components.graphs_datamodules import DenseGraphBatch
-from typing import Dict, Any
 
 
 class GraphReconstructionLoss(torch.nn.Module):
@@ -13,8 +15,8 @@ class GraphReconstructionLoss(torch.nn.Module):
         use_cosine_loss: bool = True,
         cosine_loss_weight: float = 0.1,
     ):
-        """
-        Reconstruction loss with optional gradient/detail preservation and cosine similarity.
+        """Reconstruction loss with optional gradient/detail preservation and cosine
+        similarity.
 
         Args:
             use_gradient_loss: If True, adds gradient-based loss to preserve details
@@ -32,13 +34,14 @@ class GraphReconstructionLoss(torch.nn.Module):
         if use_cosine_loss:
             self.cosine_sim = CosineSimilarity(dim=-1)
 
-    def forward(
-        self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch
-    ) -> Dict[str, Any]:
+    def forward(self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch) -> dict[str, Any]:
         # Use the mask to identify valid nodes
         device = graph_pred.node_features.device
         mask = graph_true.mask
-        mask = mask.to(device)
+        if mask is None:
+            mask = torch.ones(graph_true.node_features.shape[0], dtype=torch.bool, device=device)
+        else:
+            mask = mask.to(device)
         # Extract the node features for the true and predicted graphs, filtered
         # by the mask
         nodes_true = graph_true.node_features.to(device)
@@ -65,13 +68,13 @@ class GraphReconstructionLoss(torch.nn.Module):
         if self.use_gradient_loss:
             # Reshape to grid for gradient computation
             # Assuming nodes are in grid order: [batch*aug, num_nodes, features]
-            B = graph_true.node_features.shape[0]
-            N = graph_true.node_features.shape[1]
-            grid_size = int(N**0.5)
+            batch_size = graph_true.node_features.shape[0]
+            num_nodes = graph_true.node_features.shape[1]
+            grid_size = int(num_nodes**0.5)
 
-            if grid_size * grid_size == N:  # Verify it's a square grid
-                pred_grid = graph_pred.node_features.view(B, grid_size, grid_size, -1)
-                true_grid = graph_true.node_features.view(B, grid_size, grid_size, -1)
+            if grid_size * grid_size == num_nodes:  # Verify it's a square grid
+                pred_grid = graph_pred.node_features.view(batch_size, grid_size, grid_size, -1)
+                true_grid = graph_true.node_features.view(batch_size, grid_size, grid_size, -1)
 
                 # Compute gradients in both directions
                 pred_grad_x = pred_grid[:, :, 1:, :] - pred_grid[:, :, :-1, :]
@@ -81,9 +84,9 @@ class GraphReconstructionLoss(torch.nn.Module):
                 true_grad_y = true_grid[:, 1:, :, :] - true_grid[:, :-1, :, :]
 
                 # L1 loss on gradients (preserves sharp edges better than L2)
-                gradient_loss = torch.mean(
-                    torch.abs(pred_grad_x - true_grad_x)
-                ) + torch.mean(torch.abs(pred_grad_y - true_grad_y))
+                gradient_loss = torch.mean(torch.abs(pred_grad_x - true_grad_x)) + torch.mean(
+                    torch.abs(pred_grad_y - true_grad_y)
+                )
 
                 total_loss = total_loss + self.gradient_loss_weight * gradient_loss
                 loss_dict["gradient_loss"] = gradient_loss
@@ -98,13 +101,14 @@ class MAELoss(torch.nn.Module):
         super().__init__()
         self.node_loss = L1Loss()  # BCEWithLogitsLoss() #MSE
 
-    def forward(
-        self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch
-    ) -> torch.Tensor:
+    def forward(self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch) -> torch.Tensor:
         # Use the mask to identify valid nodes
         device = graph_pred.node_features.device
         mask = graph_true.mask
-        mask = mask.to(device)
+        if mask is None:
+            mask = torch.ones(graph_true.node_features.shape[0], dtype=torch.bool, device=device)
+        else:
+            mask = mask.to(device)
         # Extract the node features for the true and predicted graphs, filtered
         # by the mask
         nodes_true = graph_true.node_features.to(device)
@@ -128,13 +132,14 @@ class CosineSimilarityLoss(torch.nn.Module):
         self.node_loss = CosineSimilarity()
         self.return_as_loss = return_as_loss
 
-    def forward(
-        self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch
-    ) -> torch.Tensor:
+    def forward(self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch) -> torch.Tensor:
         # Use the mask to identify valid nodes
         device = graph_pred.node_features.device
         mask = graph_true.mask
-        mask = mask.to(device)
+        if mask is None:
+            mask = torch.ones(graph_true.node_features.shape[0], dtype=torch.bool, device=device)
+        else:
+            mask = mask.to(device)
         # Extract the node features for the true and predicted graphs, filtered
         # by the mask
         nodes_true = graph_true.node_features.to(device)
@@ -165,7 +170,10 @@ class SignalToNoiseRatioLoss(torch.nn.Module):
         # Use the mask to identify valid nodes
         device = graph_pred.node_features.device
         mask = graph_true.mask
-        mask = mask.to(device)
+        if mask is None:
+            mask = torch.ones(graph_true.node_features.shape[0], dtype=torch.bool, device=device)
+        else:
+            mask = mask.to(device)
         # Extract the node features for the true and predicted graphs, filtered
         # by the mask
         nodes_true = graph_true.node_features.to(device)
@@ -183,8 +191,7 @@ class SignalToNoiseRatioLoss(torch.nn.Module):
 
 class KLDLoss(torch.nn.Module):
     def __init__(self, normalize_by_latent_dim: bool = True, free_bits: float = 0.0):
-        """
-        KLD Loss with optional free bits to prevent posterior collapse.
+        """KLD Loss with optional free bits to prevent posterior collapse.
 
         Args:
             normalize_by_latent_dim: If True, average over latent dims instead of sum
@@ -262,9 +269,9 @@ class ContrastiveLoss(torch.nn.Module):
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         # computing contrastive loss as in SimCLR
         features = F.normalize(features, dim=-1)
-        N = features.shape[0]
+        batch_size = features.shape[0]
         samples_per_group = 1 + self.num_aug_per_sample
-        original_batch_size = N // samples_per_group  # number of original images
+        original_batch_size = batch_size // samples_per_group  # number of original images
         labels = torch.cat(
             [torch.arange(original_batch_size) for _ in range(samples_per_group)], dim=0
         )
@@ -275,7 +282,7 @@ class ContrastiveLoss(torch.nn.Module):
         sim = sim / self.temperature
 
         # Mask out self-similarity
-        mask = torch.eye(N, dtype=torch.bool, device=features.device)
+        mask = torch.eye(batch_size, dtype=torch.bool, device=features.device)
         sim.masked_fill_(mask, float("-inf"))  # ignore diagonal
 
         # Extract positives and negatives
@@ -305,13 +312,9 @@ class PermutationLoss(torch.nn.Module):
         log_avg_probs = torch.log(avg_probs + 1e-12)
         entropy = -torch.sum(avg_probs * log_avg_probs)  # scalar
         max_entropy = torch.log(
-            torch.tensor(
-                avg_probs.size(0), dtype=avg_probs.dtype, device=avg_probs.device
-            )
+            torch.tensor(avg_probs.size(0), dtype=avg_probs.dtype, device=avg_probs.device)
         )
-        return (
-            max_entropy - entropy
-        )  # always positive, minimizing this maximizes entropy
+        return max_entropy - entropy  # always positive, minimizing this maximizes entropy
 
 
 class PermutaionMatrixLoss(torch.nn.Module):
@@ -319,9 +322,7 @@ class PermutaionMatrixLoss(torch.nn.Module):
         super().__init__()
 
     @staticmethod
-    def entropy(
-        p: torch.Tensor, axis: int, normalize: bool = True, eps=10e-12
-    ) -> torch.Tensor:
+    def entropy(p: torch.Tensor, axis: int, normalize: bool = True, eps=10e-12) -> torch.Tensor:
         if normalize:
             p = p / (p.sum(axis=axis, keepdim=True) + eps)
         e = -torch.sum(p * torch.clamp_min(torch.log(p), -100), axis=axis)

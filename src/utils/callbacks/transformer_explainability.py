@@ -1,17 +1,19 @@
-import torch
-import pytorch_lightning as pl
-from lightning.pytorch.callbacks import Callback
-from typing import Dict, List, Any
-import matplotlib.pyplot as plt
 import os
 from collections import defaultdict
+from typing import Any
+
+import matplotlib.pyplot as plt
 import numpy as np
+import pytorch_lightning as pl
+import torch
+from lightning.pytorch.callbacks import Callback
+
 from src.data.components.graphs_datamodules import DenseGraphBatch
 
 
 class InterpretabilityCallback(Callback):
-    """
-    PyTorch Lightning Callback for transformer interpretability analysis.
+    """PyTorch Lightning Callback for transformer interpretability analysis.
+
     This is the recommended approach - keeps interpretability separate from model logic.
     """
 
@@ -35,12 +37,12 @@ class InterpretabilityCallback(Callback):
         self.enable_gradient_analysis = enable_gradient_analysis
 
         # Storage for analysis results
-        self.attention_storage = defaultdict(list)
-        self.gradient_storage = defaultdict(list)
-        self.analysis_results = {}
+        self.attention_storage: dict[str, list] = defaultdict(list)
+        self.gradient_storage: dict[str, list] = defaultdict(list)
+        self.analysis_results: dict[str, dict] = {}
 
         # Hooks for attention tracking
-        self.hooks = []
+        self.hooks: list = []
 
         os.makedirs(self.save_dir, exist_ok=True)
 
@@ -58,7 +60,7 @@ class InterpretabilityCallback(Callback):
         }
 
     def load_state_dict(self, state_dict):
-        """Load state dict from checkpoint"""
+        """Load state dict from checkpoint."""
         for key, value in state_dict.items():
             if hasattr(self, key):
                 setattr(self, key, value)
@@ -78,21 +80,24 @@ class InterpretabilityCallback(Callback):
             self.module_to_name = {}
 
     def on_train_start(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
     ) -> None:
-        """Initialize interpretability tracking when training starts"""
+        """Initialize interpretability tracking when training starts."""
         self._register_hooks(pl_module)
         print(
-            f"Interpretability callback initialized. Results will be saved to {self.save_dir}"
+            f"Interpretability callback initialized. Results will be saved to {self.save_dir}",
         )
 
     def on_train_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        """Clean up hooks when training ends"""
+        """Clean up hooks when training ends."""
         self._remove_hooks()
         print("Interpretability analysis completed.")
 
     def _register_hooks(self, model: pl.LightningModule):
-        """Register hooks to capture attention weights and gradients from SelfAttention layers"""
+        """Register hooks to capture attention weights and gradients from SelfAttention
+        layers."""
 
         # Store layer names for the hooks
         self.layer_names = {}
@@ -108,19 +113,19 @@ class InterpretabilityCallback(Callback):
                 # Use partial functions with explicit module id mapping
                 forward_hook = module.register_forward_hook(self._forward_hook_wrapper)
                 backward_hook = module.register_backward_hook(
-                    self._backward_hook_wrapper
+                    self._backward_hook_wrapper,
                 )
                 self.hooks.extend([forward_hook, backward_hook])
                 print(f"Registered hooks for SelfAttention layer: {name}")
 
     def _forward_hook_wrapper(self, module, inp, out):
-        """Wrapper for forward hook that uses module id to find layer name"""
+        """Wrapper for forward hook that uses module id to find layer name."""
         module_id = id(module)
         layer_name = self.module_to_name.get(module_id, f"unknown_{module_id}")
         return self._attention_forward_hook(module, inp, out, layer_name)
 
     def _backward_hook_wrapper(self, module, grad_inp, grad_out):
-        """Wrapper for backward hook that uses module id to find layer name"""
+        """Wrapper for backward hook that uses module id to find layer name."""
         module_id = id(module)
         layer_name = self.module_to_name.get(module_id, f"unknown_{module_id}")
         return self._attention_backward_hook(module, grad_inp, grad_out, layer_name)
@@ -139,7 +144,7 @@ class InterpretabilityCallback(Callback):
                 "input": input_data[0].detach().cpu(),
                 "output": output.detach().cpu(),
                 "layer_name": layer_name,
-            }
+            },
         )
 
     def _attention_backward_hook(self, module, grad_input, grad_output, layer_name):
@@ -152,7 +157,7 @@ class InterpretabilityCallback(Callback):
         self.gradient_storage[layer_name].append(grad_output[0].detach().cpu())
 
     def _remove_hooks(self):
-        """Remove all registered hooks"""
+        """Remove all registered hooks."""
         for hook in self.hooks:
             hook.remove()
         self.hooks.clear()
@@ -165,7 +170,7 @@ class InterpretabilityCallback(Callback):
         batch: Any,
         batch_idx: int,
     ) -> None:
-        """Analyze interpretability every N training batches"""
+        """Analyze interpretability every N training batches."""
 
         if batch_idx % self.analyze_every_n_batches == 0:
             self._log_attention_statistics(trainer, pl_module, batch_idx, "train")
@@ -179,23 +184,21 @@ class InterpretabilityCallback(Callback):
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
-        """Store validation samples for detailed analysis"""
+        """Store validation samples for detailed analysis."""
 
         if batch_idx < self.max_samples_per_epoch:
             # batch is DenseGraphBatch, not (x, target)
             graph_batch = batch
 
             # Store sample for end-of-epoch analysis
-            self.analysis_results[
-                f"val_epoch_{trainer.current_epoch}_batch_{batch_idx}"
-            ] = {
+            self.analysis_results[f"val_epoch_{trainer.current_epoch}_batch_{batch_idx}"] = {
                 "graph_batch": graph_batch,
-                "node_features": graph_batch.node_features[
-                    :1
-                ].cpu(),  # First graph only
-                "target": graph_batch.y[:1].cpu()
-                if hasattr(graph_batch, "y") and graph_batch.y is not None
-                else None,
+                "node_features": graph_batch.node_features[:1].cpu(),  # First graph only
+                "target": (
+                    graph_batch.y[:1].cpu()
+                    if hasattr(graph_batch, "y") and graph_batch.y is not None
+                    else None
+                ),
                 "attention_data": {
                     name: attn_data[-1].copy() if attn_data else None
                     for name, attn_data in self.attention_storage.items()
@@ -203,15 +206,17 @@ class InterpretabilityCallback(Callback):
             }
 
     def on_validation_epoch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
     ) -> None:
-        """Generate detailed interpretability analysis at epoch end"""
+        """Generate detailed interpretability analysis at epoch end."""
 
         if trainer.current_epoch % self.analyze_every_n_epochs != 0:
             return
 
         print(
-            f"Generating interpretability analysis for epoch {trainer.current_epoch}..."
+            f"Generating interpretability analysis for epoch {trainer.current_epoch}...",
         )
 
         # Analyze stored validation samples
@@ -230,33 +235,35 @@ class InterpretabilityCallback(Callback):
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
-        sample_data: Dict,
+        sample_data: dict,
         sample_key: str,
     ):
-        """Perform detailed analysis on a single sample"""
+        """Perform detailed analysis on a single sample."""
 
         graph_batch = sample_data["graph_batch"]
-        node_features = sample_data["node_features"].to(pl_module.device)
+        _ = sample_data["node_features"].to(pl_module.device)
 
         try:
             # 1. Basic attention analysis
             if self.enable_attention_analysis:
                 attention_analysis = self._analyze_graph_attention_patterns(
-                    sample_data["attention_data"]
+                    sample_data["attention_data"],
                 )
                 self._save_attention_visualizations(attention_analysis, sample_key)
 
             # 2. Gradient-based analysis for graphs
             if self.enable_gradient_analysis:
                 gradient_analysis = self._analyze_graph_gradients(
-                    pl_module, graph_batch
+                    pl_module,
+                    graph_batch,
                 )
                 self._save_gradient_visualizations(gradient_analysis, sample_key)
 
             # 3. Chefer methods adapted for graphs
             if self.enable_chefer_methods:
                 chefer_analysis = self._apply_graph_chefer_methods(
-                    pl_module, graph_batch
+                    pl_module,
+                    graph_batch,
                 )
                 self._save_chefer_visualizations(chefer_analysis, sample_key)
 
@@ -266,8 +273,8 @@ class InterpretabilityCallback(Callback):
         except Exception as e:
             print(f"Error in interpretability analysis for {sample_key}: {e}")
 
-    def _analyze_graph_attention_patterns(self, attention_data: Dict) -> Dict:
-        """Analyze attention patterns"""
+    def _analyze_graph_attention_patterns(self, attention_data: dict) -> dict:
+        """Analyze attention patterns."""
 
         analysis = {}
 
@@ -309,9 +316,9 @@ class InterpretabilityCallback(Callback):
                 "attention_matrix": attn_np,
                 "entropy": self._compute_attention_entropy(attn_np),
                 "sparsity": self._compute_attention_sparsity(attn_np),
-                "head_similarity": self._compute_head_similarity(attn_np)
-                if attn_np.ndim == 3
-                else None,
+                "head_similarity": (
+                    self._compute_head_similarity(attn_np) if attn_np.ndim == 3 else None
+                ),
             }
 
             analysis[layer_name] = layer_analysis
@@ -319,9 +326,11 @@ class InterpretabilityCallback(Callback):
         return analysis
 
     def _analyze_graph_gradients(
-        self, model: pl.LightningModule, graph_batch: DenseGraphBatch
-    ) -> Dict:
-        """Analyze gradient-based attributions for graph data"""
+        self,
+        model: pl.LightningModule,
+        graph_batch: DenseGraphBatch,
+    ) -> dict:
+        """Analyze gradient-based attributions for graph data."""
 
         model.eval()
 
@@ -338,8 +347,10 @@ class InterpretabilityCallback(Callback):
 
         # Forward pass through the model
         tau = 1.0  # Fixed temperature for analysis
-        graph_emb, graph_pred, soft_probs, perm, mu, logvar = model(
-            graph=graph_for_grad, training=False, tau=tau
+        graph_emb, _, _, _, _, _ = model(
+            graph=graph_for_grad,
+            training=False,
+            tau=tau,
         )
 
         # Compute gradients w.r.t. graph embedding or reconstruction loss
@@ -360,9 +371,14 @@ class InterpretabilityCallback(Callback):
         return analysis
 
     def _apply_graph_chefer_methods(
-        self, model: pl.LightningModule, graph_batch: DenseGraphBatch
-    ) -> Dict:
-        """Apply Chefer et al. interpretability methods for graphs"""
+        self,
+        model: pl.LightningModule,
+        graph_batch: DenseGraphBatch,
+    ) -> dict:
+        """Apply Chefer et al.
+
+        interpretability methods for graphs
+        """
 
         analysis = {}
 
@@ -371,16 +387,13 @@ class InterpretabilityCallback(Callback):
             attention_matrices = []
 
             # Collect attention matrices from all layers
-            for layer_name, attention_data_list in self.attention_storage.items():
-                if (
-                    attention_data_list
-                    and "attention_weights" in attention_data_list[-1]
-                ):
+            for attention_data_list in self.attention_storage.values():
+                if attention_data_list and "attention_weights" in attention_data_list[-1]:
                     attention_weights = attention_data_list[-1]["attention_weights"]
                     if attention_weights.dim() == 4:  # [batch, heads, nodes, nodes]
                         # Average over heads for simplicity
                         avg_attention = attention_weights.mean(
-                            dim=1
+                            dim=1,
                         )  # [batch, nodes, nodes]
                         attention_matrices.append(avg_attention[0])  # First batch
 
@@ -392,7 +405,7 @@ class InterpretabilityCallback(Callback):
                 # Compute LRP-like attribution (simplified)
                 if len(attention_matrices) > 0:
                     lrp_scores = self._compute_simple_lrp(
-                        attention_matrices[-1]
+                        attention_matrices[-1],
                     )  # Last layer
                     analysis["lrp_attribution"] = lrp_scores.cpu()
 
@@ -402,7 +415,8 @@ class InterpretabilityCallback(Callback):
         return analysis
 
     def _compute_attention_rollout(
-        self, attention_matrices: List[torch.Tensor]
+        self,
+        attention_matrices: list[torch.Tensor],
     ) -> torch.Tensor:
         """Compute attention rollout as in Chefer et al."""
         if not attention_matrices:
@@ -423,18 +437,16 @@ class InterpretabilityCallback(Callback):
         return rollout
 
     def _compute_simple_lrp(self, attention_matrix: torch.Tensor) -> torch.Tensor:
-        """Compute simplified LRP scores for nodes"""
+        """Compute simplified LRP scores for nodes."""
         # Sum attention weights received by each node (simplified relevance)
         lrp_scores = attention_matrix.sum(dim=0)  # Sum over source nodes
         return lrp_scores
 
     def _compute_attention_entropy(self, attention: np.ndarray) -> float:
-        """Compute attention entropy"""
+        """Compute attention entropy."""
         # Flatten attention and compute entropy
         attention_flat = attention.flatten()
-        attention_flat = (
-            np.abs(attention_flat) + 1e-8
-        )  # Ensure positive values and avoid log(0)
+        attention_flat = np.abs(attention_flat) + 1e-8  # Ensure positive values and avoid log(0)
         attention_sum = attention_flat.sum()
 
         if attention_sum == 0:
@@ -458,7 +470,7 @@ class InterpretabilityCallback(Callback):
         return float(gini)
 
     def _compute_head_similarity(self, attention: np.ndarray) -> float:
-        """Compute similarity between attention heads"""
+        """Compute similarity between attention heads."""
         if attention.ndim != 3:  # Not multi-head
             return 0.0
 
@@ -472,8 +484,8 @@ class InterpretabilityCallback(Callback):
 
         return float(avg_correlation)
 
-    def _save_attention_visualizations(self, analysis: Dict, sample_key: str):
-        """Save attention pattern visualizations"""
+    def _save_attention_visualizations(self, analysis: dict, sample_key: str):
+        """Save attention pattern visualizations."""
 
         if not analysis:
             print(f"No attention data to visualize for {sample_key}")
@@ -483,7 +495,7 @@ class InterpretabilityCallback(Callback):
         if n_plots == 0:
             return
 
-        fig, axes = plt.subplots(2, n_plots, figsize=(15, 10))
+        _, axes = plt.subplots(2, n_plots, figsize=(15, 10))
         if n_plots == 1:
             axes = axes.reshape(-1, 1)
         elif len(axes.shape) == 1:
@@ -519,10 +531,10 @@ class InterpretabilityCallback(Callback):
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close()
 
-    def _save_gradient_visualizations(self, analysis: Dict, sample_key: str):
-        """Save gradient-based visualizations"""
+    def _save_gradient_visualizations(self, analysis: dict, sample_key: str):
+        """Save gradient-based visualizations."""
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+        _, axes = plt.subplots(1, 3, figsize=(15, 5))
 
         # Plot node gradients
         node_grads = analysis["node_gradients"][0]  # First graph
@@ -539,7 +551,7 @@ class InterpretabilityCallback(Callback):
             grad_x_input = grad_x_input.mean(dim=-1)
 
         axes[1].plot(grad_x_input.numpy())
-        axes[1].set_title("Gradient × Node Features")
+        axes[1].set_title("Gradient x Node Features")
         axes[1].set_xlabel("Node Index")
 
         # Plot gradient norm
@@ -553,13 +565,13 @@ class InterpretabilityCallback(Callback):
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         plt.close()
 
-    def _save_chefer_visualizations(self, analysis: Dict, sample_key: str):
-        """Save Chefer method visualizations"""
+    def _save_chefer_visualizations(self, analysis: dict, sample_key: str):
+        """Save Chefer method visualizations."""
 
         if not analysis:
             return
 
-        fig, axes = plt.subplots(1, len(analysis), figsize=(5 * len(analysis), 5))
+        _, axes = plt.subplots(1, len(analysis), figsize=(5 * len(analysis), 5))
         if len(analysis) == 1:
             axes = [axes]
 
@@ -591,7 +603,7 @@ class InterpretabilityCallback(Callback):
         batch_idx: int,
         stage: str,
     ):
-        """Log attention statistics to tensorboard/wandb"""
+        """Log attention statistics to tensorboard/wandb."""
 
         try:
             metrics = {}
@@ -605,7 +617,7 @@ class InterpretabilityCallback(Callback):
                     layer_output = attention_data["output"]
 
                     # Compute basic statistics
-                    input_np = (
+                    _ = (
                         layer_input.numpy()
                         if isinstance(layer_input, torch.Tensor)
                         else layer_input
@@ -631,9 +643,12 @@ class InterpretabilityCallback(Callback):
             print(f"Error logging attention statistics: {e}")
 
     def _log_interpretability_metrics(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule, sample_key: str
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        sample_key: str,
     ):
-        """Log interpretability metrics"""
+        """Log interpretability metrics."""
 
         # Log to tensorboard if available
         if hasattr(trainer.logger, "experiment"):

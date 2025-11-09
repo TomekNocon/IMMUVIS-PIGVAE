@@ -1,18 +1,17 @@
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, MutableMapping
 from functools import partial
-from typing import Any, Literal, Optional, Union, cast
-
-import torch
-from lightning_utilities import apply_to_collection
-from tqdm import tqdm
+from typing import Any, Literal, cast
 
 import lightning as L
+import torch
 from lightning.fabric.accelerators import Accelerator
 from lightning.fabric.loggers import Logger
 from lightning.fabric.strategies import Strategy
 from lightning.fabric.wrappers import _unwrap_objects
 from lightning.pytorch.utilities.model_helpers import is_overridden
+from lightning_utilities import apply_to_collection
+from tqdm import tqdm
 
 # https://github.com/Lightning-AI/pytorch-lightning/blob/master/examples/fabric/build_your_own_trainer/trainer.py
 
@@ -20,26 +19,26 @@ from lightning.pytorch.utilities.model_helpers import is_overridden
 class MyCustomTrainer:
     def __init__(
         self,
-        accelerator: Union[str, Accelerator] = "auto",
-        strategy: Union[str, Strategy] = "auto",
-        devices: Union[list[int], str, int] = "auto",
-        precision: Union[str, int] = "32-true",
-        plugins: Optional[Union[str, Any]] = None,
-        callbacks: Optional[Union[list[Any], Any]] = None,
-        loggers: Optional[Union[Logger, list[Logger]]] = None,
-        max_epochs: Optional[int] = 1000,
-        max_steps: Optional[int] = None,
+        accelerator: str | Accelerator = "auto",
+        strategy: str | Strategy = "auto",
+        devices: list[int] | str | int = "auto",
+        precision: str | int = "32-true",
+        plugins: str | Any | None = None,
+        callbacks: list[Any] | Any | None = None,
+        loggers: Logger | list[Logger] | None = None,
+        max_epochs: int | None = 1000,
+        max_steps: int | None = None,
         grad_accum_steps: int = 1,
-        limit_train_batches: Union[int, float] = float("inf"),
-        limit_val_batches: Union[int, float] = float("inf"),
+        limit_train_batches: int | float = float("inf"),
+        limit_val_batches: int | float = float("inf"),
         validation_frequency: int = 1,
         use_distributed_sampler: bool = True,
         checkpoint_dir: str = "./checkpoints",
         checkpoint_frequency: int = 1,
     ) -> None:
-        """Exemplary Trainer with Fabric. This is a very simple trainer focused on readability but with reduced
-        feature set. As a trainer with more included features, we recommend using the
-        :class:`lightning.pytorch.Trainer`.
+        """Exemplary Trainer with Fabric. This is a very simple trainer focused on
+        readability but with reduced feature set. As a trainer with more included
+        features, we recommend using the :class:`lightning.pytorch.Trainer`.
 
         Args:
             accelerator: The hardware to run on. Possible choices are:
@@ -86,7 +85,6 @@ class MyCustomTrainer:
 
         Warning:
             callbacks written for the lightning trainer (especially making assumptions on the trainer), won't work!
-
         """
 
         self.fabric = L.Fabric(
@@ -107,18 +105,24 @@ class MyCustomTrainer:
         self.should_stop = False
 
         # ensures limit_X_batches is either int or inf
-        if not isinstance(limit_train_batches, int):
-            assert limit_train_batches == float("inf")
+        if not isinstance(limit_train_batches, int) and limit_train_batches != float(
+            "inf",
+        ):
+            raise ValueError(
+                "limit_train_batches must be an int or float('inf')",
+            )
 
-        if not isinstance(limit_val_batches, int):
-            assert limit_val_batches == float("inf")
+        if not isinstance(limit_val_batches, int) and limit_val_batches != float("inf"):
+            raise ValueError(
+                "limit_val_batches must be an int or float('inf')",
+            )
 
         self.limit_train_batches = limit_train_batches
         self.limit_val_batches = limit_val_batches
         self.validation_frequency = validation_frequency
         self.use_distributed_sampler = use_distributed_sampler
-        self._current_train_return: Union[torch.Tensor, Mapping[str, Any]] = {}
-        self._current_val_return: Optional[Union[torch.Tensor, Mapping[str, Any]]] = {}
+        self._current_train_return: torch.Tensor | Mapping[str, Any] = {}
+        self._current_val_return: torch.Tensor | Mapping[str, Any] | None = {}
 
         self.checkpoint_dir = checkpoint_dir
         self.checkpoint_frequency = checkpoint_frequency
@@ -128,7 +132,7 @@ class MyCustomTrainer:
         model: L.LightningModule,
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader,
-        ckpt_path: Optional[str] = None,
+        ckpt_path: str | None = None,
     ):
         """The main entrypoint of the trainer, triggering the actual training.
 
@@ -140,17 +144,18 @@ class MyCustomTrainer:
                 If not specified, no validation will run.
             ckpt_path: Path to previous checkpoints to resume training from.
                 If specified, will always look for the latest checkpoint within the given directory.
-
         """
         self.fabric.launch()
 
         # setup dataloaders
         train_loader = self.fabric.setup_dataloaders(
-            train_loader, use_distributed_sampler=self.use_distributed_sampler
+            train_loader,
+            use_distributed_sampler=self.use_distributed_sampler,
         )
         if val_loader is not None:
             val_loader = self.fabric.setup_dataloaders(
-                val_loader, use_distributed_sampler=self.use_distributed_sampler
+                val_loader,
+                use_distributed_sampler=self.use_distributed_sampler,
             )
 
         # setup model and optimizer
@@ -160,9 +165,12 @@ class MyCustomTrainer:
             raise NotImplementedError("BYOT currently does not support FSDP")
 
         optimizer, scheduler_cfg = self._parse_optimizers_schedulers(
-            model.configure_optimizers()
+            model.configure_optimizers(),
         )
-        assert optimizer is not None
+        if optimizer is None:
+            raise RuntimeError(
+                "Optimizer could not be constructed from configure_optimizers().",
+            )
         model, optimizer = self.fabric.setup(model, optimizer)
 
         # assemble state (current epoch and global step will be added in save)
@@ -175,10 +183,7 @@ class MyCustomTrainer:
                 self.load(state, latest_checkpoint_path)
 
                 # check if we even need to train here
-                if (
-                    self.max_epochs is not None
-                    and self.current_epoch >= self.max_epochs
-                ):
+                if self.max_epochs is not None and self.current_epoch >= self.max_epochs:
                     self.should_stop = True
 
         while not self.should_stop:
@@ -194,7 +199,10 @@ class MyCustomTrainer:
                 self.val_loop(model, val_loader, limit_batches=self.limit_val_batches)
 
             self.step_scheduler(
-                model, scheduler_cfg, level="epoch", current_value=self.current_epoch
+                model,
+                scheduler_cfg,
+                level="epoch",
+                current_value=self.current_epoch,
             )
 
             self.current_epoch += 1
@@ -213,10 +221,10 @@ class MyCustomTrainer:
         model: L.LightningModule,
         optimizer: torch.optim.Optimizer,
         train_loader: torch.utils.data.DataLoader,
-        limit_batches: Union[int, float] = float("inf"),
-        scheduler_cfg: Optional[
-            Mapping[str, Union[L.fabric.utilities.types.LRScheduler, bool, str, int]]
-        ] = None,
+        limit_batches: int | float = float("inf"),
+        scheduler_cfg: (
+            Mapping[str, L.fabric.utilities.types.LRScheduler | bool | str | int] | None
+        ) = None,
     ):
         """The training loop running a single training epoch.
 
@@ -229,18 +237,18 @@ class MyCustomTrainer:
             scheduler_cfg: The learning rate scheduler configuration.
                 Have a look at :meth:`~lightning.pytorch.core.LightningModule.configure_optimizers`
                 for supported values.
-
         """
         self.fabric.call("on_train_epoch_start")
+        total_batches = min(len(train_loader), int(limit_batches))
         iterable = self.progbar_wrapper(
             train_loader,
-            total=min(len(train_loader), limit_batches),
+            total=total_batches,
             desc=f"Epoch {self.current_epoch}",
         )
 
         for batch_idx, batch in enumerate(iterable):
             # end epoch if stopping training completely or max batches for this epoch reached
-            if self.should_stop or batch_idx >= limit_batches:
+            if self.should_stop or batch_idx >= int(limit_batches):
                 break
 
             self.fabric.call("on_train_batch_start", batch, batch_idx)
@@ -258,7 +266,7 @@ class MyCustomTrainer:
                         model=model,
                         batch=batch,
                         batch_idx=batch_idx,
-                    )
+                    ),
                 )
                 self.fabric.call("on_before_zero_grad", optimizer)
 
@@ -269,13 +277,19 @@ class MyCustomTrainer:
                 self.training_step(model=model, batch=batch, batch_idx=batch_idx)
 
             self.fabric.call(
-                "on_train_batch_end", self._current_train_return, batch, batch_idx
+                "on_train_batch_end",
+                self._current_train_return,
+                batch,
+                batch_idx,
             )
 
             # this guard ensures, we only step the scheduler once per global step
             if should_optim_step:
                 self.step_scheduler(
-                    model, scheduler_cfg, level="step", current_value=self.global_step
+                    model,
+                    scheduler_cfg,
+                    level="step",
+                    current_value=self.global_step,
                 )
 
             # add output values to progress bar
@@ -294,8 +308,8 @@ class MyCustomTrainer:
     def val_loop(
         self,
         model: L.LightningModule,
-        val_loader: Optional[torch.utils.data.DataLoader],
-        limit_batches: Union[int, float] = float("inf"),
+        val_loader: torch.utils.data.DataLoader | None,
+        limit_batches: int | float = float("inf"),
     ):
         """The validation loop running a single validation epoch.
 
@@ -304,7 +318,6 @@ class MyCustomTrainer:
             val_loader: The dataloader yielding the validation batches.
             limit_batches: Limits the batches during this validation epoch.
                 If greater than the number of batches in the ``val_loader``, this has no effect.
-
         """
         # no validation if val_loader wasn't passed
         if val_loader is None:
@@ -312,11 +325,12 @@ class MyCustomTrainer:
 
         # no validation but warning if val_loader was passed, but validation_step not implemented
         if val_loader is not None and not is_overridden(
-            "validation_step", _unwrap_objects(model)
+            "validation_step",
+            _unwrap_objects(model),
         ):
             L.fabric.utilities.rank_zero_warn(
                 "Your LightningModule does not have a validation_step implemented, "
-                "but you passed a validation dataloder. Skipping Validation."
+                "but you passed a validation dataloder. Skipping Validation.",
             )
             return
 
@@ -329,8 +343,11 @@ class MyCustomTrainer:
 
         self.fabric.call("on_validation_epoch_start")
 
+        total_val_batches = min(len(val_loader), int(limit_batches))
         iterable = self.progbar_wrapper(
-            val_loader, total=min(len(val_loader), limit_batches), desc="Validation"
+            val_loader,
+            total=total_val_batches,
+            desc="Validation",
         )
 
         for batch_idx, batch in enumerate(iterable):
@@ -358,19 +375,22 @@ class MyCustomTrainer:
         torch.set_grad_enabled(True)
 
     def training_step(
-        self, model: L.LightningModule, batch: Any, batch_idx: int
+        self,
+        model: L.LightningModule,
+        batch: Any,
+        batch_idx: int,
     ) -> torch.Tensor:
-        """A single training step, running forward and backward. The optimizer step is called separately, as this is
-        given as a closure to the optimizer step.
+        """A single training step, running forward and backward. The optimizer step is
+        called separately, as this is given as a closure to the optimizer step.
 
         Args:
             model: the lightning module to train
             batch: the batch to run the forward on
             batch_idx: index of the current batch w.r.t the current epoch
-
         """
-        outputs: Union[torch.Tensor, Mapping[str, Any]] = model.training_step(
-            batch, batch_idx=batch_idx
+        outputs: torch.Tensor | Mapping[str, Any] = model.training_step(
+            batch,
+            batch_idx=batch_idx,
         )
 
         loss = outputs if isinstance(outputs, torch.Tensor) else outputs["loss"]
@@ -381,7 +401,9 @@ class MyCustomTrainer:
 
         # avoid gradients in stored/accumulated values -> prevents potential OOM
         self._current_train_return = apply_to_collection(
-            outputs, dtype=torch.Tensor, function=lambda x: x.detach()
+            outputs,
+            dtype=torch.Tensor,
+            function=lambda x: x.detach(),
         )
 
         return loss
@@ -389,9 +411,9 @@ class MyCustomTrainer:
     def step_scheduler(
         self,
         model: L.LightningModule,
-        scheduler_cfg: Optional[
-            Mapping[str, Union[L.fabric.utilities.types.LRScheduler, bool, str, int]]
-        ],
+        scheduler_cfg: (
+            Mapping[str, L.fabric.utilities.types.LRScheduler | bool | str | int] | None
+        ),
         level: Literal["step", "epoch"],
         current_value: int,
     ) -> None:
@@ -403,7 +425,6 @@ class MyCustomTrainer:
                 Have a look at :meth:`lightning.pytorch.LightningModule.configure_optimizers` for supported values.
             level: whether we are trying to step on epoch- or step-level
             current_value: Holds the current_epoch if ``level==epoch``, else holds the ``global_step``
-
         """
 
         # no scheduler
@@ -411,7 +432,7 @@ class MyCustomTrainer:
             return
 
         # wrong interval (step vs. epoch)
-        if scheduler_cfg["interval"] != level:
+        if cast(str, scheduler_cfg["interval"]) != level:
             return
 
         # right interval, but wrong step wrt frequency
@@ -419,29 +440,27 @@ class MyCustomTrainer:
             return
 
         # assemble potential monitored values
-        possible_monitor_vals = {None: None}
+        possible_monitor_vals: dict[str | None, Any] = {None: None}
         if isinstance(self._current_train_return, torch.Tensor):
-            possible_monitor_vals.update("train_loss", self._current_train_return)
+            possible_monitor_vals.update({"train_loss": self._current_train_return})
         elif isinstance(self._current_train_return, Mapping):
             possible_monitor_vals.update(
-                {"train_" + k: v for k, v in self._current_train_return.items()}
+                {"train_" + k: v for k, v in self._current_train_return.items()},
             )
 
         if isinstance(self._current_val_return, torch.Tensor):
-            possible_monitor_vals.update("val_loss", self._current_val_return)
+            possible_monitor_vals.update({"val_loss": self._current_val_return})
         elif isinstance(self._current_val_return, Mapping):
             possible_monitor_vals.update(
-                {"val_" + k: v for k, v in self._current_val_return.items()}
+                {"val_" + k: v for k, v in self._current_val_return.items()},
             )
 
         try:
-            monitor = possible_monitor_vals[
-                cast(Optional[str], scheduler_cfg["monitor"])
-            ]
+            monitor = possible_monitor_vals[cast(str | None, scheduler_cfg["monitor"])]
         except KeyError as ex:
             possible_keys = list(possible_monitor_vals.keys())
             raise KeyError(
-                f"monitor {scheduler_cfg['monitor']} is invalid. Possible values are {possible_keys}."
+                f"monitor {scheduler_cfg['monitor']} is invalid. Possible values are {possible_keys}.",
             ) from ex
 
         # rely on model hook for actual step
@@ -458,19 +477,17 @@ class MyCustomTrainer:
         Args:
             iterable: the iterable to wrap with tqdm
             total: the total length of the iterable, necessary in case the number of batches was limited.
-
         """
         if self.fabric.is_global_zero:
             return tqdm(iterable, total=total, **kwargs)
         return iterable
 
-    def load(self, state: Optional[Mapping], path: str) -> None:
+    def load(self, state: Mapping | None, path: str) -> None:
         """Loads a checkpoint from a given file into state.
 
         Args:
             state: a mapping contaning model, optimizer and lr scheduler
             path: the path to load the checkpoint from
-
         """
         if state is None:
             state = {}
@@ -482,12 +499,11 @@ class MyCustomTrainer:
         if remainder:
             raise RuntimeError(f"Unused Checkpoint Values: {remainder}")
 
-    def save(self, state: Optional[Mapping]) -> None:
+    def save(self, state: MutableMapping[str, Any] | None) -> None:
         """Saves a checkpoint to the ``checkpoint_dir``
 
         Args:
             state: A mapping containing model, optimizer and lr scheduler.
-
         """
         if state is None:
             state = {}
@@ -500,12 +516,11 @@ class MyCustomTrainer:
         )
 
     @staticmethod
-    def get_latest_checkpoint(checkpoint_dir: str) -> Optional[str]:
+    def get_latest_checkpoint(checkpoint_dir: str) -> str | None:
         """Returns the latest checkpoint from the ``checkpoint_dir``
 
         Args:
             checkpoint_dir: the directory to search for checkpoints
-
         """
         if not os.path.isdir(checkpoint_dir):
             return None
@@ -518,19 +533,18 @@ class MyCustomTrainer:
         return os.path.join(checkpoint_dir, items[-1])
 
     def _parse_optimizers_schedulers(
-        self, configure_optim_output
+        self,
+        configure_optim_output,
     ) -> tuple[
-        Optional[L.fabric.utilities.types.Optimizable],
-        Optional[
-            Mapping[str, Union[L.fabric.utilities.types.LRScheduler, bool, str, int]]
-        ],
+        L.fabric.utilities.types.Optimizable | None,
+        Mapping[str, L.fabric.utilities.types.LRScheduler | bool | str | int] | None,
     ]:
-        """Recursively parses the output of :meth:`lightning.pytorch.LightningModule.configure_optimizers`.
+        """Recursively parses the output of
+        :meth:`lightning.pytorch.LightningModule.configure_optimizers`.
 
         Args:
             configure_optim_output: The output of ``configure_optimizers``.
                 For supported values, please refer to :meth:`lightning.pytorch.LightningModule.configure_optimizers`.
-
         """
         _lr_sched_defaults = {
             "interval": "epoch",
@@ -569,9 +583,12 @@ class MyCustomTrainer:
             ):
                 # single scheduler in list
                 if len(configure_optim_output) == 1:
-                    return None, self._parse_optimizers_schedulers(
-                        configure_optim_output[0]
-                    )[1]
+                    return (
+                        None,
+                        self._parse_optimizers_schedulers(
+                            configure_optim_output[0],
+                        )[1],
+                    )
 
             # optimizer and lr scheduler
             elif len(configure_optim_output) == 2:
@@ -586,9 +603,7 @@ class MyCustomTrainer:
     @staticmethod
     def _format_iterable(
         prog_bar,
-        candidates: Optional[
-            Union[torch.Tensor, Mapping[str, Union[torch.Tensor, float, int]]]
-        ],
+        candidates: torch.Tensor | Mapping[str, torch.Tensor | float | int] | None,
         prefix: str,
     ):
         """Adds values as postfix string to progressbar.
@@ -597,12 +612,13 @@ class MyCustomTrainer:
             prog_bar: a progressbar (on global rank zero) or an iterable (every other rank).
             candidates: the values to add as postfix strings to the progressbar.
             prefix: the prefix to add to each of these values.
-
         """
         if isinstance(prog_bar, tqdm) and candidates is not None:
             postfix_str = ""
             float_candidates = apply_to_collection(
-                candidates, torch.Tensor, lambda x: x.item()
+                candidates,
+                torch.Tensor,
+                lambda x: x.item(),
             )
             if isinstance(candidates, torch.Tensor):
                 postfix_str += f" {prefix}_loss: {float_candidates:.3f}"

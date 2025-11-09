@@ -6,22 +6,19 @@ from typing import Any
 
 import modal
 
-
 APP_NAME = "pigvae-onnx-modal"
 
 # Configure the container image
-image = modal.Image.debian_slim().pip_install(
-    [
-        # Match your repo's versions where possible
-        "numpy>=1.26",
-        "onnxruntime==1.23.2",
-        "fastapi>=0.115.0",
-        "pydantic>=2.7",
-        "requests>=2.32",
-        "wandb>=0.17",
-        "pyyaml>=6.0.1",
-    ]
-)
+image = modal.Image.debian_slim().pip_install([
+    # Match your repo's versions where possible
+    "numpy>=1.26",
+    "onnxruntime==1.23.2",
+    "fastapi>=0.115.0",
+    "pydantic>=2.7",
+    "requests>=2.32",
+    "wandb>=0.17",
+    "pyyaml>=6.0.1",
+])
 
 # Optionally bake local files into the image at build time instead of using Mount
 _local_onnx_for_build = os.environ.get("LOCAL_ONNX_PATH")
@@ -61,7 +58,7 @@ class ONNXPredictor:
         if Path(cfg_path).exists():
             text = Path(cfg_path).read_text()
             try:
-                import yaml  # type: ignore
+                import yaml
 
                 cfg = yaml.safe_load(text) or {}
             except Exception:
@@ -72,13 +69,9 @@ class ONNXPredictor:
                 except Exception:
                     cfg = {}
 
-        onnx_path = os.environ.get(
-            "ONNX_PATH", cfg.get("onnx_path", _default_onnx_remote_path())
-        )
+        onnx_path = os.environ.get("ONNX_PATH", cfg.get("onnx_path", _default_onnx_remote_path()))
         onnx_url = os.environ.get("ONNX_URL", cfg.get("onnx_url"))
-        wandb_artifact = os.environ.get(
-            "WANDB_ONNX_ARTIFACT", cfg.get("wandb_onnx_artifact")
-        )
+        wandb_artifact = os.environ.get("WANDB_ONNX_ARTIFACT", cfg.get("wandb_onnx_artifact"))
 
         # Ensure the ONNX file exists; if not, try to fetch it
         if not Path(onnx_path).exists():
@@ -91,11 +84,10 @@ class ONNXPredictor:
                 Path(onnx_path).write_bytes(resp.content)
             elif wandb_artifact:
                 import shutil
+
                 import wandb
 
-                run = wandb.init(
-                    job_type="deploy", settings=wandb.Settings(start_method="thread")
-                )
+                run = wandb.init(job_type="deploy", settings=wandb.Settings(start_method="thread"))
                 art = run.use_artifact(wandb_artifact, type="model")
                 dl_dir = Path(art.download())
                 candidates = list(dl_dir.rglob("*.onnx"))
@@ -104,7 +96,7 @@ class ONNXPredictor:
                 shutil.copyfile(candidates[0], onnx_path)
 
         # Import onnxruntime inside the container context
-        import onnxruntime as ort  # type: ignore
+        import onnxruntime as ort
 
         providers = ["CPUExecutionProvider"]
         self.session = ort.InferenceSession(onnx_path, providers=providers)
@@ -113,7 +105,7 @@ class ONNXPredictor:
     @modal.method()
     def infer(self, payload: dict[str, Any]) -> dict[str, Any]:
         # Import numpy at call time so local import isn't required
-        import numpy as np  # type: ignore
+        import numpy as np
 
         node_features = np.asarray(payload["node_features"], dtype=np.float32)
         mask = np.asarray(payload["mask"], dtype=bool)
@@ -146,7 +138,7 @@ class ONNXPredictor:
 @modal.asgi_app()
 def fastapi_app():
     # Defer heavy imports to runtime
-    from fastapi import FastAPI, Query  # type: ignore
+    from fastapi import FastAPI, Query
 
     api = FastAPI(title=APP_NAME)
     predictor = ONNXPredictor()
@@ -179,6 +171,4 @@ def local_mount_for_onnx(onnx_local_path: str | os.PathLike[str]) -> modal.Mount
     onnx_local_path = str(onnx_local_path)
     if not Path(onnx_local_path).exists():
         raise FileNotFoundError(f"ONNX not found: {onnx_local_path}")
-    return modal.Mount.from_local_file(
-        onnx_local_path, remote_path=_default_onnx_remote_path()
-    )
+    return modal.Mount.from_local_file(onnx_local_path, remote_path=_default_onnx_remote_path())

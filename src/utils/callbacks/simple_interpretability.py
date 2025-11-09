@@ -1,8 +1,9 @@
 # src/utils/callbacks/minimal_test.py
 
+from typing import Any
+
 import pytorch_lightning as pl
 from lightning.pytorch.callbacks import Callback
-from typing import Any, Dict
 
 
 class SimpleInterpretabilityCallback(Callback):
@@ -16,16 +17,12 @@ class SimpleInterpretabilityCallback(Callback):
         self.log_every_n_steps = log_every_n_steps
         print("MinimalTestCallback initialized!")
 
-    def setup(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule, stage: str
-    ) -> None:
-        """Called when fit, validate, test, predict, or tune begins"""
+    def setup(self, trainer: pl.Trainer, pl_module: pl.LightningModule, stage: str) -> None:
+        """Called when fit, validate, test, predict, or tune begins."""
         print(f"MinimalTestCallback: Setup called for stage: {stage}")
 
-    def on_train_start(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
-    ) -> None:
-        """Called when training starts"""
+    def on_train_start(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Called when training starts."""
         print("MinimalTestCallback: Training started!")
 
     def on_train_batch_end(
@@ -36,23 +33,19 @@ class SimpleInterpretabilityCallback(Callback):
         batch: Any,
         batch_idx: int,
     ) -> None:
-        """Called after each training batch"""
+        """Called after each training batch."""
         if batch_idx % self.log_every_n_steps == 0:
             print(f"MinimalTestCallback: Batch {batch_idx} completed")
 
-    def on_validation_epoch_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
-    ) -> None:
-        """Called at the end of validation epoch"""
-        print(
-            f"MinimalTestCallback: Validation epoch {trainer.current_epoch} completed"
-        )
+    def on_validation_epoch_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
+        """Called at the end of validation epoch."""
+        print(f"MinimalTestCallback: Validation epoch {trainer.current_epoch} completed")
 
     def on_train_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
-        """Called when training ends"""
+        """Called when training ends."""
         print("MinimalTestCallback: Training completed!")
 
-    def state_dict(self) -> Dict[str, Any]:
+    def state_dict(self) -> dict[str, Any]:
         """
         CRITICAL: This method must exist and return a dict for Lightning's validation.
         Called when saving checkpoints.
@@ -61,7 +54,7 @@ class SimpleInterpretabilityCallback(Callback):
             "log_every_n_steps": self.log_every_n_steps,
         }
 
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
         """
         CRITICAL: This method must exist for Lightning's validation.
         Called when loading from checkpoints.
@@ -72,16 +65,16 @@ class SimpleInterpretabilityCallback(Callback):
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
-        checkpoint: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Called when saving checkpoint"""
+        checkpoint: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Called when saving checkpoint."""
         return self.state_dict()
 
     def on_load_checkpoint(
         self,
         trainer: pl.Trainer,
         pl_module: pl.LightningModule,
-        callback_state: Dict[str, Any],
+        callback_state: dict[str, Any],
     ) -> None:
-        """Called when loading checkpoint"""
+        """Called when loading checkpoint."""
         self.load_state_dict(callback_state)

@@ -1,0 +1,10 @@
+# Minimal Gitleaks config: allow common false positives (tests, fixtures) and local data dirs
+
+title = "immuvis gitleaks config"
+
+[allowlist]
+paths = [
+    '''^(data/|logs/).*''',
+    '''^(tests/.*\.(json|txt|md)|tests/fixtures/.*)''',
+    '''^notebooks/.*''',
+]

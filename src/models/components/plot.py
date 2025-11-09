@@ -1,17 +1,17 @@
-import matplotlib.pyplot as plt
-import matplotlib.figure as figure
-from typing import Dict, Optional, Tuple, List
 import math
-import torch
-import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 from collections import defaultdict
-import plotly.express as px
+
+import matplotlib.figure as figure
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score, silhouette_samples
+import plotly.express as px
+import torch
 from matplotlib.patches import Rectangle
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_samples, silhouette_score
+from sklearn.preprocessing import StandardScaler
 
 
 def restore_tensor(
@@ -29,9 +29,7 @@ def restore_tensor(
 
     # Step 2: Reshape back to (B, C, H, W) by folding the patches
     # Calculate the grid size (L) which is the number of patches in each row and column
-    grid_size = int(
-        a.size(1) ** 0.5
-    )  # Assumes square grid (height = width for the patches)
+    grid_size = int(a.size(1) ** 0.5)  # Assumes square grid (height = width for the patches)
 
     # Unfold back into the original image size
     a = a.view(bs, grid_size, grid_size, c, patch_size, patch_size)
@@ -66,12 +64,11 @@ def reshape_feature_map(features: torch.Tensor, num_example: int) -> torch.Tenso
     return features.view(num_example, group, -1, grid_size, grid_size)
 
 
-def plot_images_all_perm(
-    images: np.ndarray, n_rows: int, n_cols: int
-) -> Optional[figure.Figure]:
+def plot_images_all_perm(images: np.ndarray, n_rows: int, n_cols: int) -> figure.Figure | None:
     if not len(images):
-        return
-    assert images.shape[0] >= n_rows * n_cols, "Not enough images to fill the grid."
+        return None
+    if images.shape[0] < n_rows * n_cols:
+        raise ValueError("Not enough images to fill the grid.")
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
     axes = axes.flatten()  # Flatten in case of multiple rows
@@ -86,7 +83,7 @@ def plot_images_all_perm(
     return fig
 
 
-def plot_barchart_from_dict(data: Dict[str, float], title: str) -> figure.Figure:
+def plot_barchart_from_dict(data: dict[str, float], title: str) -> figure.Figure:
     # Plotting
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.bar(list(data.keys()), list(data.values()), color="skyblue")
@@ -97,11 +94,9 @@ def plot_barchart_from_dict(data: Dict[str, float], title: str) -> figure.Figure
     return fig
 
 
-def plot_pca(
-    images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int
-) -> figure.Figure:
+def plot_pca(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int) -> figure.Figure:
     # new_images = reshape_images_array(images, n_rows, n_cols)
-    counter = defaultdict(int)
+    counter: dict[int, int] = defaultdict(int)
     # Build label list (string labels with running index per class)
     base_labels = []
     for val in targets:
@@ -153,7 +148,7 @@ def plot_pca(
 def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int):
     # Reshape images into grid format (assuming you already have this helper)
     # new_images = reshape_images_array(images, n_rows, n_cols)
-    counter = defaultdict(int)
+    counter: dict[int, int] = defaultdict(int)
     rotations = [
         "identity",
         "hflip",
@@ -196,8 +191,11 @@ def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols
 
 
 def plot_silhouette(
-    images: np.ndarray, k_range=range(2, 11)
-) -> Tuple[int, figure.Figure]:
+    images: np.ndarray,
+    k_range: range | None = None,
+) -> tuple[int, figure.Figure]:
+    if k_range is None:
+        k_range = range(2, 11)
     best_k = 0
     best_score = -1
     silhouette_scores = []
@@ -271,8 +269,8 @@ def plot_inter_silhouette(images: np.ndarray, k: int) -> figure.Figure:
 
 # Option 2: Card-like appearance with shadows
 def plot_feature_map(
-    features: torch.Tensor, num_example: int, vmin: float = None, vmax: float = None
-) -> List[figure.Figure]:
+    features: torch.Tensor, num_example: int, vmin: float | None = None, vmax: float | None = None
+) -> list[figure.Figure]:
     """
     Visualize 5D tensor data: (4, 8, 512, 13, 13)
     Shows first 2 channels for all 4 images and 8 transformations
@@ -292,7 +290,7 @@ def plot_feature_map(
         fig = plt.figure(figsize=(20, 10))
         fig.patch.set_facecolor("#f8f9fa")
 
-        # Create 4x8 grid (4 images × 8 transformations)
+        # Create 4x8 grid (4 images x 8 transformations)
         gs = fig.add_gridspec(
             4, 8, hspace=0.4, wspace=0.25, left=0.06, right=0.94, top=0.92, bottom=0.08
         )
@@ -311,9 +309,7 @@ def plot_feature_map(
                 data_slice = tensor_data[img_idx, trans_idx, channel, :, :]
 
                 # Create heatmap with consistent color scale
-                im = ax.imshow(
-                    data_slice, cmap="seismic", aspect="equal", vmin=vmin, vmax=vmax
-                )
+                im = ax.imshow(data_slice, cmap="seismic", aspect="equal", vmin=vmin, vmax=vmax)
 
                 # Remove ticks
                 ax.set_xticks([])
@@ -338,9 +334,7 @@ def plot_feature_map(
                 ax.add_patch(shadow)
 
                 # Label with image, transformation, and channel info
-                label_text = (
-                    f"Img {img_idx + 1} | Trans {trans_idx + 1} | Ch {channel + 1}"
-                )
+                label_text = f"Img {img_idx + 1} | Trans {trans_idx + 1} | Ch {channel + 1}"
                 ax.text(
                     0.5,
                     -0.12,
@@ -349,7 +343,7 @@ def plot_feature_map(
                     ha="center",
                     va="top",
                     fontsize=8,
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.9),
+                    bbox={"boxstyle": "round,pad=0.3", "facecolor": "white", "alpha": 0.9},
                 )
 
         # Add colorbar

@@ -1,7 +1,7 @@
+import networkx as nx
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-import networkx as nx
 from sklearn.manifold import SpectralEmbedding
 
 
@@ -26,8 +26,8 @@ class CustomSpectralEmbedding(nn.Module):
         x = x + embbeding
         return self.dropout(x)
 
-    def compute_eigen(self, L: np.array) -> torch.Tensor:
-        eigenvals, eigenvecs = np.linalg.eigh(L)
+    def compute_eigen(self, laplacian: np.array) -> torch.Tensor:
+        eigenvals, eigenvecs = np.linalg.eigh(laplacian)
         sorted_eigenvecs = eigenvecs[:, np.argsort(eigenvals)]
         sorted_eigenvecs = torch.tensor(sorted_eigenvecs, dtype=torch.float32)
         return sorted_eigenvecs

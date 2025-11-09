@@ -1,16 +1,17 @@
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any
 
 import torch
-from pathlib import Path
-from omegaconf import DictConfig
 from lightning import LightningDataModule
+from omegaconf import DictConfig
 from torch.utils.data import DataLoader, Dataset, random_split
+
 from src.data.components.graphs_datamodules import (
-    IMCBaseDictTransform,
-    PatchAugmentations,
-    GridGraphDataset,
     DenseGraphDataLoader,
     DualOutputTransform,
+    GridGraphDataset,
+    IMCBaseDictTransform,
+    PatchAugmentations,
     PickleDataset,
 )
 
@@ -68,9 +69,7 @@ class IMCDataModule(LightningDataModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
 
-        self.base_transforms = IMCBaseDictTransform(
-            center_crop_size=hparams.center_crop_size
-        )
+        self.base_transforms = IMCBaseDictTransform(center_crop_size=hparams.center_crop_size)
 
         self.aug_transforms_train = PatchAugmentations(
             prob=hparams.augmentation_prob,
@@ -93,9 +92,9 @@ class IMCDataModule(LightningDataModule):
             self.base_transforms, self.aug_transforms_val
         )
 
-        self.data_train: Optional[Dataset] = None
-        self.data_val: Optional[Dataset] = None
-        self.data_test: Optional[Dataset] = None
+        self.data_train: Dataset | None = None
+        self.data_val: Dataset | None = None
+        self.data_test: Dataset | None = None
         self.batch_size = hparams.batch_size
         self.batch_size_per_device = self.batch_size
         self.data_dir = hparams.data_dir
@@ -115,10 +114,10 @@ class IMCDataModule(LightningDataModule):
         return -1
 
     def prepare_data(self) -> None:
-        """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
-        within a single process on CPU, so you can safely add your downloading logic within. In
-        case of multi-node training, the execution of this hook depends upon
-        `self.prepare_data_per_node()`.
+        """Download data if needed. Lightning ensures that `self.prepare_data()` is
+        called only within a single process on CPU, so you can safely add your
+        downloading logic within. In case of multi-node training, the execution of this
+        hook depends upon `self.prepare_data_per_node()`.
 
         Do not use it to assign state (self.x = y).
         """
@@ -127,8 +126,9 @@ class IMCDataModule(LightningDataModule):
         if not train_path.exists() or not test_path.exists():
             raise FileNotFoundError(f"Expected dataset at {train_path} and {test_path}")
 
-    def setup(self, stage: Optional[str] = None) -> None:
-        """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
+    def setup(self, stage: str | None = None) -> None:
+        """Load data. Set variables: `self.data_train`, `self.data_val`,
+        `self.data_test`.
 
         This method is called by Lightning before `trainer.fit()`, `trainer.validate()`, `trainer.test()`, and
         `trainer.predict()`, so be careful not to execute things like random split twice! Also, it is called after
@@ -152,9 +152,7 @@ class IMCDataModule(LightningDataModule):
             test_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_test.h5"
             trainset = PickleDataset(train_path, transform=self.dual_transforms_train)
             testset = PickleDataset(test_path, transform=self.dual_transforms_val)
-            train_ratio, val_ratio, test_ratio, leftover_ratio = (
-                self.train_val_test_split
-            )
+            train_ratio, val_ratio, test_ratio, _ = self.train_val_test_split
             size_testset = len(testset)
             size_trainset = len(trainset)
             self.data_train, _ = random_split(
@@ -174,7 +172,10 @@ class IMCDataModule(LightningDataModule):
 
         :return: The train dataloader.
         """
-        assert self.data_train is not None
+        if self.data_train is None:
+            raise RuntimeError(
+                "Expected self.data_train to be set in setup() before calling train_dataloader().",
+            )
         train_dataset = GridGraphDataset(
             grid_size=self.grid_size, dataset=self.data_train, channels=[0]
         )
@@ -192,7 +193,10 @@ class IMCDataModule(LightningDataModule):
 
         :return: The validation dataloader.
         """
-        assert self.data_val is not None
+        if self.data_val is None:
+            raise RuntimeError(
+                "Expected self.data_val to be set in setup() before calling val_dataloader().",
+            )
         val_dataset = GridGraphDataset(
             grid_size=self.grid_size, dataset=self.data_val, channels=[0]
         )
@@ -210,7 +214,10 @@ class IMCDataModule(LightningDataModule):
 
         :return: The test dataloader.
         """
-        assert self.data_test is not None
+        if self.data_test is None:
+            raise RuntimeError(
+                "Expected self.data_test to be set in setup() before calling test_dataloader().",
+            )
         test_dataset = GridGraphDataset(
             grid_size=self.grid_size, dataset=self.data_test, channels=[0]
         )
@@ -223,34 +230,29 @@ class IMCDataModule(LightningDataModule):
             persistent_workers=self.num_workers > 0,
         )
 
-    def teardown(self, stage: Optional[str] = None) -> None:
+    def teardown(self, stage: str | None = None) -> None:
         """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,
         `trainer.test()`, and `trainer.predict()`.
 
         :param stage: The stage being torn down. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
             Defaults to ``None``.
         """
-        pass
 
-    def state_dict(self) -> Dict[Any, Any]:
-        """Called when saving a checkpoint. Implement to generate and save the datamodule state.
+    def state_dict(self) -> dict[Any, Any]:
+        """Called when saving a checkpoint. Implement to generate and save the
+        datamodule state.
 
         :return: A dictionary containing the datamodule state that you want to save.
         """
         return {}
 
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
-        """Called when loading a checkpoint. Implement to reload datamodule state given datamodule
-        `state_dict()`.
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        """Called when loading a checkpoint. Implement to reload datamodule state given
+        datamodule `state_dict()`.
 
         :param state_dict: The datamodule state returned by `self.state_dict()`.
         """
-        pass
 
 
 def add_channel(x: torch.Tensor) -> torch.Tensor:
     return x.unsqueeze(0)
-
-
-if __name__ == "__main__":
-    _ = IMCDataModule()

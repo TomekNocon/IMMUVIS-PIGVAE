@@ -1,18 +1,18 @@
 #!/usr/bin/env python
-"""
-Diagnostic script to check IMC data statistics and normalization.
-Run this to verify that the normalization fixes are working correctly.
+"""Diagnostic script to check IMC data statistics and normalization. Run this to verify
+that the normalization fixes are working correctly.
 
 Usage:
     python scripts/diagnose_imc_data.py
 """
 
-import torch
-import h5py
-import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import h5py
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,9 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.data.components.graphs_datamodules import IMCBaseDictTransform
 
 
-def load_sample_data(
-    data_path: str = "/raid/tnocon/data/IMC/train.h5", n_samples: int = 10
-):
+def load_sample_data(data_path: str = "/raid/tnocon/data/IMC/train.h5", n_samples: int = 10):
     """Load a few samples from the IMC dataset."""
     with h5py.File(data_path, "r") as f:
         keys = list(f.keys())
@@ -50,15 +48,11 @@ def analyze_normalization(samples, norm_type="channel_wise"):
 
     for idx, sample in enumerate(samples):
         # Process without normalization
-        sample_copy = {
-            k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()
-        }
+        sample_copy = {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()}
         result_no_norm = transform_no_norm(sample_copy)
 
         # Process with normalization
-        sample_copy = {
-            k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()
-        }
+        sample_copy = {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()}
         result_with_norm = transform_with_norm(sample_copy)
 
         for key in result_no_norm:
@@ -66,37 +60,31 @@ def analyze_normalization(samples, norm_type="channel_wise"):
                 data_before = result_no_norm[key]
                 data_after = result_with_norm[key]
 
-                stats_before.append(
-                    {
-                        "sample": idx,
-                        "key": key,
-                        "mean": data_before.mean().item(),
-                        "std": data_before.std().item(),
-                        "min": data_before.min().item(),
-                        "max": data_before.max().item(),
-                        "shape": tuple(data_before.shape),
-                    }
-                )
+                stats_before.append({
+                    "sample": idx,
+                    "key": key,
+                    "mean": data_before.mean().item(),
+                    "std": data_before.std().item(),
+                    "min": data_before.min().item(),
+                    "max": data_before.max().item(),
+                    "shape": tuple(data_before.shape),
+                })
 
-                stats_after.append(
-                    {
-                        "sample": idx,
-                        "key": key,
-                        "mean": data_after.mean().item(),
-                        "std": data_after.std().item(),
-                        "min": data_after.min().item(),
-                        "max": data_after.max().item(),
-                        "shape": tuple(data_after.shape),
-                    }
-                )
+                stats_after.append({
+                    "sample": idx,
+                    "key": key,
+                    "mean": data_after.mean().item(),
+                    "std": data_after.std().item(),
+                    "min": data_after.min().item(),
+                    "max": data_after.max().item(),
+                    "shape": tuple(data_after.shape),
+                })
 
     # Print summary
     print("\n" + "-" * 80)
     print("BEFORE NORMALIZATION:")
     print("-" * 80)
-    print(
-        f"{'Sample':<8} {'Transform':<15} {'Mean':<12} {'Std':<12} {'Min':<12} {'Max':<12}"
-    )
+    print(f"{'Sample':<8} {'Transform':<15} {'Mean':<12} {'Std':<12} {'Min':<12} {'Max':<12}")
     print("-" * 80)
     for stat in stats_before[:5]:  # Show first 5
         print(
@@ -107,9 +95,7 @@ def analyze_normalization(samples, norm_type="channel_wise"):
     print("\n" + "-" * 80)
     print("AFTER NORMALIZATION:")
     print("-" * 80)
-    print(
-        f"{'Sample':<8} {'Transform':<15} {'Mean':<12} {'Std':<12} {'Min':<12} {'Max':<12}"
-    )
+    print(f"{'Sample':<8} {'Transform':<15} {'Mean':<12} {'Std':<12} {'Min':<12} {'Max':<12}")
     print("-" * 80)
     for stat in stats_after[:5]:  # Show first 5
         print(
@@ -156,14 +142,10 @@ def visualize_distributions(samples):
     sample = samples[0]
 
     # Process
-    sample_copy1 = {
-        k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()
-    }
+    sample_copy1 = {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()}
     result_no_norm = transform_no_norm(sample_copy1)
 
-    sample_copy2 = {
-        k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()
-    }
+    sample_copy2 = {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()}
     result_with_norm = transform_with_norm(sample_copy2)
 
     # Get data
@@ -174,14 +156,10 @@ def visualize_distributions(samples):
 
             # Create plots
             fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-            fig.suptitle(
-                f"IMC Data Distribution Analysis: {key}", fontsize=16, fontweight="bold"
-            )
+            fig.suptitle(f"IMC Data Distribution Analysis: {key}", fontsize=16, fontweight="bold")
 
             # Histogram before
-            axes[0, 0].hist(
-                data_before, bins=50, alpha=0.7, color="red", edgecolor="black"
-            )
+            axes[0, 0].hist(data_before, bins=50, alpha=0.7, color="red", edgecolor="black")
             axes[0, 0].set_title("Before Normalization", fontsize=12, fontweight="bold")
             axes[0, 0].set_xlabel("Value")
             axes[0, 0].set_ylabel("Frequency")
@@ -204,9 +182,7 @@ def visualize_distributions(samples):
             axes[0, 0].grid(alpha=0.3)
 
             # Histogram after
-            axes[0, 1].hist(
-                data_after, bins=50, alpha=0.7, color="green", edgecolor="black"
-            )
+            axes[0, 1].hist(data_after, bins=50, alpha=0.7, color="green", edgecolor="black")
             axes[0, 1].set_title("After Normalization", fontsize=12, fontweight="bold")
             axes[0, 1].set_xlabel("Value")
             axes[0, 1].set_ylabel("Frequency")
@@ -222,9 +198,7 @@ def visualize_distributions(samples):
                 linestyle="--",
                 label=f"Std: {data_after.std():.4f}",
             )
-            axes[0, 1].axvline(
-                data_after.mean() - data_after.std(), color="red", linestyle="--"
-            )
+            axes[0, 1].axvline(data_after.mean() - data_after.std(), color="red", linestyle="--")
             axes[0, 1].legend()
             axes[0, 1].grid(alpha=0.3)
 
@@ -265,9 +239,7 @@ def check_per_channel_variance(samples):
     print("=" * 80)
 
     sample = samples[0]
-    sample_copy = {
-        k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()
-    }
+    sample_copy = {k: v.copy() if isinstance(v, np.ndarray) else v for k, v in sample.items()}
 
     # Get raw data (before reshaping)
     for key, embedding in sample_copy.items():
@@ -276,7 +248,7 @@ def check_per_channel_variance(samples):
             c, h, w = embedding.shape
 
             print(f"\nTransform: {key}")
-            print(f"Shape: {c} channels × {h} × {w}")
+            print(f"Shape: {c} channels x {h} x {w}")
 
             # Compute per-channel statistics
             channel_means = embedding.mean(dim=(1, 2)).numpy()
@@ -290,19 +262,13 @@ def check_per_channel_variance(samples):
 
             # Summary
             print(f"\nAll {c} channels:")
-            print(
-                f"  Mean range: [{channel_means.min():.4f}, {channel_means.max():.4f}]"
-            )
+            print(f"  Mean range: [{channel_means.min():.4f}, {channel_means.max():.4f}]")
             print(f"  Std range:  [{channel_stds.min():.4f}, {channel_stds.max():.4f}]")
-            print(
-                f"  Std ratio (max/min): {channel_stds.max() / (channel_stds.min() + 1e-8):.2f}x"
-            )
+            print(f"  Std ratio (max/min): {channel_stds.max() / (channel_stds.min() + 1e-8):.2f}x")
 
             if channel_stds.max() / (channel_stds.min() + 1e-8) > 100:
                 print("\n⚠️  WARNING: Huge variance differences across channels!")
-                print(
-                    "    Some channels will dominate gradients without normalization."
-                )
+                print("    Some channels will dominate gradients without normalization.")
             else:
                 print("\n✅ Channel variance is relatively balanced.")
 
@@ -313,9 +279,7 @@ def main():
     print("\n" + "=" * 80)
     print("IMC DATA NORMALIZATION DIAGNOSTIC TOOL")
     print("=" * 80)
-    print(
-        "\nThis script analyzes your IMC data to verify normalization is working correctly."
-    )
+    print("\nThis script analyzes your IMC data to verify normalization is working correctly.")
 
     # Load data
     data_path = Path("/raid/tnocon/data/IMC/train.h5")
@@ -330,7 +294,7 @@ def main():
 
     # Run diagnostics
     check_per_channel_variance(samples)
-    stats_before, stats_after = analyze_normalization(samples, norm_type="channel_wise")
+    _, _ = analyze_normalization(samples, norm_type="channel_wise")
 
     try:
         visualize_distributions(samples)
