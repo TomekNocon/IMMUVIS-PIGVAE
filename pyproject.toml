@@ -27,6 +27,7 @@ dependencies = [
     "ipykernel>=6.29.5",
     "onnx>=1.19.1",
     "onnxruntime>=1.23.2",
+    "pydantic>=2.11.7",
 ]
 
 [tool.ruff]
