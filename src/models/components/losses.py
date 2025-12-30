@@ -1,5 +1,8 @@
+import math
 from typing import Any
 
+import lpips
+import pytorch_msssim
 import torch
 import torch.nn.functional as F
 from torch.nn import CosineSimilarity, L1Loss, MSELoss
@@ -7,93 +10,277 @@ from torch.nn import CosineSimilarity, L1Loss, MSELoss
 from src.data.components.graphs_datamodules import DenseGraphBatch
 
 
+class BaseGridReconstructionLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+
+
+class BaseReconstructionLoss(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+
+
 class GraphReconstructionLoss(torch.nn.Module):
     def __init__(
         self,
-        use_gradient_loss: bool = False,
-        gradient_loss_weight: float = 0.1,
-        use_cosine_loss: bool = True,
-        cosine_loss_weight: float = 0.1,
+        loss_alpha: BaseReconstructionLoss | BaseGridReconstructionLoss,
+        loss_beta: BaseReconstructionLoss | BaseGridReconstructionLoss,
+        loss_gamma: BaseReconstructionLoss | BaseGridReconstructionLoss,
+        alpha: float = 1.0,
+        beta: float = 1.0,
+        gamma: float = 1.0,
     ):
-        """Reconstruction loss with optional gradient/detail preservation and cosine
-        similarity.
-
-        Args:
-            use_gradient_loss: If True, adds gradient-based loss to preserve details
-            gradient_loss_weight: Weight for gradient loss term
-            use_cosine_loss: If True, adds cosine similarity to preserve feature directions
-            cosine_loss_weight: Weight for cosine similarity term (helps in feature space)
+        """
+        components: List[Tuple[str, torch.nn.Module, float, bool]]
+          Each item is (name, module, weight, use_grid)
         """
         super().__init__()
-        self.node_loss = MSELoss()  # Primary reconstruction loss
-        self.use_gradient_loss = use_gradient_loss
-        self.gradient_loss_weight = gradient_loss_weight
-        self.use_cosine_loss = use_cosine_loss
-        self.cosine_loss_weight = cosine_loss_weight
-
-        if use_cosine_loss:
-            self.cosine_sim = CosineSimilarity(dim=-1)
+        self.losses = torch.nn.ModuleDict({
+            "alpha_recon": loss_alpha,
+            "beta_recon": loss_beta,
+            "gamma_recon": loss_gamma,
+        })
+        self.weights = {
+            "alpha_recon": alpha,
+            "beta_recon": beta,
+            "gamma_recon": gamma,
+        }
 
     def forward(self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch) -> dict[str, Any]:
-        # Use the mask to identify valid nodes
+        out = {}
         device = graph_pred.node_features.device
-        mask = graph_true.mask
-        if mask is None:
-            mask = torch.ones(graph_true.node_features.shape[0], dtype=torch.bool, device=device)
-        else:
-            mask = mask.to(device)
-        # Extract the node features for the true and predicted graphs, filtered
-        # by the mask
-        nodes_true = graph_true.node_features.to(device)
-        nodes_true = nodes_true[mask]
-        nodes_pred = graph_pred.node_features[mask]
+        true = graph_true.node_features.to(device)
+        pred = graph_pred.node_features.to(device)
 
-        # Compute the node-based loss (MSE)
-        node_loss = self.node_loss(input=nodes_pred, target=nodes_true)
+        b, n, d = graph_true.node_features.shape
+        grid_h = math.isqrt(int(n))
 
-        total_loss = node_loss
-        loss_dict = {"node_loss": node_loss}
+        true_grid = true.view(b, grid_h, grid_h, d).permute(0, 3, 1, 2)
+        pred_grid = pred.view(b, grid_h, grid_h, d).permute(0, 3, 1, 2)
 
-        # Add cosine similarity loss to preserve feature directions
-        # This is especially important for high-dimensional feature spaces
-        if self.use_cosine_loss:
-            # Cosine similarity per sample: shape [batch*nodes]
-            cosine_sim = self.cosine_sim(nodes_pred, nodes_true)
-            # Convert to loss: 1 - similarity
-            cosine_loss = 1.0 - cosine_sim.mean()
-            total_loss = total_loss + self.cosine_loss_weight * cosine_loss
-            loss_dict["cosine_loss"] = cosine_loss
+        total = 0.0
 
-        # Add gradient loss to preserve high-frequency details
-        if self.use_gradient_loss:
-            # Reshape to grid for gradient computation
-            # Assuming nodes are in grid order: [batch*aug, num_nodes, features]
-            batch_size = graph_true.node_features.shape[0]
-            num_nodes = graph_true.node_features.shape[1]
-            grid_size = int(num_nodes**0.5)
+        for name, loss_module in self.losses.items():
+            if isinstance(loss_module, BaseReconstructionLoss):
+                loss_val = loss_module(pred, true)
+            else:
+                loss_val = loss_module(pred_grid, true_grid)
 
-            if grid_size * grid_size == num_nodes:  # Verify it's a square grid
-                pred_grid = graph_pred.node_features.view(batch_size, grid_size, grid_size, -1)
-                true_grid = graph_true.node_features.view(batch_size, grid_size, grid_size, -1)
+            weighted = self.weights[name] * loss_val
+            out[name] = loss_val
+            total += weighted
 
-                # Compute gradients in both directions
-                pred_grad_x = pred_grid[:, :, 1:, :] - pred_grid[:, :, :-1, :]
-                pred_grad_y = pred_grid[:, 1:, :, :] - pred_grid[:, :-1, :, :]
+        out["loss"] = total
+        return out
 
-                true_grad_x = true_grid[:, :, 1:, :] - true_grid[:, :, :-1, :]
-                true_grad_y = true_grid[:, 1:, :, :] - true_grid[:, :-1, :, :]
 
-                # L1 loss on gradients (preserves sharp edges better than L2)
-                gradient_loss = torch.mean(torch.abs(pred_grad_x - true_grad_x)) + torch.mean(
-                    torch.abs(pred_grad_y - true_grad_y)
-                )
+# class GraphReconstructionLoss(torch.nn.Module):
+#     def __init__(
+#         self,
+#         huber_beta: float = 1.0,
+#         cosine_loss_weight: float = 0.1,
+#         laplacian_loss_weight: float = 0.05,
+#     ):
+#         """
+#         Reconstruction loss combining:
+#           - SmoothL1 (Huber) value loss
+#           - Cosine similarity over flattened feature maps
+#           - Laplacian loss for spatial detail preservation
 
-                total_loss = total_loss + self.gradient_loss_weight * gradient_loss
-                loss_dict["gradient_loss"] = gradient_loss
+#         Args:
+#             huber_beta: Transition point for SmoothL1/Huber loss
+#             cosine_loss_weight: Weight for cosine similarity term (helps in feature space)
+#             laplacian_loss_weight: Weight for Laplacian loss term (spatial detail)
+#         """
+#         super().__init__()
+#         self.value_loss = torch.nn.SmoothL1Loss(beta=huber_beta, reduction="mean")
+#         self.cosine_loss_weight = cosine_loss_weight
+#         self.laplacian_loss_weight = laplacian_loss_weight
+#         self.cosine_sim = torch.nn.CosineSimilarity(dim=1, eps=1e-8)
+#         self.laplacian = LaplacianLoss()
 
-        # Return the complete loss dictionary
-        loss_dict["loss"] = total_loss
-        return loss_dict
+#     def forward(
+#         self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch
+#     ) -> Dict[str, Any]:
+#         device = graph_pred.node_features.device
+#         mask = graph_true.mask.to(device) if graph_true.mask is not None else None
+#         # Expected shapes: [B, N, D]
+#         nodes_true_3d = graph_true.node_features.to(device)
+#         nodes_pred_3d = graph_pred.node_features.to(device)
+
+#         # Huber/SmoothL1 value loss on valid nodes
+#         if mask is not None:
+#             mask_exp = mask.unsqueeze(-1).expand_as(nodes_true_3d).float()
+#             value_loss = torch.nn.functional.smooth_l1_loss(
+#                 nodes_pred_3d * mask_exp, nodes_true_3d * mask_exp, beta=self.value_loss.beta, reduction="sum"
+#             )
+#             denom = mask_exp.sum().clamp_min(1.0)
+#             value_loss = value_loss / denom
+#         else:
+#             value_loss = self.value_loss(nodes_pred_3d, nodes_true_3d)
+
+#         total_loss = value_loss
+#         loss_dict = {"huber_loss": value_loss}
+
+#         # Cosine similarity over flattened per-sample feature vectors (mask padded nodes)
+#         if mask is not None:
+#             mask_exp = mask.unsqueeze(-1).expand_as(nodes_true_3d).float()
+#             pred_masked = nodes_pred_3d * mask_exp
+#             true_masked = nodes_true_3d * mask_exp
+#         else:
+#             pred_masked = nodes_pred_3d
+#             true_masked = nodes_true_3d
+
+#         pred_flat = pred_masked.flatten(1)  # [B, N*D]
+#         true_flat = true_masked.flatten(1)  # [B, N*D]
+#         cosine_sim = self.cosine_sim(pred_flat, true_flat).mean()
+#         cosine_loss = 1.0 - cosine_sim
+#         total_loss = total_loss + self.cosine_loss_weight * cosine_loss
+#         loss_dict["cosine_loss"] = cosine_loss
+
+#         # Laplacian loss on spatial grids (assumes N = H*W)
+#         B, N, D = nodes_true_3d.shape
+#         grid_size = int(N ** 0.5)
+#         if grid_size * grid_size == N:
+#             pred_grid = nodes_pred_3d.view(B, grid_size, grid_size, D).permute(0, 3, 1, 2).contiguous()  # [B, D, H, W]
+#             true_grid = nodes_true_3d.view(B, grid_size, grid_size, D).permute(0, 3, 1, 2).contiguous()  # [B, D, H, W]
+#             laplacian_loss = self.laplacian(pred_grid, true_grid)
+#             total_loss = total_loss + self.laplacian_loss_weight * laplacian_loss
+#             loss_dict["laplacian_loss"] = laplacian_loss
+#         else:
+#             # Fallback: no Laplacian if grid cannot be formed
+#             loss_dict["laplacian_loss"] = torch.tensor(0.0, device=device, dtype=nodes_true_3d.dtype)
+
+#         # Return the complete loss dictionary
+#         loss_dict["loss"] = total_loss
+#         return loss_dict
+
+
+class HuberLoss(BaseReconstructionLoss):
+    def __init__(self, beta: float = 1.0):
+        super().__init__()
+        self.beta = beta
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return torch.nn.functional.smooth_l1_loss(pred, target, beta=self.beta, reduction="mean")
+
+
+class CosineLoss(BaseGridReconstructionLoss):
+    def __init__(self, dim: int = 1, eps: float = 1e-8):
+        super().__init__()
+        self.cosine_sim = torch.nn.CosineSimilarity(dim=dim, eps=eps)
+
+    def forward(self, pred_grid: torch.Tensor, true_grid: torch.Tensor) -> torch.Tensor:
+        sim = self.cosine_sim(pred_grid, true_grid)
+        return 1.0 - sim.mean()
+
+
+class GradientLoss(BaseGridReconstructionLoss):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred_grid: torch.Tensor, true_grid: torch.Tensor) -> torch.Tensor:
+        # Compute gradients in both directions
+        pred_grad_x = pred_grid[:, :, :, 1:] - pred_grid[:, :, :, :-1]
+        true_grad_x = true_grid[:, :, :, 1:] - true_grid[:, :, :, :-1]
+
+        pred_grad_y = pred_grid[:, :, 1:, :] - pred_grid[:, :, :-1, :]
+        true_grad_y = true_grid[:, :, 1:, :] - true_grid[:, :, :-1, :]
+
+        # L1 loss on gradients (preserves sharp edges better than L2)
+        gradient_loss = torch.mean(torch.abs(pred_grad_x - true_grad_x)) + torch.mean(
+            torch.abs(pred_grad_y - true_grad_y)
+        )
+
+        return gradient_loss
+
+
+class TVLoss(BaseGridReconstructionLoss):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred_grid: torch.Tensor, true_grid: torch.Tensor) -> torch.Tensor:
+        tv_loss = torch.mean(
+            torch.abs(pred_grid[:, :, 1:, :] - pred_grid[:, :, :-1, :])
+        ) + torch.mean(torch.abs(pred_grid[:, :, :, 1:] - pred_grid[:, :, :, :-1]))
+        return tv_loss
+
+
+class CharbonnierLoss(BaseGridReconstructionLoss):
+    def __init__(self):
+        super().__init__()
+
+    def forward(
+        self, pred_grid: torch.Tensor, true_grid: torch.Tensor, epsilon: float = 1e-6
+    ) -> torch.Tensor:
+        pred_grad_x = pred_grid[:, :, :, 1:] - pred_grid[:, :, :, :-1]
+        true_grad_x = true_grid[:, :, :, 1:] - true_grid[:, :, :, :-1]
+
+        pred_grad_y = pred_grid[:, :, 1:, :] - pred_grid[:, :, :-1, :]
+        true_grad_y = true_grid[:, :, 1:, :] - true_grid[:, :, :-1, :]
+
+        grad_diff_x = torch.sqrt((pred_grad_x - true_grad_x) ** 2 + epsilon)
+        grad_diff_y = torch.sqrt((pred_grad_y - true_grad_y) ** 2 + epsilon)
+
+        charbonnier_loss = grad_diff_x.mean() + grad_diff_y.mean()
+        return charbonnier_loss
+
+
+class SSIMLoss(BaseReconstructionLoss):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        ssim_loss = 1 - pytorch_msssim.ssim(pred, target, win_size=3, data_range=10.0)
+        return ssim_loss
+
+
+class LPIPSLoss(BaseReconstructionLoss):
+    def __init__(self):
+        super().__init__()
+        self.lpips = lpips.LPIPS(net="vgg")
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        lpips_loss = self.lpips(pred, target)
+        return lpips_loss
+
+
+class HuberGradientLoss(BaseGridReconstructionLoss):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred_grid: torch.Tensor, true_grid: torch.Tensor) -> torch.Tensor:
+        # x-gradient (width)
+        pred_grad_x = pred_grid[:, :, :, 1:] - pred_grid[:, :, :, :-1]
+        true_grad_x = true_grid[:, :, :, 1:] - true_grid[:, :, :, :-1]
+
+        # y-gradient (height)
+        pred_grad_y = pred_grid[:, :, 1:, :] - pred_grid[:, :, :-1, :]
+        true_grad_y = true_grid[:, :, 1:, :] - true_grid[:, :, :-1, :]
+        grad_loss_x = torch.nn.functional.huber_loss(pred_grad_x, true_grad_x, delta=1.0)
+        grad_loss_y = torch.nn.functional.huber_loss(pred_grad_y, true_grad_y, delta=1.0)
+        gradient_loss = grad_loss_x + grad_loss_y
+        return gradient_loss
+
+
+class LaplacianLoss(BaseGridReconstructionLoss):
+    def __init__(self):
+        super().__init__()
+        kernel = torch.tensor([[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]])
+        self.register_buffer("lap_kernel", kernel.view(1, 1, 3, 3))
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        _, c, _, _ = pred.shape
+        kernel = self.lap_kernel.repeat(c, 1, 3, 3).to(dtype=pred.dtype, device=pred.device)
+        lap_pred = F.conv2d(pred, kernel, padding=1, groups=c)
+        lap_true = F.conv2d(target, kernel, padding=1, groups=c)
+        return F.l1_loss(lap_pred, lap_true)
 
 
 class MAELoss(torch.nn.Module):
@@ -106,7 +293,8 @@ class MAELoss(torch.nn.Module):
         device = graph_pred.node_features.device
         mask = graph_true.mask
         if mask is None:
-            mask = torch.ones(graph_true.node_features.shape[0], dtype=torch.bool, device=device)
+            b, n, _ = graph_true.node_features.shape
+            mask = torch.ones(b, n, dtype=torch.bool, device=device)
         else:
             mask = mask.to(device)
         # Extract the node features for the true and predicted graphs, filtered
@@ -121,23 +309,18 @@ class MAELoss(torch.nn.Module):
         return loss
 
 
-class CosineSimilarityLoss(torch.nn.Module):
-    def __init__(self, return_as_loss: bool = True):
-        """
-        Args:
-            return_as_loss: If True, returns (1 - cosine_similarity) so lower is better.
-                          If False, returns cosine_similarity directly (higher is better).
-        """
+class MSEGridLoss(torch.nn.Module):
+    def __init__(self):
         super().__init__()
-        self.node_loss = CosineSimilarity()
-        self.return_as_loss = return_as_loss
+        self.node_loss = MSELoss()
 
     def forward(self, graph_true: DenseGraphBatch, graph_pred: DenseGraphBatch) -> torch.Tensor:
         # Use the mask to identify valid nodes
         device = graph_pred.node_features.device
         mask = graph_true.mask
         if mask is None:
-            mask = torch.ones(graph_true.node_features.shape[0], dtype=torch.bool, device=device)
+            b, n, _ = graph_true.node_features.shape
+            mask = torch.ones(b, n, dtype=torch.bool, device=device)
         else:
             mask = mask.to(device)
         # Extract the node features for the true and predicted graphs, filtered
@@ -146,8 +329,28 @@ class CosineSimilarityLoss(torch.nn.Module):
         nodes_true = nodes_true[mask]
         nodes_pred = graph_pred.node_features[mask]
 
-        # Compute cosine similarity (range: -1 to 1, where 1 = identical)
-        similarity = self.node_loss(nodes_pred.flatten(1), nodes_true.flatten(1)).mean()
+        # Compute the node-based loss
+        loss = self.node_loss(input=nodes_pred, target=nodes_true)
+
+        return loss
+
+
+class CosineSimilarityLoss(BaseReconstructionLoss):
+    def __init__(self, return_as_loss: bool = True):
+        """
+        Args:
+            return_as_loss: If True, returns (1 - cosine_similarity) so lower is better.
+                          If False, returns cosine_similarity directly (higher is better).
+        """
+        super().__init__()
+        # dim = 1 is channel reconstrtion
+        # dim = -1 is node reconstruction
+        self.node_loss = CosineSimilarity(dim=-1, eps=1e-8)
+        self.return_as_loss = return_as_loss
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # Use the mask to identify valid nodes
+        similarity = self.node_loss(pred.flatten(1), target.flatten(1)).mean()
 
         if self.return_as_loss:
             # Convert to loss: 1 - similarity, so 0 = perfect, 2 = worst
@@ -171,7 +374,8 @@ class SignalToNoiseRatioLoss(torch.nn.Module):
         device = graph_pred.node_features.device
         mask = graph_true.mask
         if mask is None:
-            mask = torch.ones(graph_true.node_features.shape[0], dtype=torch.bool, device=device)
+            b, n, _ = graph_true.node_features.shape
+            mask = torch.ones(b, n, dtype=torch.bool, device=device)
         else:
             mask = mask.to(device)
         # Extract the node features for the true and predicted graphs, filtered
@@ -211,9 +415,9 @@ class KLDLoss(torch.nn.Module):
             kld_per_dim = -0.5 * (1 + logvar32 - mu32.pow(2) - logvar32.exp())
 
         if self.free_bits > 0:
-            # Apply free bits: max(KLD_per_dim, free_bits)
-            # This prevents over-compression of the latent space
-            kld_per_dim = torch.clamp(kld_per_dim, min=self.free_bits)
+            # Apply free bits using a margin: max(KLD_per_dim - free_bits, 0)
+            # Penalize only the excess above the threshold per-dimension.
+            kld_per_dim = torch.relu(kld_per_dim - self.free_bits)
 
         if self.normalize_by_latent_dim:
             # Average over latent dimensions, then average over batch
@@ -269,9 +473,9 @@ class ContrastiveLoss(torch.nn.Module):
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         # computing contrastive loss as in SimCLR
         features = F.normalize(features, dim=-1)
-        batch_size = features.shape[0]
+        n = features.shape[0]
         samples_per_group = 1 + self.num_aug_per_sample
-        original_batch_size = batch_size // samples_per_group  # number of original images
+        original_batch_size = n // samples_per_group  # number of original images
         labels = torch.cat(
             [torch.arange(original_batch_size) for _ in range(samples_per_group)], dim=0
         )
@@ -282,7 +486,7 @@ class ContrastiveLoss(torch.nn.Module):
         sim = sim / self.temperature
 
         # Mask out self-similarity
-        mask = torch.eye(batch_size, dtype=torch.bool, device=features.device)
+        mask = torch.eye(n, dtype=torch.bool, device=features.device)
         sim.masked_fill_(mask, float("-inf"))  # ignore diagonal
 
         # Extract positives and negatives
@@ -304,7 +508,7 @@ class PermutationLoss(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, probs: torch.Tensor):
+    def forward(self, probs: torch.Tensor = None):
         if probs is None:
             return 0
         # logits: (batch_size, num_classes)

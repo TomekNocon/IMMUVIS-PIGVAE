@@ -45,17 +45,31 @@ hydra:
       n_ei_candidates: 28
     # define hyperparameter search space
     params:
-      model.optimizer.lr: interval(0.0001, 0.01)
-      data.hparams.batch_size: choice(8)  # Added more options for meaningful optimization
-      model.graph_ae.hparams.input_size: choice(512)
-      model.graph_ae.hparams.num_layers: choice(4, 6)
-      model.graph_ae.hparams.num_heads: choice(4, 8, 16)
-      model.graph_ae.hparams.emb_dim: choice(512, 1024)
-      model.temperature_scheduler.hparams.initial_tau: interval(0.5, 1.0)
+      # Optimizer / training
+      model.optimizer.lr: interval(0.00005, 0.003)
+      data.hparams.batch_size: choice(16)
+      trainer.max_epochs: choice(20)
+      # Simulate long training schedules for LR but stop early
+      scheduler.simulate_epochs: choice(true)
+      scheduler.simulated_max_epochs: choice(500)
+      # Temperature/entropy schedulers behave like long runs
+      model.temperature_scheduler.hparams.initial_tau: interval(0.7, 1.0)
       model.temperature_scheduler.hparams.final_tau: interval(0.05, 0.2)
+      model.temperature_scheduler.hparams.num_epochs: choice(500)
       model.entropy_weight_scheduler.hparams.initial_weight: interval(0.2, 0.5)
-      model.entropy_weight_scheduler.hparams.final_weight:  interval(0.01, 0.1)  # Fixed reference
-      model.critic.hparams.kld_loss_scale: interval(0.00001, 0.01)
-      model.critic.hparams.perm_loss_scale: interval(0.0001, 0.9)
-      model.critic.hparams.contrastive_loss_scale: interval(0.001, 0.07)
-      model.critic.hparams.temperature: interval(0.5, 0.7)
+      model.entropy_weight_scheduler.hparams.final_weight:  interval(0.05, 0.3)
+      model.entropy_weight_scheduler.hparams.num_epochs: choice(250)
+      # KL weighting & free-bits
+      model.critic.hparams.kld_loss_scale: interval(1e-5, 5e-3)
+      model.critic.hparams.kld_free_bits: interval(0.0, 2.0)
+      # Recon terms (keep modest ranges)
+      model.critic.hparams.alpha_scale: interval(0.5, 1.5)
+      model.critic.hparams.beta_scale: interval(0.05, 0.5)
+      model.critic.hparams.gamma_scale: interval(0.001, 0.03)
+      # Bottleneck / capacity
+      model.graph_ae.hparams.emb_dim: choice(256, 512, 1024)
+      model.graph_ae.hparams.num_layers: choice(3, 4, 6)
+      model.graph_ae.hparams.num_heads: choice(4, 8)
+      model.graph_ae.hparams.dropout: interval(0.0, 0.2)
+      # Gumbel / temp
+      model.critic.hparams.temperature: interval(0.05, 0.2)

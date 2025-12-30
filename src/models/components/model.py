@@ -9,8 +9,11 @@ from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.losses import (
     CosineSimilarityLoss,
     GraphReconstructionLoss,
+    HuberLoss,
     KLDLoss,
+    LaplacianLoss,
     MAELoss,
+    MSEGridLoss,
     PermutationLoss,
     SignalToNoiseRatioLoss,
 )
@@ -21,53 +24,52 @@ rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
 class Critic(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
-        self.alpha = hparams.kld_loss_scale
+        # KL weight (scale) to balance reconstruction vs regularization
+        self.kld_scale = float(getattr(hparams, "kld_loss_scale", 1.0))
         # self.beta = hparams.perm_loss_scale
         # self.gamma = hparams.contrastive_loss_scale
         self.vae = hparams.vae
 
-        # Initialize reconstruction loss with gradient preservation and cosine similarity
+        # Initialize reconstruction loss with Huber + Cosine + Gradient
         self.reconstruction_loss = GraphReconstructionLoss(
-            use_gradient_loss=hparams.get("use_gradient_loss", True),
-            gradient_loss_weight=hparams.get("gradient_loss_weight", 0.5),
-            use_cosine_loss=hparams.get("use_cosine_loss", True),
-            cosine_loss_weight=hparams.get("cosine_loss_weight", 0.1),
+            loss_alpha=HuberLoss(beta=hparams.huber_beta),
+            loss_beta=CosineSimilarityLoss(),
+            loss_gamma=LaplacianLoss(),
+            alpha=hparams.alpha_scale,
+            beta=hparams.beta_scale,
+            gamma=hparams.gamma_scale,
         )
 
-        # self.contrastive_loss = ContrastiveLoss(
-        #     temperature=hparams.temperature,
-        #     num_aug_per_sample=hparams.num_aug_per_sample,
-        # )
-
-        # Initialize KLD loss with free bits to prevent posterior collapse
         self.kld_loss = KLDLoss(
             normalize_by_latent_dim=True, free_bits=hparams.get("kld_free_bits", 0.0)
         )
 
         self.permutation_loss = PermutationLoss()
         self.mae_loss = MAELoss()
-        self.cosine_similarity_loss = CosineSimilarityLoss()
         self.signal_to_noise_ratio_loss = SignalToNoiseRatioLoss()
+        self.mse_loss = MSEGridLoss()
 
     def forward(
         self,
         graph_emb: torch.Tensor,
         graph_true: DenseGraphBatch,
         graph_pred: DenseGraphBatch,
-        beta: float,
         mu: torch.Tensor,
         logvar: torch.Tensor,
+        beta: float = 0.0,
+        # KL warmup/anneal factor; if None, defaults to 1.0
+        kld_alpha: float | None = None,
         soft_probs: torch.Tensor | None = None,
         perm: torch.Tensor | None = None,
     ) -> dict[str, Any]:
         recon_loss = self.reconstruction_loss(graph_true=graph_true, graph_pred=graph_pred)
         # contrastive_loss = self.contrastive_loss(graph_emb)
-        permutation_loss = self.permutation_loss(soft_probs if soft_probs is not None else perm)
+        permutation_loss = self.permutation_loss(
+            soft_probs if soft_probs is not None else None  # perm
+        )
 
         mae_loss = self.mae_loss(graph_true=graph_true, graph_pred=graph_pred)
-        cosine_similarity_loss = self.cosine_similarity_loss(
-            graph_true=graph_true, graph_pred=graph_pred
-        )
+        mse_loss = self.mse_loss(graph_true=graph_true, graph_pred=graph_pred)
         signal_to_noise_ratio_loss = self.signal_to_noise_ratio_loss(
             graph_true=graph_true, graph_pred=graph_pred
         )
@@ -77,8 +79,8 @@ class Critic(torch.nn.Module):
             # "contrastive_loss": contrastive_loss,
             "permutation_loss": permutation_loss,
             "mae_loss": mae_loss,
-            "cosine_similarity_loss": cosine_similarity_loss,
             "signal_to_noise_ratio_loss": signal_to_noise_ratio_loss,
+            "mse_loss": mse_loss,
         }
         loss["loss"] = (
             loss["loss"] + beta * permutation_loss  # + self.gamma * contrastive_loss
@@ -86,7 +88,8 @@ class Critic(torch.nn.Module):
         if self.vae:
             kld_loss = self.kld_loss(mu, logvar)
             loss["kld_loss"] = kld_loss
-            loss["loss"] = loss["loss"] + self.alpha * kld_loss
+            scale = self.kld_scale * (1.0 if kld_alpha is None else float(kld_alpha))
+            loss["loss"] = loss["loss"] + scale * kld_loss
         return loss
 
     def evaluate(
@@ -94,9 +97,11 @@ class Critic(torch.nn.Module):
         graph_emb: torch.Tensor,
         graph_true: DenseGraphBatch,
         graph_pred: DenseGraphBatch,
-        beta: float,
         mu: torch.Tensor,
         logvar: torch.Tensor,
+        beta: float = 0.0,
+        # KL warmup/anneal factor; if None, defaults to 1.0
+        kld_alpha: float | None = None,
         prefix: str | None = None,
         soft_probs: torch.Tensor | None = None,
         perm: torch.Tensor | None = None,
@@ -108,6 +113,7 @@ class Critic(torch.nn.Module):
             soft_probs=soft_probs,
             perm=perm,
             beta=beta,
+            kld_alpha=kld_alpha,
             mu=mu,
             logvar=logvar,
         )
@@ -120,3 +126,7 @@ class Critic(torch.nn.Module):
                 metrics2[new_key] = metrics[key]
             metrics = metrics2
         return metrics
+
+
+if __name__ == "__main__":
+    pass

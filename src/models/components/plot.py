@@ -96,7 +96,7 @@ def plot_barchart_from_dict(data: dict[str, float], title: str) -> figure.Figure
 
 def plot_pca(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int) -> figure.Figure:
     # new_images = reshape_images_array(images, n_rows, n_cols)
-    counter: dict[int, int] = defaultdict(int)
+    counter: defaultdict[int, int] = defaultdict(int)
     # Build label list (string labels with running index per class)
     base_labels = []
     for val in targets:
@@ -116,6 +116,18 @@ def plot_pca(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int) 
         new_targets = np.tile(base_labels, reps)[:num_samples]
 
     batch_flat = images.reshape(images.shape[0], -1)
+    # Guard against NaN/Inf by filtering invalid rows
+    finite_mask = np.isfinite(batch_flat).all(axis=1)
+    if finite_mask.sum() < 2:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.text(0.5, 0.5, "PCA skipped (insufficient finite samples)", ha="center", va="center")
+        ax.axis("off")
+        return fig
+    batch_flat = batch_flat[finite_mask]
+    if isinstance(new_targets, np.ndarray):
+        new_targets = (
+            new_targets[finite_mask] if new_targets.shape[0] == images.shape[0] else new_targets
+        )
     # Step 2: Run PCA
     pca = PCA(n_components=2)  # choose desired number of components
     batch_pca = pca.fit_transform(batch_flat)
@@ -148,7 +160,7 @@ def plot_pca(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int) 
 def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int):
     # Reshape images into grid format (assuming you already have this helper)
     # new_images = reshape_images_array(images, n_rows, n_cols)
-    counter: dict[int, int] = defaultdict(int)
+    counter: defaultdict[int, int] = defaultdict(int)
     rotations = [
         "identity",
         "hflip",

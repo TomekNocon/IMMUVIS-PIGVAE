@@ -28,6 +28,8 @@ dependencies = [
     "onnx>=1.19.1",
     "onnxruntime>=1.23.2",
     "types-pyyaml>=6.0.12.20250915",
+    "pytorch-msssim>=1.0.0",
+    "lpips>=0.1.4",
 ]
 
 [tool.ruff]
@@ -81,4 +83,9 @@ disallow_untyped_defs = false
 exclude = [
     "^notebooks/",
     "^src/models/components/metrics/",
+]
+
+[dependency-groups]
+dev = [
+    "ruff==0.14.10",
 ]

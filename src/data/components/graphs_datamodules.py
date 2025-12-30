@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict
 from collections.abc import Callable
 from typing import ClassVar
 
@@ -30,9 +29,10 @@ from torch.utils.data import Dataset
 
 
 class PickleDataset(Dataset):
-    def __init__(self, hdf5_path, transform=None):
+    def __init__(self, hdf5_path, transform=None, only_embeddings: bool = False):
         self.hdf5_path = hdf5_path
         self.transform = transform
+        self.only_embeddings = only_embeddings
 
         # Only open to get length
         with h5py.File(hdf5_path, "r") as f:
@@ -48,6 +48,9 @@ class PickleDataset(Dataset):
 
         if self.transform:
             item = self.transform(item)
+
+        if self.only_embeddings:
+            item = item[0]
         return item
 
 
@@ -148,8 +151,12 @@ class IMCBaseDictTransform(nn.Module):
         self,
         exclude_metadata: list[str] | None = None,
         center_crop_size: int | None = None,
-        normalize: bool = True,
+        normalize: bool = False,
         norm_type: str = "channel_wise",  # "channel_wise", "global", or "none"
+        clip_percentiles: bool = False,
+        clip_lower: float = 0.01,
+        clip_upper: float = 0.99,
+        clip_type: str = "channel_wise",  # "channel_wise", "global", or "none"
     ):
         """Transform for IMC embeddings with proper normalization.
 
@@ -161,45 +168,89 @@ class IMCBaseDictTransform(nn.Module):
                 - "channel_wise": Normalize each channel independently (recommended)
                 - "global": Normalize all features together
                 - "none": No normalization
+            clip_percentiles: Whether to clip values to specified percentiles
+            clip_lower: Lower percentile (e.g., 0.01 for 1st percentile)
+            clip_upper: Upper percentile (e.g., 0.99 for 99th percentile)
+            clip_type: Percentile clipping mode: "channel_wise", "global", or "none"
         """
         super().__init__()
-        self.exclude_metadata = (
-            set(exclude_metadata) if exclude_metadata is not None else {"img_path"}
-        )
+        self.exclude_metadata = exclude_metadata
         self.center_crop_size = center_crop_size
         self.normalize = normalize
         self.norm_type = norm_type
+        self.clip_percentiles = clip_percentiles
+        self.clip_lower = clip_lower
+        self.clip_upper = clip_upper
+        self.clip_type = clip_type
 
-    def forward(self, embeddings: dict) -> dict:
-        data: dict[str, torch.Tensor] = defaultdict(torch.Tensor)
+    def forward(
+        self, embeddings: dict, mean: torch.Tensor | None = None, std: torch.Tensor | None = None
+    ) -> dict[str, torch.Tensor]:
+        data: dict[str, torch.Tensor] = {}
         for key, embedding in zip(self.keys, embeddings, strict=True):
-            if not isinstance(embedding, torch.Tensor) and key not in self.exclude_metadata:
+            if not isinstance(embedding, torch.Tensor) and (
+                self.exclude_metadata is None or key not in self.exclude_metadata
+            ):
                 embedding = torch.from_numpy(embedding)
                 embedding = embedding.squeeze(0)
                 c, _, _ = embedding.shape
-                # Apply center crop if enabled
+
                 if self.center_crop_size:
                     center_crop = T.CenterCrop((self.center_crop_size, self.center_crop_size))
                     embedding = center_crop(embedding)
                     c, _, _ = embedding.shape  # Update dimensions after crop
 
-                # CRITICAL FIX: Apply normalization BEFORE reshaping
-                if self.normalize:
+                if self.clip_percentiles and self.clip_type != "none":
+                    embedding = self._clip_by_percentile(
+                        embedding, lower=self.clip_lower, upper=self.clip_upper, mode=self.clip_type
+                    )
+
+                if self.normalize:  # and mean is not None and std is not None:
                     if self.norm_type == "channel_wise":
                         # Normalize each channel independently (preserves relative structure)
                         # Shape: [C, H, W]
-                        embedding = self._normalize_channel_wise(embedding)
+                        embedding = self._normalize_channel_wise(embedding, mean=mean, std=std)
                     elif self.norm_type == "global":
                         # Normalize all features together
                         embedding = self._normalize_global(embedding)
 
+                embedding = torch.arcsinh(embedding / 5)
                 # Reshape to [N, C] where N = H*W
                 embedding = embedding.reshape(c, -1).T
 
             data[key] = embedding
         return data
 
-    def _normalize_channel_wise(self, x: torch.Tensor) -> torch.Tensor:
+    def _clip_by_percentile(
+        self, x: torch.Tensor, lower: float, upper: float, mode: str = "channel_wise"
+    ) -> torch.Tensor:
+        """Clip tensor values between given lower/upper percentiles.
+
+        Args:
+            x: Tensor of shape [C, H, W]
+            lower: Lower percentile in [0, 1]
+            upper: Upper percentile in [0, 1]
+            mode: "channel_wise" or "global"
+        """
+        if lower is None or upper is None or lower >= upper:
+            return x
+        if mode == "global":
+            flat = x.flatten()
+            q_low = torch.quantile(flat, lower)
+            q_high = torch.quantile(flat, upper)
+            return torch.clamp(x, min=q_low, max=q_high)
+        elif mode == "channel_wise":
+            c = x.shape[0]
+            x_reshaped = x.reshape(c, -1)
+            q_low = torch.quantile(x_reshaped, lower, dim=1, keepdim=True).reshape(c, 1, 1)
+            q_high = torch.quantile(x_reshaped, upper, dim=1, keepdim=True).reshape(c, 1, 1)
+            return torch.maximum(torch.minimum(x, q_high), q_low)
+        else:
+            return x
+
+    def _normalize_channel_wise(
+        self, x: torch.Tensor, mean: torch.Tensor | None = None, std: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Normalize each channel (feature dimension) independently.
 
         This is critical for feature maps from encoders.
@@ -207,9 +258,12 @@ class IMCBaseDictTransform(nn.Module):
         # x shape: [C, H, W]
         eps = 1e-6
 
-        # Compute mean and std per channel
-        mean = x.mean(dim=(1, 2), keepdim=True)  # [C, 1, 1]
-        std = x.std(dim=(1, 2), keepdim=True) + eps  # [C, 1, 1]
+        if mean is None or std is None:
+            mean = x.mean(dim=(1, 2), keepdim=True)  # [C, 1, 1]
+            std = x.std(dim=(1, 2), keepdim=True) + eps  # [C, 1, 1]
+        else:
+            mean = mean.unsqueeze(1).unsqueeze(2)
+            std = std.unsqueeze(1).unsqueeze(2)
 
         # Standardize
         x_norm = (x - mean) / std
@@ -234,14 +288,16 @@ class DualOutputTransform:
     ):
         self.base_transforms = base_transforms
         self.augmentation_transforms = augmentation_transforms
+        self.mean = None
+        self.std = None
 
-    def __call__(
-        self, img: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, np.ndarray, torch.Tensor]:
+    def __call__(self, img: torch.Tensor) -> tuple[object, object, object, object, object, object]:
         # Apply base transformations to get the original version
         original = img
         if self.base_transforms is not None:
-            original["embeddings"] = self.base_transforms(img["embeddings"])
+            original["embeddings"] = self.base_transforms(
+                img["embeddings"], mean=self.mean, std=self.std
+            )
 
         # Apply the same base transformations + augmentations to get the augmented version
         augmented, argsort_augmented, perm = self.augmentation_transforms(original["embeddings"])
@@ -253,6 +309,12 @@ class DualOutputTransform:
             original["paths"],
             original["positions"],
         )
+
+    def set_mean(self, mean: torch.Tensor):
+        self.mean = mean
+
+    def set_std(self, std: torch.Tensor):
+        self.std = std
 
 
 class SplitPatches(nn.Module):
@@ -298,18 +360,9 @@ class GridGraphDataset(Dataset):
         true_grid_size = int(math.sqrt(augmented.shape[1]))
         true_grid_size = min(true_grid_size, self.grid_size)
         g = nx.grid_graph((true_grid_size, true_grid_size))
-        # augmented = augmented[:, : , self.channels]
+        augmented = augmented[:, :, self.channels]
         target = -1
-        return (
-            g,
-            augmented,
-            argsort_augmented,
-            perm,
-            target,
-            metadata,
-            paths,
-            positions,
-        )
+        return (g, augmented, argsort_augmented, perm, target, metadata, paths, positions)
 
 
 class DenseGraphBatch:
@@ -365,16 +418,16 @@ class DenseGraphBatch:
             max_num_nodes = max([
                 graph.number_of_nodes() for graph, _, _, _, _, _, _, _ in data_list
             ])
-        node_features: list[torch.Tensor] = []
-        edge_features: list[torch.Tensor] = []
-        argsort_augmented_indices: list[torch.Tensor] = []
-        metadata_list: list[torch.Tensor] = []
-        paths_list: list[np.ndarray] = []
-        positions_list: list[torch.Tensor] = []
-        mask: list[torch.Tensor] = []
-        y: list[int] = []
-        props: list[torch.Tensor] = []
-        perms: list[torch.Tensor] = []
+        node_features = []
+        edge_features_tensor = torch.empty(0)
+        argsort_augmented_indices = []
+        metadata_list = []
+        paths_list = []
+        positions_list = []
+        mask = []
+        y = []
+        props = []
+        perms = []
         for (
             graph,
             augmented_embedding,
@@ -396,35 +449,33 @@ class DenseGraphBatch:
             metadata_list.append(metadata_item)
             paths_list.append(paths_item)
             positions_list.append(positions_item)
-        node_features_tensor = torch.stack(node_features, dim=1).flatten(0, 1)
-        argsort_augmented_indices_tensor = torch.stack(argsort_augmented_indices, dim=1).flatten(
-            0, 1
-        )
-        perms_tensor = torch.stack(perms, dim=1).flatten(0, 1)
-        batch_size = node_features_tensor.size(0)
-        edge_features_tensor = torch.tensor(edge_features)
-        mask_tensor = torch.cat(mask, dim=0)
-        batch_size_mask = mask_tensor.size(0)
+        node_features = torch.stack(node_features, dim=1).flatten(0, 1)
+        argsort_augmented_indices = torch.stack(argsort_augmented_indices, dim=1).flatten(0, 1)
+        perms = torch.stack(perms, dim=1).flatten(0, 1)
+        batch_size = node_features.size(0)
+        edge_features = edge_features_tensor
+        mask = torch.cat(mask, dim=0)
+        batch_size_mask = mask.size(0)
         factor = int(batch_size / batch_size_mask)
-        mask_tensor = mask_tensor.repeat_interleave(factor, dim=0)
-        props_tensor = torch.cat(props, dim=0)
-        metadata_tensor = torch.cat(metadata_list, dim=0)
+        mask = mask.repeat_interleave(factor, dim=0)
+        props = torch.cat(props, dim=0)
+        metadata = torch.cat(metadata_list, dim=0)
         # Keep paths as numpy array (could be strings or non-tensor types)
         try:
             paths = np.stack(paths_list, axis=0)
         except Exception:
             paths = np.array(paths_list)
-        positions_tensor = torch.cat(positions_list, dim=0)
+        positions = torch.cat(positions_list, dim=0)
         batch = DenseGraphBatch(
-            node_features=node_features_tensor,
-            edge_features=edge_features_tensor,
-            argsort_augmented_features=argsort_augmented_indices_tensor,
-            perms=perms_tensor,
-            mask=mask_tensor,
-            properties=props_tensor,
-            metadata=metadata_tensor,
+            node_features=node_features,
+            edge_features=edge_features,
+            argsort_augmented_features=argsort_augmented_indices,
+            perms=perms,
+            mask=mask,
+            properties=props,
+            metadata=metadata,
             paths=paths,
-            positions=positions_tensor,
+            positions=positions,
         )
         if labels:
             batch.y = torch.Tensor(y)
@@ -452,8 +503,8 @@ class DenseGraphBatch:
             metadata=metadata[:n, :] if metadata is not None else None,
             paths=(
                 paths[:n]
-                if isinstance(paths, np.ndarray) and paths.ndim == 1
-                else (paths[:n, :] if isinstance(paths, np.ndarray) else None)
+                if paths is not None and isinstance(paths, np.ndarray) and paths.ndim == 1
+                else (paths[:n, :] if paths is not None else None)
             ),
             positions=positions[:n, :] if positions is not None else None,
         )
@@ -480,3 +531,36 @@ class DenseGraphDataLoader(torch.utils.data.DataLoader):
             collate_fn=dense_graph_collate_fn,  # Directly pass the standalone function
             **kwargs,
         )
+
+
+class WelfordOnline:
+    def __init__(self, channels: int):
+        self.count = 0
+        self.mean = torch.zeros(channels, dtype=torch.float64)
+        self.second_moment = torch.zeros(channels, dtype=torch.float64)
+
+    def update(self, embedding: torch.Tensor):
+        """
+        embedding: (b, a, hw, c)
+        """
+        _, _, _, c = embedding.shape
+
+        x = embedding.permute(3, 0, 1, 2).reshape(c, -1)
+        batch_n = x.size(1)
+
+        # batch statistics
+        batch_mean = x.mean(dim=1)
+        batch_var = x.var(dim=1, unbiased=False)
+
+        delta = batch_mean - self.mean
+        total = self.count + batch_n
+
+        # Welford update
+        self.mean += delta * (batch_n / total)
+        self.second_moment += batch_var * batch_n + delta**2 * self.count * batch_n / total
+
+        self.count = total
+
+    def finalize(self):
+        var = self.second_moment / self.count
+        return self.mean.float(), var.sqrt().float()

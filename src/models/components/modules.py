@@ -464,7 +464,7 @@ class SimplePermuter(torch.nn.Module):
         mask: torch.Tensor,
         hard: bool = False,
         labels: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+    ) -> tuple[torch.Tensor | None, Any, torch.Tensor | None, torch.Tensor | None]:
         device = node_features.device
         batch_size = node_features.shape[0] // 8
 
@@ -476,7 +476,7 @@ class SimplePermuter(torch.nn.Module):
             return perm, None, None, None
 
         # Add noise to break symmetry (reduce scale to save memory)
-        noise_scale = min(self.break_symmetry_scale, 0.01)  # Cap noise to save memory
+        noise_scale = min(self.break_symmetry_scale, 0.1)  # Cap noise to save memory
         node_features = node_features + torch.randn_like(node_features) * noise_scale
 
         # Clear intermediate tensors explicitly
@@ -640,7 +640,8 @@ class BottleNeckEncoder(torch.nn.Module):
             batch_std = std[:batch_size, :]
             batch_eps = torch.randn_like(batch_std)
             eps = (
-                batch_eps.unsqueeze(0)
+                batch_eps
+                .unsqueeze(0)
                 .repeat(self.num_permutations, 1, 1)
                 .view(-1, batch_eps.shape[1])
             )
