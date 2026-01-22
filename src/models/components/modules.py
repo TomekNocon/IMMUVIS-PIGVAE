@@ -71,7 +71,7 @@ class GraphEncoder(torch.nn.Module):
         super().__init__()
 
         self.summary_node = nn.Parameter(torch.randn(1, 1, hparams.graph_encoder_hidden_dim))
-        # nn.init.trunc_normal_(self.summary_node, std=0.02)
+        nn.init.trunc_normal_(self.summary_node, std=0.02)
         if hparams.project:
             self.projection_in = nn.Linear(
                 hparams.num_node_features, hparams.graph_encoder_hidden_dim
@@ -262,7 +262,7 @@ class Permuter(torch.nn.Module):
         mask: torch.Tensor,
         hard: bool = False,
     ) -> tuple[torch.Tensor, Any, None]:
-        # add noise to break symmetry
+        # Add noise to break symmetry only during training; keep validation/test deterministic.
         device = node_features.device
         node_features = node_features + torch.randn_like(node_features) * self.break_symmetry_scale
         mask = mask.to(device)
@@ -439,8 +439,12 @@ class SimplePermuter(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=2,
             dropout=hparams.dropout,
+            rope=LLamaRotaryEmbedding(hparams.head_dim),
         )
-        self.perm_node = nn.Parameter(torch.randn(1, 1, hparams.graph_decoder_hidden_dim))
+        # Learned CLS token for permutation classification.
+        # Use small-std init (matches GraphEncoder.summary_node) to avoid dominating early training.
+        self.perm_node = nn.Parameter(torch.empty(1, 1, hparams.graph_decoder_hidden_dim))
+        nn.init.trunc_normal_(self.perm_node, std=0.02)
         self.spectral_embeddings = SklearnSpectralEmbedding(
             hparams.n_components,
             hparams.graph_decoder_hidden_dim,
@@ -456,6 +460,8 @@ class SimplePermuter(torch.nn.Module):
         # predefined_permutations = self.create_predefine_permutations(hparams.grid_size)
         # self.register_buffer("predefined_permutations", predefined_permutations)
         self.break_symmetry_scale = hparams.break_symmetry_scale
+        self.pre_perm_norm = torch.nn.LayerNorm(hparams.graph_decoder_hidden_dim)
+        self.node_features_norm = torch.nn.LayerNorm(hparams.graph_decoder_hidden_dim)
 
     def forward(
         self,
@@ -464,7 +470,7 @@ class SimplePermuter(torch.nn.Module):
         mask: torch.Tensor,
         hard: bool = False,
         labels: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor | None, Any, torch.Tensor | None, torch.Tensor | None]:
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
         device = node_features.device
         batch_size = node_features.shape[0] // 8
 
@@ -475,20 +481,22 @@ class SimplePermuter(torch.nn.Module):
             perm = identity_perm.unsqueeze(0).repeat(batch_size * 8, 1, 1)
             return perm, None, None, None
 
-        # Add noise to break symmetry (reduce scale to save memory)
-        noise_scale = min(self.break_symmetry_scale, 0.1)  # Cap noise to save memory
+        # Add noise to break symmetry ONLY during training.
+        # GraphAE passes hard=training; use that as the training indicator here.
+        # if not hard:
+        noise_scale = min(self.break_symmetry_scale, 0.01)  # cap to limit scale
         node_features = node_features + torch.randn_like(node_features) * noise_scale
 
         # Clear intermediate tensors explicitly
         node_features = self.spectral_embeddings(node_features)
         cls_tokens = self.perm_node.expand(batch_size * 8, -1, -1)
         node_features = torch.cat([cls_tokens, node_features], dim=1)
-        # Use gradient checkpointing for transformer
-
+        node_features = self.node_features_norm(node_features)
         node_features = self.graph_transformer(node_features, mask=mask, is_encoder=True)
 
         # Score each permutation option
         cls_out = node_features[:, 0, :]
+        cls_out = self.pre_perm_norm(cls_out)
         scores = self.scoring_fc(cls_out)
         context = None
 
@@ -630,12 +638,13 @@ class BottleNeckEncoder(torch.nn.Module):
         self, x: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         # TODO: check what should be the order
-        # x = self.w(self.activation(x))
-        x = self.activation(self.w(x))
+        x = self.w(self.activation(x))
+        # x = self.activation(self.w(x))
         if self.vae:
             batch_size = x.shape[0] // self.num_permutations
             mu = x[:, : self.d_out]
             logvar = x[:, self.d_out :]
+            # Deterministic evaluation: use the posterior mean (mu) during validation/test/inference.
             std = torch.exp(0.5 * logvar)
             batch_std = std[:batch_size, :]
             batch_eps = torch.randn_like(batch_std)

@@ -4,6 +4,7 @@ defaults:
   - model_summary
   - rich_progress_bar
   - learning_rate
+  - activation_monitor
   # - gradient_accumulation_scheduler
   # - interpretability
   - _self_

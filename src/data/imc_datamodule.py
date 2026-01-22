@@ -13,7 +13,6 @@ from src.data.components.graphs_datamodules import (
     IMCBaseDictTransform,
     PatchAugmentations,
     PickleDataset,
-    WelfordOnline,
 )
 
 
@@ -71,7 +70,7 @@ class IMCDataModule(LightningDataModule):
         self.save_hyperparameters(logger=False)
 
         self.base_transforms = IMCBaseDictTransform(
-            center_crop_size=hparams.center_crop_size, normalize=True
+            center_crop_size=hparams.center_crop_size, normalize=False
         )
 
         self.aug_transforms_train = PatchAugmentations(
@@ -107,7 +106,6 @@ class IMCDataModule(LightningDataModule):
         self.pin_memory = hparams.pin_memory
         self.is_contrastive = hparams.is_contrastive
         self.num_aug_per_sample = hparams.num_aug_per_sample
-        self.num_channels = hparams.num_channels
 
     @property
     def num_classes(self) -> int:
@@ -129,35 +127,6 @@ class IMCDataModule(LightningDataModule):
         test_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_test.h5"
         if not train_path.exists() or not test_path.exists():
             raise FileNotFoundError(f"Expected dataset at {train_path} and {test_path}")
-
-        statistics_path = Path(self.data_dir) / "IMC" / "imc_statistics.pt"
-
-        # Compute statistics only once (on rank 0)
-        if self.trainer and self.trainer.is_global_zero:
-            if not statistics_path.exists():
-                # Load raw dataset (no normalization!)
-                dataset = PickleDataset(
-                    train_path, transform=self.dual_transforms_train, only_embeddings=True
-                )
-
-                loader = DataLoader(
-                    dataset,
-                    batch_size=self.batch_size,
-                    num_workers=self.num_workers,
-                    shuffle=False,
-                )
-
-                welford = WelfordOnline(self.num_channels)
-
-                for node_features in loader:
-                    welford.update(node_features)
-
-                mean, std = welford.finalize()
-                torch.save({"mean": mean, "std": std}, statistics_path)
-
-        # DDP sync
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
 
     def setup(self, stage: str | None = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`,
@@ -183,14 +152,6 @@ class IMCDataModule(LightningDataModule):
         if not self.data_train and not self.data_val and not self.data_test:
             train_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_train.h5"
             test_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_test.h5"
-            # statistics_path = Path(self.data_dir) / "IMC" / "imc_statistics.pt"
-            # stats = torch.load(statistics_path, map_location="cpu")
-            # mean = stats["mean"]
-            # std = stats["std"]
-            # self.dual_transforms_train.set_mean(mean)
-            # self.dual_transforms_train.set_std(std)
-            # self.dual_transforms_val.set_mean(mean)
-            # self.dual_transforms_val.set_std(std)
             trainset = PickleDataset(train_path, transform=self.dual_transforms_train)
             testset = PickleDataset(test_path, transform=self.dual_transforms_val)
             train_ratio, val_ratio, test_ratio, _ = self.train_val_test_split
@@ -218,7 +179,7 @@ class IMCDataModule(LightningDataModule):
                 "Expected self.data_train to be set in setup() before calling train_dataloader().",
             )
         train_dataset = GridGraphDataset(
-            grid_size=self.grid_size, dataset=self.data_train, channels=list(range(64))
+            grid_size=self.grid_size, dataset=self.data_train, channels=[0]
         )
 
         return DenseGraphDataLoader(
@@ -227,7 +188,6 @@ class IMCDataModule(LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
-            shuffle=True,
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -240,7 +200,7 @@ class IMCDataModule(LightningDataModule):
                 "Expected self.data_val to be set in setup() before calling val_dataloader().",
             )
         val_dataset = GridGraphDataset(
-            grid_size=self.grid_size, dataset=self.data_val, channels=list(range(64))
+            grid_size=self.grid_size, dataset=self.data_val, channels=[0]
         )
 
         return DenseGraphDataLoader(
@@ -261,7 +221,7 @@ class IMCDataModule(LightningDataModule):
                 "Expected self.data_test to be set in setup() before calling test_dataloader().",
             )
         test_dataset = GridGraphDataset(
-            grid_size=self.grid_size, dataset=self.data_test, channels=list(range(64))
+            grid_size=self.grid_size, dataset=self.data_test, channels=[0]
         )
 
         return DenseGraphDataLoader(
@@ -298,7 +258,3 @@ class IMCDataModule(LightningDataModule):
 
 def add_channel(x: torch.Tensor) -> torch.Tensor:
     return x.unsqueeze(0)
-
-
-if __name__ == "__main__":
-    pass

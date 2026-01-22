@@ -75,11 +75,16 @@ class SklearnSpectralEmbedding(nn.Module):
         self.register_buffer("sorted_eigenvecs", sorted_eigenvecs)
         self.proj = nn.Linear(n_components, d_model)
         self.to_project = d_model != n_components
+        # Normalize & scale the (fixed) spectral positional signal before adding.
+        # This helps prevent the spectral term from dominating early in training.
+        self.emb_norm = nn.LayerNorm(d_model)
+        self.emb_scale = nn.Parameter(torch.tensor(0.01, dtype=torch.float32))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch, _, _ = x.shape
         embedding = torch.tile(self.sorted_eigenvecs, (batch, 1, 1))
         if self.to_project:
             embedding = self.proj(embedding)
-        x = x + embedding
+        embedding = self.emb_norm(embedding)
+        x = x + self.emb_scale.to(dtype=x.dtype, device=x.device) * embedding.to(dtype=x.dtype)
         return self.dropout(x)

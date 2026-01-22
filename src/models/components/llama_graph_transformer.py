@@ -46,6 +46,11 @@ class Transformer(nn.Module):
         ])
 
         self.rope = rope
+        # Final norm (LLaMA-style) stabilizes the residual stream scale.
+        self.final_norm = RMSNorm(hidden_dim=hidden_dim, eps=1e-5)
+        # Apply LLaMA-style depth-scaled initialization for stability.
+        # This affects *fresh* training runs; checkpoint loading will override weights.
+        self.reset_parameters()
 
         # self.head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
@@ -57,13 +62,19 @@ class Transformer(nn.Module):
         for block in self.blocks:
             x = block(x, is_encoder, mask)
 
-        output = x
+        output = self.final_norm(x)
         # output = self.head(output)
         return output
 
     @property
     def is_rope(self) -> bool:
         return self.rope is not None
+
+    def reset_parameters(self) -> None:
+        self.final_norm.reset_parameters()
+        for block in self.blocks:
+            if hasattr(block, "init_weights"):
+                block.init_weights()
 
 
 class TransformerBlock(nn.Module):
@@ -98,6 +109,7 @@ class TransformerBlock(nn.Module):
             hidden_dim=hidden_dim,
             ffn_hidden_dim=hidden_dim,  # I put the same since this is computed in feed forward layer
             multiple_of=32,  # fine tune that
+            dropout=dropout,
             ffn_dim_multiplier=None,
         )
 
@@ -146,8 +158,10 @@ class TransformerBlock(nn.Module):
     def init_weights(self):
         for norm in (self.attention_norm, self.ffn_norm):
             norm.reset_parameters()
-        self.attention.init_weights(self.weight_init_std)
-        self.feed_forward.init_weights(self.weight_init_std)
+        # Depth-scaled residual init (matches common LLaMA practice):
+        # - Attention out proj and FFN down proj are scaled by 1/sqrt(2L)
+        self.attention_layer.init_weights(self.weight_init_std)
+        self.feed_forward_layer.init_weights(self.weight_init_std)
 
 
 class FeedForward(nn.Module):
@@ -267,6 +281,13 @@ class SelfAttention(torch.nn.Module):
         output = self.dropout(output)
         return output
 
+    def init_weights(self, init_std: float) -> None:
+        # LLaMA-style: q/k/v use base std, out proj uses depth-scaled std.
+        nn.init.trunc_normal_(self.q_proj.weight, mean=0.0, std=0.02)
+        nn.init.trunc_normal_(self.k_proj.weight, mean=0.0, std=0.02)
+        nn.init.trunc_normal_(self.v_proj.weight, mean=0.0, std=0.02)
+        nn.init.trunc_normal_(self.output_projection.weight, mean=0.0, std=init_std)
+
 
 # Cache masks to avoid recomputation
 @lru_cache(maxsize=32)
@@ -294,27 +315,39 @@ def get_neighborhood_mask(num_nodes: int, is_encoder: bool, device: torch.device
 
 
 def get_full_mask(mask: torch.Tensor, is_encoder: bool, device: torch.device = None):
-    """Create full attention mask where all nodes can attend to all nodes.
+    """Create a padding-aware attention mask.
 
-    Returns shape (num_nodes, num_nodes) for broadcasting across batch.
+    PyTorch SDPA uses boolean masks where True means "keep/allow attention" and False
+    means "mask out" (will be treated as -inf in attention logits).
+
+    Supported inputs:
+    - mask: (B, N) padding mask (1/True = valid node, 0/False = padded/invalid)
+    - mask: (B, N, N) precomputed boolean attention mask per sample
+
+    Returns:
+    - attn_mask: (B, 1, L, S) boolean mask (broadcastable over heads)
+      where L/S include the CLS token if is_encoder=True.
     """
-    # Get number of nodes from the mask
-    if mask.dim() == 2:  # Shape: (batch_size, num_nodes)
-        num_nodes = mask.size(1)
-    elif mask.dim() == 3:  # Shape: (batch_size, num_nodes, num_nodes)
-        num_nodes = mask.size(1)
+    if mask.dim() == 2:  # (B, N) valid-node mask
+        valid = mask.to(dtype=torch.bool)
+        if is_encoder:
+            # Prepend CLS token as always valid. Input x already has CLS at position 0.
+            valid = F.pad(valid, (1, 0), value=True)  # (B, N+1)
+
+        # Allow attention only between valid query/key positions.
+        # Shape: (B, 1, L, S)
+        attn_mask = valid[:, None, :, None] & valid[:, None, None, :]
+
+    elif mask.dim() == 3:  # (B, N, N) per-sample attention mask
+        attn_mask = mask.to(dtype=torch.bool)
+        if is_encoder:
+            # Pad rows/cols for CLS token with True (CLS attends to all valid tokens).
+            attn_mask = F.pad(attn_mask, (1, 0, 1, 0), value=True)  # (B, N+1, N+1)
+        attn_mask = attn_mask[:, None, :, :]  # (B, 1, L, S)
+
     else:
-        raise ValueError(f"Mask should be 2D or 3D, got shape {mask.shape}")
+        raise ValueError(f"Mask should be 2D or 3D, got shape {tuple(mask.shape)}")
 
-    # Add 1 for CLS token if encoder
-    if is_encoder:
-        num_nodes = num_nodes + 1
-
-    # Create full attention mask (all True) - shape (num_nodes, num_nodes)
-    attn_mask = torch.ones(num_nodes, num_nodes, dtype=torch.bool)
-
-    # Move to correct device
     if device is not None:
         attn_mask = attn_mask.to(device)
-
     return attn_mask

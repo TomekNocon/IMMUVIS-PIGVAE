@@ -61,9 +61,6 @@ class PLGraphAE(L.LightningModule):
         critic: torch.nn.Module,
         temperature_scheduler: torch.nn.Module,
         entropy_weight_scheduler: torch.nn.Module,
-        kld_alpha_scheduler: torch.nn.Module,
-        # beta_weight_scheduler: torch.nn.Module,
-        # gamma_weight_scheduler: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler._LRScheduler,
         compile: bool,
@@ -73,17 +70,11 @@ class PLGraphAE(L.LightningModule):
         self.save_hyperparameters(ignore=["critic"])
         self.save_hyperparameters(ignore=["temperature_scheduler"])
         self.save_hyperparameters(ignore=["entropy_weight_scheduler"])
-        self.save_hyperparameters(ignore=["kld_alpha_scheduler"])
-        # self.save_hyperparameters(ignore=["beta_weight_scheduler"])
-        # self.save_hyperparameters(ignore=["gamma_weight_scheduler"])
         self.save_hyperparameters(logger=False)
         self.graph_ae = graph_ae
         self.critic = critic
         self.temperature_scheduler = temperature_scheduler
         self.entropy_weight_scheduler = entropy_weight_scheduler
-        self.kld_alpha_scheduler = kld_alpha_scheduler
-        # self.beta_weight_scheduler = beta_weight_scheduler
-        # self.gamma_weight_scheduler = gamma_weight_scheduler
         self.automatic_optimization = True
         self.validation_step_outputs: list[dict[str, Any]] = []
         self.test_step_outputs: list[dict[str, Any]] = []
@@ -112,12 +103,6 @@ class PLGraphAE(L.LightningModule):
     def training_step(self, graph: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
         tau = self.temperature_scheduler(self.current_epoch)
         beta = self.entropy_weight_scheduler(self.current_epoch)
-        alpha = self.kld_alpha_scheduler(self.current_epoch)
-        # # Update reconstruction weights according to schedules
-        # recon_beta = self.beta_weight_scheduler(self.current_epoch)
-        # recon_gamma = self.gamma_weight_scheduler(self.current_epoch)
-        # self.critic.reconstruction_loss.weights["beta"] = recon_beta
-        # self.critic.reconstruction_loss.weights["gamma"] = recon_gamma
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph, training=True, tau=tau
         )
@@ -128,7 +113,6 @@ class PLGraphAE(L.LightningModule):
             soft_probs=soft_probs,
             perm=perm,
             beta=beta,
-            kld_alpha=alpha,
             mu=mu,
             logvar=logvar,
         )
@@ -141,14 +125,8 @@ class PLGraphAE(L.LightningModule):
     def validation_step(self, graph: DenseGraphBatch, batch_idx: int) -> dict[str, Any]:
         tau = self.temperature_scheduler(self.current_epoch)
         beta = self.entropy_weight_scheduler(self.current_epoch)
-        alpha = self.kld_alpha_scheduler(self.current_epoch)
-        # # Keep reconstruction weights in sync during validation
-        # recon_beta = self.beta_weight_scheduler(self.current_epoch)
-        # recon_gamma = self.gamma_weight_scheduler(self.current_epoch)
-        # self.critic.reconstruction_loss.weights["beta"] = recon_beta
-        # self.critic.reconstruction_loss.weights["gamma"] = recon_gamma
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
-            graph=graph, training=True, tau=tau
+            graph=graph, training=False, tau=tau
         )
 
         if perm is not None:
@@ -169,14 +147,13 @@ class PLGraphAE(L.LightningModule):
             soft_probs=soft_probs,
             perm=perm,
             beta=beta,
-            kld_alpha=alpha,
             mu=mu,
             logvar=logvar,
             prefix="val",
         )
-        # graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
-        #     graph=graph, training=False, tau=1.0
-        # )
+        graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
+            graph=graph, training=False, tau=1.0
+        )
         # metrics_hard = self.critic.evaluate(
         #     graph_emb=graph_emb,
         #     graph_true=graph,
@@ -196,10 +173,6 @@ class PLGraphAE(L.LightningModule):
             # **lie_metrics,
             "tau": tau,
             "beta": beta,
-            # "alpha": alpha,
-            "alpha": alpha,
-            # "recon_beta": recon_beta,
-            # "recon_gamma": recon_gamma,
         }
         self.log_dict(
             metrics,
@@ -267,7 +240,10 @@ class PLGraphAE(L.LightningModule):
 
             # Calculate shared color scale for predictions and ground truth
             pred_min, pred_max = pred_imgs.min().item(), pred_imgs.max().item()
-            gt_min, gt_max = ground_truth_imgs.min().item(), ground_truth_imgs.max().item()
+            gt_min, gt_max = (
+                ground_truth_imgs.min().item(),
+                ground_truth_imgs.max().item(),
+            )
             vmin = min(pred_min, gt_min)
             vmax = max(pred_max, gt_max)
 
@@ -444,12 +420,12 @@ class PLGraphAE(L.LightningModule):
         # getting stuck in warmup.
         try:
             from lightning.pytorch.callbacks import (
-                GradientAccumulationScheduler,
+                GradientAccumulationScheduler as _GradientAccumulationScheduler,
             )
 
-            grad_accum_scheduler_cls = GradientAccumulationScheduler
+            gradient_accumulation_scheduler_cls = _GradientAccumulationScheduler
         except Exception:
-            grad_accum_scheduler_cls = None
+            gradient_accumulation_scheduler_cls = None
 
         # Guard: in early setup, Lightning can report `inf` for num_training_batches.
         # If so, fall back to `estimated_stepping_batches` (finite) and skip
@@ -464,7 +440,9 @@ class PLGraphAE(L.LightningModule):
         default_accum = int(getattr(self.trainer, "accumulate_grad_batches", 1)) or 1
         schedule = None
         for cb in self.trainer.callbacks:
-            if grad_accum_scheduler_cls is not None and isinstance(cb, grad_accum_scheduler_cls):
+            if gradient_accumulation_scheduler_cls is not None and isinstance(
+                cb, gradient_accumulation_scheduler_cls
+            ):
                 schedule = dict(cb.scheduling)
                 break
 
@@ -479,16 +457,8 @@ class PLGraphAE(L.LightningModule):
             # Fallback: use Lightning's estimate (already finite and accounts for many trainer flags)
             num_training_steps = int(self.trainer.estimated_stepping_batches)
         else:
-            # Optionally simulate a different total number of epochs for the LR schedule
-            # This allows "long-run" schedules while actually training fewer epochs.
-            simulate_epochs = bool(getattr(self.hparams.scheduler, "simulate_epochs", False))
-            simulated_max_epochs = int(
-                getattr(self.hparams.scheduler, "simulated_max_epochs", max_epochs)
-            )
-            effective_epochs = simulated_max_epochs if simulate_epochs else max_epochs
-
             total_steps = 0
-            for epoch in range(effective_epochs):
+            for epoch in range(max_epochs):
                 accum = accum_for_epoch(epoch)
                 # Number of optimizer steps this epoch
                 steps_this_epoch = (train_batches_per_epoch + accum - 1) // accum
@@ -539,15 +509,33 @@ class PLGraphAE(L.LightningModule):
             }
         return [optimizer], [scheduler]
 
+    # def optimizer_step(
+    #     self,
+    #     epoch: int,
+    #     batch_idx: int,
+    #     optimizer: torch.optim.Optimizer,
+    #     optimizer_closure: Callable[[], None],
+    # ) -> None:
+    #     optimizer.step(closure=optimizer_closure)
+    #     optimizer.zero_grad()
+
     def optimizer_step(
         self,
         epoch: int,
         batch_idx: int,
         optimizer: torch.optim.Optimizer,
         optimizer_closure: Callable[[], None],
-    ) -> None:
-        optimizer.step(closure=optimizer_closure)
+    ):
+        super().optimizer_step(epoch, batch_idx, optimizer, optimizer_closure)
         optimizer.zero_grad()
+
+    # def on_before_optimizer_step(self, optimizer):
+    #     with torch.no_grad():
+    #         total_norm = torch.norm(torch.stack([
+    #             p.grad.detach().data.norm(2)
+    #             for p in self.parameters() if p.grad is not None
+    #         ]), 2)
+    #         self.log("grad_total_norm", total_norm, on_step=True, prog_bar=True)
 
     def predict_step(self, batch: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
         self.eval()
@@ -557,5 +545,4 @@ class PLGraphAE(L.LightningModule):
             return graph_emb
 
 
-if __name__ == "__main__":
-    pass
+#
