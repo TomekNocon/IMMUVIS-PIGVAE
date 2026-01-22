@@ -1,7 +1,7 @@
 _target_: "src.models.pigvae_auto_module.PLGraphAE"
 
 graph_ae:
-  _target_: "src.models.components.modules.GraphAE"
+  _target_: "src.models.components.improved_modules.ImprovedGraphAE"
   hparams:
     input_size: 512 # 128
     num_heads: 4
@@ -20,6 +20,7 @@ graph_ae:
       dropout: ${model.graph_ae.hparams.dropout}
       grid_size: 7
       project: True
+      pooling_type: 'simple'  # NEW: Enable attention pooling instead of CLS token
 
     decoder:
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
