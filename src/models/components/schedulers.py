@@ -53,3 +53,62 @@ class EntropyWeightScheduler(torch.nn.Module):
             return self.initial_weight * (ratio ** (t / self.total_epochs))
         else:
             raise ValueError(f"Unknown mode: {self.mode}")
+
+
+class KLDAlphaScheduler(torch.nn.Module):
+    """Scheduler for the KL warmup/anneal factor (alpha) applied to the KL loss term.
+
+    Expected hparams (see `configs/model/model.yaml`):
+    - initial_alpha: float
+    - final_alpha: float
+    - mode: "linear" | "exponential"
+    - num_epochs: int-like (duration of the schedule)
+    - start_epoch: int-like (when the schedule starts; before this, returns initial_alpha)
+    """
+
+    def __init__(self, hparams: DictConfig):
+        super().__init__()
+
+        self.initial_alpha = float(hparams.initial_alpha)
+        self.final_alpha = float(hparams.final_alpha)
+        self.mode = str(hparams.mode)
+
+        try:
+            self.total_epochs = int(hparams.num_epochs)
+        except (TypeError, ValueError) as e:
+            raise TypeError(
+                f"KLDAlphaScheduler: num_epochs must be int-like, got {hparams.num_epochs!r}"
+            ) from e
+        if self.total_epochs <= 0:
+            raise ValueError(f"KLDAlphaScheduler: num_epochs must be > 0, got {self.total_epochs}")
+
+        # Optional in some configs; default to 0 for backwards-compatibility.
+        start_epoch = getattr(hparams, "start_epoch", 0)
+        try:
+            self.start_epoch = int(start_epoch)
+        except (TypeError, ValueError) as e:
+            raise TypeError(
+                f"KLDAlphaScheduler: start_epoch must be int-like, got {start_epoch!r}"
+            ) from e
+
+    def forward(self, epoch: int) -> float:
+        epoch = int(epoch)
+
+        if epoch < self.start_epoch:
+            return self.initial_alpha
+
+        t = min(epoch - self.start_epoch, self.total_epochs)
+
+        if self.mode == "linear":
+            return self.initial_alpha * (1 - t / self.total_epochs) + self.final_alpha * (
+                t / self.total_epochs
+            )
+        elif self.mode == "exponential":
+            if self.initial_alpha == 0.0:
+                raise ValueError(
+                    "KLDAlphaScheduler: exponential mode requires initial_alpha != 0.0"
+                )
+            ratio = self.final_alpha / self.initial_alpha
+            return self.initial_alpha * (ratio ** (t / self.total_epochs))
+        else:
+            raise ValueError(f"Unknown mode: {self.mode}")

@@ -11,7 +11,8 @@ graph_ae:
     dropout: 0.1
     encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
-      num_node_features: 64
+      # Must match DenseGraphBatch.node_features.shape[-1] (IMC embedding channels)
+      num_node_features: ${model.graph_ae.hparams.input_size}
       num_edge_features: 0
       graph_encoder_num_heads: ${model.graph_ae.hparams.num_heads}
       graph_encoder_ppf_hidden_dim: ${multiply:${model.graph_ae.hparams.input_size},4}
@@ -31,7 +32,8 @@ graph_ae:
       dropout: ${model.graph_ae.hparams.dropout}
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
       num_embeddings: 170 # not use if is_rope is True
-      num_node_features: 64
+      # Must match DenseGraphBatch.node_features.shape[-1]
+      num_node_features: ${model.graph_ae.hparams.input_size}
       num_edge_features: 0
       project: True
 

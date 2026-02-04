@@ -31,5 +31,15 @@ trainer:
   detect_anomaly: true # raise exception if NaN or +/-inf is detected in any tensor
 
 data:
-  num_workers: 0 # debuggers don't like multiprocessing
-  pin_memory: False # disable gpu memory pin
+  hparams:
+    num_workers: 0 # debuggers don't like multiprocessing
+    pin_memory: False # disable gpu memory pin
+
+# Avoid zero-epoch schedules when trainer.max_epochs is very small (e.g. 1 in debug)
+model:
+  entropy_weight_scheduler:
+    hparams:
+      num_epochs: 1
+  kld_alpha_scheduler:
+    hparams:
+      num_epochs: 1

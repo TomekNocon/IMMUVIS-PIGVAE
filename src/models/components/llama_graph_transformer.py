@@ -259,13 +259,24 @@ class SelfAttention(torch.nn.Module):
             attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device)
         else:
             attn_mask = get_full_mask(mask, is_encoder, device)
-        try:
-            # Try optimized backends in order of preference
-            with torch.nn.attention.sdpa_kernel([
-                SDPBackend.FLASH_ATTENTION,  # Most memory efficient
-                SDPBackend.EFFICIENT_ATTENTION,  # Good memory efficiency
-                SDPBackend.MATH,  # Fallback (standard implementation)
-            ]):
+        # Prefer optimized SDPA backends when available, but always produce an output.
+        if SDPA_AVAILABLE:
+            try:
+                # Try optimized backends in order of preference
+                with torch.nn.attention.sdpa_kernel([
+                    SDPBackend.FLASH_ATTENTION,  # Most memory efficient
+                    SDPBackend.EFFICIENT_ATTENTION,  # Good memory efficiency
+                    SDPBackend.MATH,  # Fallback (standard implementation)
+                ]):
+                    attention_output = F.scaled_dot_product_attention(
+                        query=query,
+                        key=key,
+                        value=value,
+                        attn_mask=attn_mask,
+                        is_causal=False,
+                    )
+            except Exception:
+                # Fallback: let PyTorch pick a working backend (e.g., CPU math)
                 attention_output = F.scaled_dot_product_attention(
                     query=query,
                     key=key,
@@ -273,9 +284,14 @@ class SelfAttention(torch.nn.Module):
                     attn_mask=attn_mask,
                     is_causal=False,
                 )
-        except (RuntimeError, ImportError) as e:
-            # Fallback to manual attention if optimized backends fail
-            print(f"Falling back to manual attention: {e}")
+        else:
+            attention_output = F.scaled_dot_product_attention(
+                query=query,
+                key=key,
+                value=value,
+                attn_mask=attn_mask,
+                is_causal=False,
+            )
 
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
         output = self.dropout(output)

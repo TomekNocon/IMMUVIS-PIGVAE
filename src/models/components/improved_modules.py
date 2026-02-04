@@ -101,8 +101,10 @@ class ImprovedGraphEncoder(torch.nn.Module):
         # Process input features (no CLS token needed!)
         x = self.layer_norm(self.dropout(self.fc_in(node_features)))
 
-        # Apply graph transformer
-        x = self.graph_transformer(x, mask=mask, is_encoder=True)
+        # Apply graph transformer.
+        # NOTE: this "Improved" encoder does NOT use a CLS token, so we must NOT use the
+        # encoder-style masks that assume an extra CLS position.
+        x = self.graph_transformer(x, mask=mask, is_encoder=False)
 
         # IMPROVEMENT: Use attention pooling instead of CLS token extraction
         if return_attention:

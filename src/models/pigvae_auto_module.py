@@ -64,17 +64,20 @@ class PLGraphAE(L.LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler._LRScheduler,
         compile: bool,
+        kld_alpha_scheduler: torch.nn.Module | None = None,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["graph_ae"])
         self.save_hyperparameters(ignore=["critic"])
         self.save_hyperparameters(ignore=["temperature_scheduler"])
         self.save_hyperparameters(ignore=["entropy_weight_scheduler"])
+        self.save_hyperparameters(ignore=["kld_alpha_scheduler"])
         self.save_hyperparameters(logger=False)
         self.graph_ae = graph_ae
         self.critic = critic
         self.temperature_scheduler = temperature_scheduler
         self.entropy_weight_scheduler = entropy_weight_scheduler
+        self.kld_alpha_scheduler = kld_alpha_scheduler
         self.automatic_optimization = True
         self.validation_step_outputs: list[dict[str, Any]] = []
         self.test_step_outputs: list[dict[str, Any]] = []
@@ -103,6 +106,11 @@ class PLGraphAE(L.LightningModule):
     def training_step(self, graph: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
         tau = self.temperature_scheduler(self.current_epoch)
         beta = self.entropy_weight_scheduler(self.current_epoch)
+        kld_alpha = (
+            None
+            if self.kld_alpha_scheduler is None
+            else self.kld_alpha_scheduler(self.current_epoch)
+        )
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph, training=True, tau=tau
         )
@@ -113,6 +121,7 @@ class PLGraphAE(L.LightningModule):
             soft_probs=soft_probs,
             perm=perm,
             beta=beta,
+            kld_alpha=kld_alpha,
             mu=mu,
             logvar=logvar,
         )
@@ -125,6 +134,11 @@ class PLGraphAE(L.LightningModule):
     def validation_step(self, graph: DenseGraphBatch, batch_idx: int) -> dict[str, Any]:
         tau = self.temperature_scheduler(self.current_epoch)
         beta = self.entropy_weight_scheduler(self.current_epoch)
+        kld_alpha = (
+            None
+            if self.kld_alpha_scheduler is None
+            else self.kld_alpha_scheduler(self.current_epoch)
+        )
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
             graph=graph, training=False, tau=tau
         )
@@ -147,6 +161,7 @@ class PLGraphAE(L.LightningModule):
             soft_probs=soft_probs,
             perm=perm,
             beta=beta,
+            kld_alpha=kld_alpha,
             mu=mu,
             logvar=logvar,
             prefix="val",
@@ -173,6 +188,7 @@ class PLGraphAE(L.LightningModule):
             # **lie_metrics,
             "tau": tau,
             "beta": beta,
+            "kld_alpha": (1.0 if kld_alpha is None else float(kld_alpha)),
         }
         self.log_dict(
             metrics,
@@ -236,7 +252,10 @@ class PLGraphAE(L.LightningModule):
 
             diff = pred_imgs - ground_truth_imgs
 
-            pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
+            # NumPy can't consume bfloat16 directly; cast for safe logging/plotting.
+            pca_predictions = (
+                subset_graph_emb.detach().to(torch.float32).cpu().squeeze().numpy()
+            )
 
             # Calculate shared color scale for predictions and ground truth
             pred_min, pred_max = pred_imgs.min().item(), pred_imgs.max().item()
@@ -371,7 +390,8 @@ class PLGraphAE(L.LightningModule):
                 .squeeze()
                 .numpy()
             )
-            pca_predictions = graph_emb.detach().cpu().squeeze().numpy()
+            # NumPy can't consume bfloat16 directly; cast for safe logging/plotting.
+            pca_predictions = graph_emb.detach().to(torch.float32).cpu().squeeze().numpy()
             fig_prediction = pL.plot_images_all_perm(pred_imgs, n_rows=n_examples, n_cols=8)
             fig_ground_truth = pL.plot_images_all_perm(
                 ground_truth_imgs, n_rows=n_examples, n_cols=8
