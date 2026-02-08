@@ -9,10 +9,10 @@ from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.losses import (
     CosineSimilarityLoss,
     GraphReconstructionLoss,
-    HuberLoss,
     KLDLoss,
     LaplacianLoss,
     MAELoss,
+    MSEGraphLoss,
     MSEGridLoss,
     PermutationLoss,
     SignalToNoiseRatioLoss,
@@ -32,7 +32,8 @@ class Critic(torch.nn.Module):
 
         # Initialize reconstruction loss with Huber + Cosine + Gradient
         self.reconstruction_loss = GraphReconstructionLoss(
-            loss_alpha=HuberLoss(beta=hparams.huber_beta),
+            # loss_alpha=HuberLoss(beta=hparams.huber_beta),
+            loss_alpha=MSEGraphLoss(),
             loss_beta=CosineSimilarityLoss(),
             loss_gamma=LaplacianLoss(),
             alpha=hparams.alpha_scale,
@@ -82,9 +83,7 @@ class Critic(torch.nn.Module):
             "signal_to_noise_ratio_loss": signal_to_noise_ratio_loss,
             "mse_loss": mse_loss,
         }
-        loss["loss"] = (
-            loss["loss"] + beta * permutation_loss  # + self.gamma * contrastive_loss
-        )
+        loss["loss"] = loss["loss"] + beta * permutation_loss
         if self.vae:
             kld_loss = self.kld_loss(mu, logvar)
             loss["kld_loss"] = kld_loss

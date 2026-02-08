@@ -1,10 +1,13 @@
 from pathlib import Path
 from typing import Any
 
+import joblib
 import torch
 from lightning import LightningDataModule
 from omegaconf import DictConfig
+from sklearn.decomposition import IncrementalPCA
 from torch.utils.data import DataLoader, Dataset, random_split
+from tqdm import tqdm
 
 from src.data.components.graphs_datamodules import (
     DenseGraphDataLoader,
@@ -12,8 +15,9 @@ from src.data.components.graphs_datamodules import (
     GridGraphDataset,
     IMCBaseDictTransform,
     PatchAugmentations,
+    PCADenseGraphCollator,
+    PCALayer,
     PickleDataset,
-    WelfordOnline,
 )
 
 
@@ -71,7 +75,7 @@ class IMCDataModule(LightningDataModule):
         self.save_hyperparameters(logger=False)
 
         self.base_transforms = IMCBaseDictTransform(
-            center_crop_size=hparams.center_crop_size, normalize=True
+            center_crop_size=hparams.center_crop_size, normalize=hparams.normalize
         )
 
         self.aug_transforms_train = PatchAugmentations(
@@ -108,6 +112,10 @@ class IMCDataModule(LightningDataModule):
         self.is_contrastive = hparams.is_contrastive
         self.num_aug_per_sample = hparams.num_aug_per_sample
         self.num_channels = hparams.num_channels
+        self.num_pca_components = hparams.num_pca_components
+        self.num_node_features = hparams.num_node_features
+        self.center_crop_size = hparams.center_crop_size
+        self.normalize = hparams.normalize
 
     @property
     def num_classes(self) -> int:
@@ -130,11 +138,16 @@ class IMCDataModule(LightningDataModule):
         if not train_path.exists() or not test_path.exists():
             raise FileNotFoundError(f"Expected dataset at {train_path} and {test_path}")
 
-        statistics_path = Path(self.data_dir) / "IMC" / "imc_statistics.pt"
+        # statistics_path = Path(self.data_dir) / "IMC" / "imc_statistics.pt"
+        pca_model_path = (
+            Path(self.data_dir)
+            / "IMC"
+            / f"pca_model_{self.num_pca_components}_center_crop_{self.center_crop_size}.pkl"
+        )
 
         # Compute statistics only once (on rank 0)
         if self.trainer and self.trainer.is_global_zero:
-            if not statistics_path.exists():
+            if not pca_model_path.exists():
                 # Load raw dataset (no normalization!)
                 dataset = PickleDataset(
                     train_path, transform=self.dual_transforms_train, only_embeddings=True
@@ -147,13 +160,16 @@ class IMCDataModule(LightningDataModule):
                     shuffle=False,
                 )
 
-                welford = WelfordOnline(self.num_channels)
+                ipca = IncrementalPCA(
+                    n_components=self.num_pca_components, batch_size=self.batch_size
+                )
 
-                for node_features in loader:
-                    welford.update(node_features)
+                for node_features in tqdm(loader, desc="Fitting IncrementalPCA", leave=True):
+                    node_features = node_features[: self.batch_size, :, :]
+                    x = node_features.reshape(-1, self.num_channels)
+                    ipca.partial_fit(x)
 
-                mean, std = welford.finalize()
-                torch.save({"mean": mean, "std": std}, statistics_path)
+                joblib.dump(ipca, pca_model_path)
 
         # DDP sync
         if torch.distributed.is_initialized():
@@ -183,6 +199,7 @@ class IMCDataModule(LightningDataModule):
         if not self.data_train and not self.data_val and not self.data_test:
             train_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_train.h5"
             test_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_test.h5"
+
             # statistics_path = Path(self.data_dir) / "IMC" / "imc_statistics.pt"
             # stats = torch.load(statistics_path, map_location="cpu")
             # mean = stats["mean"]
@@ -208,6 +225,16 @@ class IMCDataModule(LightningDataModule):
                 generator=torch.Generator().manual_seed(42),
             )
 
+        pca_model_path = (
+            Path(self.data_dir)
+            / "IMC"
+            / f"pca_model_{self.num_pca_components}_center_crop_{self.center_crop_size}.pkl"
+        )
+        self.pca_layer = PCALayer(pca_model_path)
+
+    def _get_collate_fn(self) -> Any:
+        return PCADenseGraphCollator(self.pca_layer)
+
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
 
@@ -218,7 +245,7 @@ class IMCDataModule(LightningDataModule):
                 "Expected self.data_train to be set in setup() before calling train_dataloader().",
             )
         train_dataset = GridGraphDataset(
-            grid_size=self.grid_size, dataset=self.data_train, channels=list(range(64))
+            grid_size=self.grid_size, dataset=self.data_train, channels=list(range(4))
         )
 
         return DenseGraphDataLoader(
@@ -228,6 +255,7 @@ class IMCDataModule(LightningDataModule):
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
             shuffle=True,
+            collate_fn=self._get_collate_fn(),
         )
 
     def val_dataloader(self) -> DataLoader[Any]:
@@ -235,21 +263,41 @@ class IMCDataModule(LightningDataModule):
 
         :return: The validation dataloader.
         """
-        if self.data_val is None:
+        # TODO: "Using train dataloader for validation."
+        if self.data_train is None:
             raise RuntimeError(
-                "Expected self.data_val to be set in setup() before calling val_dataloader().",
+                "Expected self.data_train to be set in setup() before calling train_dataloader().",
             )
-        val_dataset = GridGraphDataset(
-            grid_size=self.grid_size, dataset=self.data_val, channels=list(range(64))
+        train_dataset = GridGraphDataset(
+            grid_size=self.grid_size, dataset=self.data_train, channels=list(range(4))
         )
 
         return DenseGraphDataLoader(
-            dataset=val_dataset,
+            dataset=train_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
+            collate_fn=self._get_collate_fn(),
+            shuffle=False,
         )
+
+        # if self.data_val is None:
+        #     raise RuntimeError(
+        #         "Expected self.data_val to be set in setup() before calling val_dataloader().",
+        #     )
+        # val_dataset = GridGraphDataset(
+        #     grid_size=self.grid_size, dataset=self.data_val, channels=list(range(64))
+        # )
+
+        # return DenseGraphDataLoader(
+        #     dataset=val_dataset,
+        #     batch_size=self.batch_size_per_device,
+        #     num_workers=self.num_workers,
+        #     pin_memory=self.pin_memory,
+        #     persistent_workers=self.num_workers > 0,
+        #     collate_fn=self._get_collate_fn(),
+        # )
 
     def test_dataloader(self) -> DataLoader[Any]:
         """Create and return the test dataloader.
@@ -261,7 +309,7 @@ class IMCDataModule(LightningDataModule):
                 "Expected self.data_test to be set in setup() before calling test_dataloader().",
             )
         test_dataset = GridGraphDataset(
-            grid_size=self.grid_size, dataset=self.data_test, channels=list(range(64))
+            grid_size=self.grid_size, dataset=self.data_test, channels=list(range(1))
         )
 
         return DenseGraphDataLoader(
@@ -270,6 +318,7 @@ class IMCDataModule(LightningDataModule):
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
+            collate_fn=self._get_collate_fn(),
         )
 
     def teardown(self, stage: str | None = None) -> None:

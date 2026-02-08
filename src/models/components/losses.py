@@ -73,7 +73,7 @@ class GraphReconstructionLoss(torch.nn.Module):
                 loss_val = loss_module(pred_grid, true_grid)
 
             weighted = self.weights[name] * loss_val
-            out[name] = loss_val
+            out[name] = weighted.item()
             total += weighted
 
         out["loss"] = total
@@ -307,6 +307,14 @@ class MAELoss(torch.nn.Module):
         loss = self.node_loss(input=nodes_pred, target=nodes_true)
 
         return loss
+
+
+class MSEGraphLoss(BaseReconstructionLoss):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return torch.nn.functional.mse_loss(pred, target, reduction="mean")
 
 
 class MSEGridLoss(torch.nn.Module):

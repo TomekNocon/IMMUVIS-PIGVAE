@@ -33,6 +33,7 @@ class Transformer(nn.Module):
         num_layers: int,
         dropout: float = 0.1,
         rope: BaseRotaryEmbedding | None = None,
+        use_final_norm: bool = True,
     ):
         super().__init__()
         self.num_layers = num_layers
@@ -46,6 +47,9 @@ class Transformer(nn.Module):
         ])
 
         self.rope = rope
+        self.final_norm = (
+            RMSNorm(hidden_dim=hidden_dim, eps=1e-5) if use_final_norm else nn.Identity()
+        )
 
         # self.head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
@@ -57,7 +61,7 @@ class Transformer(nn.Module):
         for block in self.blocks:
             x = block(x, is_encoder, mask)
 
-        output = x
+        output = self.final_norm(x)
         # output = self.head(output)
         return output
 

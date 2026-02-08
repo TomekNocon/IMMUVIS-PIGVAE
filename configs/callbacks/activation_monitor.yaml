@@ -1,0 +1,16 @@
+activation_monitor:
+  _target_: src.utils.callbacks.activation_monitor.ActivationMonitorCallback
+
+  # Log frequency (steps). Keep this fairly sparse to avoid overhead.
+  log_every_n_steps: 2
+
+  # Thresholds to flag suspicious spikes.
+  max_abs_warn: 1000.0
+  max_abs_alert: 5000.0
+
+  # What to monitor (dotted paths from the LightningModule).
+  module_paths:
+    - graph_ae.encoder.graph_transformer
+    - graph_ae.permuter.spectral_embeddings
+    - graph_ae.permuter.graph_transformer
+    - graph_ae.decoder.graph_transformer

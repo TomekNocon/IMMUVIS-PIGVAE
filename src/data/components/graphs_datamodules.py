@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import ClassVar
 
 import h5py
+import joblib
 import networkx as nx
 import numpy as np
 import torch
@@ -12,20 +13,37 @@ import torch.nn as nn
 import torchvision.transforms as T
 from torch.utils.data import Dataset
 
-# class PickleDataset(Dataset):
-#     def __init__(self, pickle_path, transform=None):
-#         self.transform = transform
-#         with open(pickle_path, "rb") as f:
-#             self.data = pickle.load(f)
 
-#     def __len__(self):
-#         return len(self.data)
+class PCALayer(nn.Module):
+    def __init__(self, pca_path):
+        super().__init__()
+        # Load the sklearn model
+        pca = joblib.load(pca_path)
 
-#     def __getitem__(self, idx):
-#         x = self.data[idx]
-#         if self.transform:
-#             x = self.transform(x)
-#         return x
+        # Components (V) shape: [64, 512]
+        # Mean (mu) shape: [512]
+        self.register_buffer("components", torch.tensor(pca.components_, dtype=torch.float32))
+        self.register_buffer("mean", torch.tensor(pca.mean_, dtype=torch.float32))
+
+    def forward(self, x):
+        """
+        x shape: [Batch, Nodes, 512] (e.g., [64, 49, 512])
+        """
+        # 1. Center the data: (x - mean)
+        x_centered = x - self.mean
+
+        # 2. Project: x_centered @ components.T
+        # Result shape: [Batch, 49, 64]
+        return torch.matmul(x_centered, self.components.t())
+
+    def inverse(self, z):
+        """
+        z shape: [Batch, Nodes, 64]
+        To be used at the end of the Decoder
+        """
+        # 1. Back project: z @ components
+        # 2. Add mean
+        return torch.matmul(z, self.components) + self.mean
 
 
 class PickleDataset(Dataset):
@@ -107,7 +125,8 @@ class PatchAugmentations(nn.Module):
             perm = torch.arange(self.NUM_PERM, device=device)
             return aug_tensor, argsort_tensor, perm
 
-        perm = torch.randperm(self.NUM_PERM, device=device)
+        # perm = torch.randperm(self.NUM_PERM, device=device)
+        perm = torch.arange(self.NUM_PERM, device=device)
         return aug_tensor, argsort_tensor, perm
 
     @staticmethod
@@ -360,7 +379,7 @@ class GridGraphDataset(Dataset):
         true_grid_size = int(math.sqrt(augmented.shape[1]))
         true_grid_size = min(true_grid_size, self.grid_size)
         g = nx.grid_graph((true_grid_size, true_grid_size))
-        augmented = augmented[:, :, self.channels]
+        # augmented = augmented[:, :, self.channels]
         target = -1
         return (g, augmented, argsort_augmented, perm, target, metadata, paths, positions)
 
@@ -514,6 +533,19 @@ def dense_graph_collate_fn(data_list: list[tuple]) -> DenseGraphBatch:
     return DenseGraphBatch.from_sparse_graph_list(data_list)
 
 
+class PCADenseGraphCollator:
+    """Apply PCA to batched node features during collation."""
+
+    def __init__(self, pca_layer: PCALayer):
+        self.pca_layer = pca_layer
+
+    def __call__(self, data_list: list[tuple]) -> DenseGraphBatch:
+        batch = DenseGraphBatch.from_sparse_graph_list(data_list)
+        with torch.no_grad():
+            batch.node_features = self.pca_layer(batch.node_features)
+        return batch
+
+
 class DenseGraphDataLoader(torch.utils.data.DataLoader):
     def __init__(
         self,
@@ -521,14 +553,17 @@ class DenseGraphDataLoader(torch.utils.data.DataLoader):
         batch_size: int,
         shuffle: bool = False,
         labels: bool = True,
+        collate_fn: Callable | None = None,
         **kwargs,
     ):
         self.labels = labels
+        if collate_fn is None:
+            collate_fn = dense_graph_collate_fn
         super().__init__(
             dataset,
             batch_size=batch_size,
             shuffle=shuffle,
-            collate_fn=dense_graph_collate_fn,  # Directly pass the standalone function
+            collate_fn=collate_fn,  # Directly pass the standalone function
             **kwargs,
         )
 

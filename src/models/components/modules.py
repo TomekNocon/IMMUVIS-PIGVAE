@@ -142,7 +142,7 @@ class GraphDecoder(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=hparams.graph_decoder_num_layers,
             dropout=hparams.dropout,
-            rope=LLamaRotaryEmbedding(hparams.head_dim),
+            # rope=LLamaRotaryEmbedding(hparams.head_dim),
         )
         self.fc_in = nn.Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim)
         if hparams.project:
@@ -153,18 +153,18 @@ class GraphDecoder(torch.nn.Module):
         self.dropout = nn.Dropout(hparams.dropout)
         self.layer_norm = nn.LayerNorm(hparams.graph_decoder_hidden_dim)
 
-        if not self.graph_transformer.is_rope:
-            # TODO: check what should be the dim
-            self.embedding = torch.nn.Embedding(
-                num_embeddings=hparams.num_embeddings,
-                embedding_dim=hparams.graph_decoder_hidden_dim,
-            )
+        # if not self.graph_transformer.is_rope:
+        #     # TODO: check what should be the dim
+        #     self.embedding = torch.nn.Embedding(
+        #         num_embeddings=hparams.num_embeddings,
+        #         embedding_dim=hparams.graph_decoder_hidden_dim,
+        #     )
 
     def init_message_matrix(
         self, graph_emb: torch.Tensor, perm: torch.Tensor, num_nodes: int
     ) -> torch.Tensor:
         batch_size = graph_emb.size(0)
-        device = graph_emb.device
+        # device = graph_emb.device
 
         # MEMORY OPTIMIZATION: Instead of expand(), use repeat() for explicit memory allocation
         # This is more memory-friendly than expand() which creates views
@@ -177,11 +177,11 @@ class GraphDecoder(torch.nn.Module):
             pos_emb = torch.matmul(perm, pos_emb)
 
         # Add positional embeddings
-        if not self.graph_transformer.is_rope:
-            positions = torch.arange(x.shape[1], device=device).unsqueeze(0)
-            pos_encoding = self.embedding(positions)
-            x = x + pos_encoding
-            del pos_encoding  # Explicit cleanup
+        # if not self.graph_transformer.is_rope:
+        #     positions = torch.arange(x.shape[1], device=device).unsqueeze(0)
+        #     pos_encoding = self.embedding(positions)
+        #     x = x + pos_encoding
+        #     del pos_encoding  # Explicit cleanup
 
         x = x + pos_emb
         del pos_emb  # Explicit cleanup
@@ -439,6 +439,7 @@ class SimplePermuter(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=2,
             dropout=hparams.dropout,
+            rope=LLamaRotaryEmbedding(hparams.head_dim),
         )
         self.perm_node = nn.Parameter(torch.randn(1, 1, hparams.graph_decoder_hidden_dim))
         self.spectral_embeddings = SklearnSpectralEmbedding(
@@ -491,15 +492,11 @@ class SimplePermuter(torch.nn.Module):
         cls_out = node_features[:, 0, :]
         scores = self.scoring_fc(cls_out)
         context = None
-
-        # Cross-entropy loss
         ce_loss = None
-        if self.use_ce and labels:
-            labels = labels.to(device)
-            ce_loss = F.cross_entropy(scores, labels)
-
         probs, soft_probs = softmax_head(scores, tau)
-
+        # if not hard:
+        #     # Use soft probabilities during training for smoother gradients and exploration.
+        #     probs = soft_probs
         # MEMORY-EFFICIENT PERMUTATION COMPUTATION
         # Instead of storing large matrices, compute permutations on-the-fly
         # If hard==False (e.g., validation soft metrics), use true soft weights.
@@ -620,6 +617,8 @@ class BottleNeckEncoder(torch.nn.Module):
             "relu": torch.nn.ReLU(),
             "gelu": torch.nn.GELU(),
             "silu": torch.nn.SiLU(),
+            "gelu2": torch.nn.GELU(approximate="tanh"),
+            "leaky_relu": torch.nn.LeakyReLU(negative_slope=0.01),
         }[hparams.activation.lower()]
         if self.vae:
             self.w = nn.Linear(self.d_in, 2 * self.d_out)
@@ -630,8 +629,7 @@ class BottleNeckEncoder(torch.nn.Module):
         self, x: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         # TODO: check what should be the order
-        # x = self.w(self.activation(x))
-        x = self.activation(self.w(x))
+        x = self.w(self.activation(x))
         if self.vae:
             batch_size = x.shape[0] // self.num_permutations
             mu = x[:, : self.d_out]
@@ -663,12 +661,32 @@ class BottleNeckDecoder(torch.nn.Module):
         return x
 
 
-def softmax_head(scores: torch.Tensor, tau: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    # Softmax over scores to get probabilities for each permutation
-    soft_probs = torch.softmax(scores / tau, dim=-1)  # (B, num_permutations)
-    # Hard selection using Gumbel-Softmax (discrete but differentiable)
-    one_hot = torch.zeros_like(soft_probs)
-    one_hot.scatter_(1, soft_probs.argmax(dim=-1, keepdim=True), 1.0)
+# def softmax_head(scores: torch.Tensor, tau: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+#     # Softmax over scores to get probabilities for each permutation
+#     soft_probs = torch.softmax(scores / tau, dim=-1)  # (B, num_permutations)
+#     # Hard selection using Gumbel-Softmax (discrete but differentiable)
+#     one_hot = torch.zeros_like(soft_probs)
+#     one_hot.scatter_(1, soft_probs.argmax(dim=-1, keepdim=True), 1.0)
+#     probs = (one_hot - soft_probs).detach() + soft_probs
+
+#     return probs, soft_probs
+
+
+def softmax_head(
+    scores: torch.Tensor, tau: float, training: bool = True
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if training:
+        # Sample Gumbel noise: -log(-log(U))
+        unif = torch.rand_like(scores)
+        gumbel_noise = -torch.log(-torch.log(unif + 1e-20) + 1e-20)
+        logits = (scores + gumbel_noise) / tau
+    else:
+        logits = scores / tau
+
+    soft_probs = torch.softmax(logits, dim=-1)
+
+    # Straight-Through Logic
+    one_hot = torch.zeros_like(soft_probs).scatter_(1, soft_probs.argmax(dim=-1, keepdim=True), 1.0)
     probs = (one_hot - soft_probs).detach() + soft_probs
 
     return probs, soft_probs
