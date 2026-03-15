@@ -14,9 +14,9 @@ try:
 except ImportError:
     SDPA_AVAILABLE = False
 
-# from torch.nn.attention import SDPBackend
-
-from src.models.components.custom_pytorch_functions import RMSNorm
+from src.models.components.custom_pytorch_functions import (  # noqa: F401 - kept for reference
+    RMSNorm,
+)
 from src.models.components.rotary_embedding import BaseRotaryEmbedding
 
 """
@@ -37,32 +37,29 @@ class Transformer(nn.Module):
     ):
         super().__init__()
         self.num_layers = num_layers
-        self.ppf_hidden_dim = ppf_hidden_dim  # TBDeleted
-        # self.embedding_layer = EmbeddingLayer(
-        #     config.vocab_size, config.d_model, config.max_len
-        # )
+        self.ppf_hidden_dim = ppf_hidden_dim
+        weight_init_std = 0.02 / (2 * float(num_layers)) ** 0.5
         self.blocks = nn.ModuleList([
-            TransformerBlock(hidden_dim, num_heads, dropout, num_layers, rope)
+            TransformerBlock(hidden_dim, num_heads, ppf_hidden_dim, dropout, weight_init_std, rope)
             for _ in range(num_layers)
         ])
 
         self.rope = rope
-        self.final_norm = (
-            RMSNorm(hidden_dim=hidden_dim, eps=1e-5) if use_final_norm else nn.Identity()
-        )
+        self.final_norm = nn.LayerNorm(hidden_dim, eps=1e-5) if use_final_norm else nn.Identity()
 
-        # self.head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+        self.init_weights()  # called automatically on construction
+
+    def init_weights(self):
+        for block in self.blocks:
+            block.init_weights()
 
     def forward(
         self, x: torch.Tensor, is_encoder: bool, mask: torch.Tensor | None = None
     ) -> torch.Tensor:
-        # output = self.embedding_layer(input_ids)
-
         for block in self.blocks:
             x = block(x, is_encoder, mask)
 
         output = self.final_norm(x)
-        # output = self.head(output)
         return output
 
     @property
@@ -84,55 +81,32 @@ class TransformerBlock(nn.Module):
         attention (Attention): Attention module.
         feed_forward (FeedForward): FeedForward module.
         layer_id (int): Identifier for the layer.
-        attention_norm (RMSNorm): Layer normalization for attention output.
-        ffn_norm (RMSNorm): Layer normalization for feedforward output.
+        attention_norm (LayerNorm): Layer normalization for attention output.
+        ffn_norm (LayerNorm): Layer normalization for feedforward output.
     """
 
     def __init__(
         self,
         hidden_dim: int,
         n_head: int,
+        ppf_hidden_dim: int,
         dropout: float,
-        num_layers: int,
+        weight_init_std: float,
         rope: BaseRotaryEmbedding | None = None,
     ):
         super().__init__()
         self.attention_layer = SelfAttention(n_head, hidden_dim, dropout, rope)
         self.feed_forward_layer = FeedForward(
             hidden_dim=hidden_dim,
-            ffn_hidden_dim=hidden_dim,  # I put the same since this is computed in feed forward layer
-            multiple_of=32,  # fine tune that
+            ffn_hidden_dim=ppf_hidden_dim,
+            multiple_of=32,
             ffn_dim_multiplier=None,
+            dropout=dropout,
         )
 
-        self.attention_norm = RMSNorm(hidden_dim=hidden_dim, eps=1e-5)
-        self.ffn_norm = RMSNorm(hidden_dim=hidden_dim, eps=1e-5)
-        self.num_layers = num_layers
-
-        # if model_args.depth_init:
-        #     self.weight_init_std = 0.02 / (2 * (self.layer_id + 1)) ** 0.5
-        # else:
-        #     self.weight_init_std = 0.02 / (2 * self.num_layers) ** 0.5
-
-        self.weight_init_std = 0.02 / (2 * float(self.num_layers)) ** 0.5
-
-    # def forward(
-    #     self,
-    #     x: torch.Tensor,
-    #     freqs_cis: torch.Tensor,
-    # ):
-    #     """Perform a forward pass through the TransformerBlock.
-
-    #     Args:
-    #         x (torch.Tensor): Input tensor.
-    #         freqs_cis (torch.Tensor): Precomputed cosine and sine frequencies.
-
-    #     Returns:
-    #         torch.Tensor: Output tensor after applying attention and feedforward layers.
-
-    #     """
-    #     h = x + self.attention(self.attention_norm(x), freqs_cis)
-    #     return h + self.feed_forward(self.ffn_norm(h))
+        self.attention_norm = nn.LayerNorm(hidden_dim, eps=1e-5)
+        self.ffn_norm = nn.LayerNorm(hidden_dim, eps=1e-5)
+        self.weight_init_std = weight_init_std
 
     def forward(
         self,
@@ -150,8 +124,8 @@ class TransformerBlock(nn.Module):
     def init_weights(self):
         for norm in (self.attention_norm, self.ffn_norm):
             norm.reset_parameters()
-        self.attention.init_weights(self.weight_init_std)
-        self.feed_forward.init_weights(self.weight_init_std)
+        self.attention_layer.init_weights(self.weight_init_std)
+        self.feed_forward_layer.init_weights(self.weight_init_std)
 
 
 class FeedForward(nn.Module):
@@ -214,7 +188,6 @@ class SelfAttention(torch.nn.Module):
         self.n_head = n_head
         self.hidden_dim = hidden_dim
 
-        # self.input_projection = nn.Linear(hidden_dim, 3 * hidden_dim, bias=False)
         self.q_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.k_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.v_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
@@ -228,16 +201,10 @@ class SelfAttention(torch.nn.Module):
         is_encoder: bool = True,
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        # x: b x nn x nn x dv
         batch_size, num_nodes = x.size(0), x.size(1)
-        # projected = self.input_projection(x)
 
         device = x.device
 
-        # q_chunk, k_chunk, v_chunk = torch.chunk(projected, chunks=3, dim=-1)
-        # query = q_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-        # key = k_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
-        # value = v_chunk.view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         query = self.q_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         key = self.k_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         value = self.v_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
@@ -250,11 +217,10 @@ class SelfAttention(torch.nn.Module):
         else:
             attn_mask = get_full_mask(mask, is_encoder, device)
         try:
-            # Try optimized backends in order of preference
             with torch.nn.attention.sdpa_kernel([
-                SDPBackend.FLASH_ATTENTION,  # Most memory efficient
-                SDPBackend.EFFICIENT_ATTENTION,  # Good memory efficiency
-                SDPBackend.MATH,  # Fallback (standard implementation)
+                SDPBackend.FLASH_ATTENTION,
+                SDPBackend.EFFICIENT_ATTENTION,
+                SDPBackend.MATH,
             ]):
                 attention_output = F.scaled_dot_product_attention(
                     query=query,
@@ -264,18 +230,22 @@ class SelfAttention(torch.nn.Module):
                     is_causal=False,
                 )
         except (RuntimeError, ImportError) as e:
-            # Fallback to manual attention if optimized backends fail
             print(f"Falling back to manual attention: {e}")
 
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
         output = self.dropout(output)
         return output
 
+    def init_weights(self, init_std: float):
+        """Initialize attention projection weights."""
+        for linear in (self.q_proj, self.k_proj, self.v_proj):
+            nn.init.trunc_normal_(linear.weight, mean=0.0, std=0.02)
+        nn.init.trunc_normal_(self.output_projection.weight, mean=0.0, std=init_std)
 
-# Cache masks to avoid recomputation
+
 @lru_cache(maxsize=32)
-def _create_neighborhood_mask(num_nodes: int, is_encoder: bool):
-    """Create neighborhood mask and cache it."""
+def _create_neighborhood_mask(num_nodes: int, is_encoder: bool, device: str):
+    """Create neighborhood mask and cache it per device."""
     if is_encoder:
         n = num_nodes - 1
     else:
@@ -286,38 +256,31 @@ def _create_neighborhood_mask(num_nodes: int, is_encoder: bool):
     mask = adjacency_matrix | torch.eye(adjacency_matrix.shape[0], dtype=torch.bool)
     if is_encoder:
         mask = F.pad(mask, (1, 0, 1, 0), value=True)
-    return mask
+    return mask.to(device)
 
 
 def get_neighborhood_mask(num_nodes: int, is_encoder: bool, device: torch.device = None):
-    """Get neighborhood mask, creating on the correct device."""
-    mask = _create_neighborhood_mask(num_nodes, is_encoder)
-    if device is not None:
-        mask = mask.to(device)
-    return mask
+    """Get neighborhood mask, cached per device."""
+    device_str = str(device) if device is not None else "cpu"
+    return _create_neighborhood_mask(num_nodes, is_encoder, device_str)
 
 
 def get_full_mask(mask: torch.Tensor, is_encoder: bool, device: torch.device = None):
-    """Create full attention mask where all nodes can attend to all nodes.
-
-    Returns shape (num_nodes, num_nodes) for broadcasting across batch.
-    """
-    # Get number of nodes from the mask
-    if mask.dim() == 2:  # Shape: (batch_size, num_nodes)
+    """Create full attention mask where all nodes can attend to all nodes."""
+    if mask.dim() == 2:
         num_nodes = mask.size(1)
-    elif mask.dim() == 3:  # Shape: (batch_size, num_nodes, num_nodes)
+    elif mask.dim() == 3:
         num_nodes = mask.size(1)
     else:
         raise ValueError(f"Mask should be 2D or 3D, got shape {mask.shape}")
 
-    # Add 1 for CLS token if encoder
     if is_encoder:
         num_nodes = num_nodes + 1
+    else:
+        num_nodes = num_nodes + 1
 
-    # Create full attention mask (all True) - shape (num_nodes, num_nodes)
     attn_mask = torch.ones(num_nodes, num_nodes, dtype=torch.bool)
 
-    # Move to correct device
     if device is not None:
         attn_mask = attn_mask.to(device)
 

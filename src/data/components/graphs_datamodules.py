@@ -15,26 +15,30 @@ from torch.utils.data import Dataset
 
 
 class PCALayer(nn.Module):
-    def __init__(self, pca_path):
+    def __init__(self, pca_path, statistics_path):
         super().__init__()
         # Load the sklearn model
         pca = joblib.load(pca_path)
+        statistics = torch.load(statistics_path)
 
         # Components (V) shape: [64, 512]
         # Mean (mu) shape: [512]
         self.register_buffer("components", torch.tensor(pca.components_, dtype=torch.float32))
-        self.register_buffer("mean", torch.tensor(pca.mean_, dtype=torch.float32))
+        self.register_buffer("pca_mean", torch.tensor(pca.mean_, dtype=torch.float32))
+        self.register_buffer("mean", torch.tensor(statistics["mean"], dtype=torch.float32))
+        self.register_buffer("std", torch.tensor(statistics["std"], dtype=torch.float32))
 
     def forward(self, x):
         """
         x shape: [Batch, Nodes, 512] (e.g., [64, 49, 512])
         """
         # 1. Center the data: (x - mean)
-        x_centered = x - self.mean
+        x = x - self.pca_mean
 
         # 2. Project: x_centered @ components.T
         # Result shape: [Batch, 49, 64]
-        return torch.matmul(x_centered, self.components.t())
+        x = torch.matmul(x, self.components.t())
+        return (x - self.mean) / (self.std + 1e-8)
 
     def inverse(self, z):
         """
@@ -43,7 +47,8 @@ class PCALayer(nn.Module):
         """
         # 1. Back project: z @ components
         # 2. Add mean
-        return torch.matmul(z, self.components) + self.mean
+        z = (z * self.std) + self.mean
+        return torch.matmul(z, self.components) + self.pca_mean
 
 
 class PickleDataset(Dataset):
@@ -233,7 +238,7 @@ class IMCBaseDictTransform(nn.Module):
                         # Normalize all features together
                         embedding = self._normalize_global(embedding)
 
-                embedding = torch.arcsinh(embedding / 5)
+                # embedding = torch.arcsinh(embedding / 5)
                 # Reshape to [N, C] where N = H*W
                 embedding = embedding.reshape(c, -1).T
 
@@ -568,34 +573,77 @@ class DenseGraphDataLoader(torch.utils.data.DataLoader):
         )
 
 
+# class WelfordOnline:
+#     def __init__(self, channels: int):
+#         self.count = 0
+#         self.mean = torch.zeros(channels, dtype=torch.float64)
+#         self.second_moment = torch.zeros(channels, dtype=torch.float64)
+
+#     def update(self, embedding: torch.Tensor):
+#         """
+#         embedding: (b, a, hw, c)
+#         """
+#         _, _, _, c = embedding.shape
+
+#         x = embedding.permute(3, 0, 1, 2).reshape(c, -1)
+#         batch_n = x.size(1)
+
+#         # batch statistics
+#         batch_mean = x.mean(dim=1)
+#         batch_var = x.var(dim=1, unbiased=False)
+
+#         delta = batch_mean - self.mean
+#         total = self.count + batch_n
+
+#         # Welford update
+#         self.mean += delta * (batch_n / total)
+#         self.second_moment += batch_var * batch_n + delta**2 * self.count * batch_n / total
+
+#         self.count = total
+
+#     def finalize(self):
+#         var = self.second_moment / self.count
+#         return self.mean.float(), var.sqrt().float()
+
+
 class WelfordOnline:
     def __init__(self, channels: int):
         self.count = 0
+        # Internal accumulators in float64 for precision
         self.mean = torch.zeros(channels, dtype=torch.float64)
-        self.second_moment = torch.zeros(channels, dtype=torch.float64)
+        self.m2 = torch.zeros(channels, dtype=torch.float64)
 
-    def update(self, embedding: torch.Tensor):
+    def update(self, x: torch.Tensor):
         """
-        embedding: (b, a, hw, c)
+        x: (N, channels) where N is (batch_size * seq_len)
         """
-        _, _, _, c = embedding.shape
+        x = x.to(torch.float64)
+        batch_n = x.size(0)
 
-        x = embedding.permute(3, 0, 1, 2).reshape(c, -1)
-        batch_n = x.size(1)
+        # Batch-wise statistics
+        batch_mean = x.mean(dim=0)
+        # Sum of squares of deviations from the batch mean
+        batch_m2 = ((x - batch_mean) ** 2).sum(dim=0)
 
-        # batch statistics
-        batch_mean = x.mean(dim=1)
-        batch_var = x.var(dim=1, unbiased=False)
+        if self.count == 0:
+            self.mean = batch_mean
+            self.m2 = batch_m2
+            self.count = batch_n
+        else:
+            total_n = self.count + batch_n
+            delta = batch_mean - self.mean
 
-        delta = batch_mean - self.mean
-        total = self.count + batch_n
+            # Welford/Chan update formula for merging two sets
+            self.mean += delta * (batch_n / total_n)
+            self.m2 += batch_m2 + (delta**2) * (self.count * batch_n / total_n)
 
-        # Welford update
-        self.mean += delta * (batch_n / total)
-        self.second_moment += batch_var * batch_n + delta**2 * self.count * batch_n / total
-
-        self.count = total
+            self.count = total_n
 
     def finalize(self):
-        var = self.second_moment / self.count
-        return self.mean.float(), var.sqrt().float()
+        if self.count < 1:
+            return self.mean.float(), torch.ones_like(self.mean).float()
+
+        variance = self.m2 / self.count
+        std = torch.sqrt(torch.maximum(variance, torch.tensor(1e-8)))
+
+        return self.mean.float(), std.float()

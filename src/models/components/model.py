@@ -8,9 +8,9 @@ from omegaconf import DictConfig
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.losses import (
     CosineSimilarityLoss,
+    GradientLoss,
     GraphReconstructionLoss,
     KLDLoss,
-    LaplacianLoss,
     MAELoss,
     MSEGraphLoss,
     MSEGridLoss,
@@ -35,7 +35,7 @@ class Critic(torch.nn.Module):
             # loss_alpha=HuberLoss(beta=hparams.huber_beta),
             loss_alpha=MSEGraphLoss(),
             loss_beta=CosineSimilarityLoss(),
-            loss_gamma=LaplacianLoss(),
+            loss_gamma=GradientLoss(),
             alpha=hparams.alpha_scale,
             beta=hparams.beta_scale,
             gamma=hparams.gamma_scale,

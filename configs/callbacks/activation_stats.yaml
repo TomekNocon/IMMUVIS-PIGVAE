@@ -1,0 +1,9 @@
+activation_stats:
+  _target_: src.utils.callbacks.activation_stats.ActivationStatsCallback
+  log_every_n_steps: 100
+  include_patterns: ["permuter"]
+  exclude_patterns: []
+  include_module_types: ["FeedForward"]
+  log_on_train: true
+  log_on_val: false
+  log_on_test: false
