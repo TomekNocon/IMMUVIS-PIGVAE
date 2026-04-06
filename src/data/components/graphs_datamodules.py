@@ -13,46 +13,104 @@ import torch.nn as nn
 import torchvision.transforms as T
 from torch.utils.data import Dataset
 
+IMC_GRAPH_VIEW_KEYS: tuple[str, ...] = (
+    "r0_f",
+    "r0_nf",
+    "r180_f",
+    "r180_nf",
+    "r270_f",
+    "r270_nf",
+    "r90_f",
+    "r90_nf",
+)
+
 
 class PCALayer(nn.Module):
-    def __init__(self, pca_path):
+    def __init__(
+        self,
+        pca_path,
+        statistics_path,
+        clip_range: float = 0.0,
+        zscore: bool = True,
+    ):
         super().__init__()
-        # Load the sklearn model
         pca = joblib.load(pca_path)
+        statistics = torch.load(statistics_path)
 
-        # Components (V) shape: [64, 512]
-        # Mean (mu) shape: [512]
         self.register_buffer("components", torch.tensor(pca.components_, dtype=torch.float32))
-        self.register_buffer("mean", torch.tensor(pca.mean_, dtype=torch.float32))
+        self.register_buffer("pca_mean", torch.tensor(pca.mean_, dtype=torch.float32))
+        self.register_buffer("mean", torch.tensor(statistics["mean"], dtype=torch.float32))
+        self.register_buffer("std", torch.tensor(statistics["std"], dtype=torch.float32))
+        self.clip_range = clip_range
+        self.zscore = zscore
 
     def forward(self, x):
         """
         x shape: [Batch, Nodes, 512] (e.g., [64, 49, 512])
         """
-        # 1. Center the data: (x - mean)
-        x_centered = x - self.mean
-
-        # 2. Project: x_centered @ components.T
-        # Result shape: [Batch, 49, 64]
-        return torch.matmul(x_centered, self.components.t())
+        x = x - self.pca_mean
+        x = torch.matmul(x, self.components.t())
+        if self.zscore:
+            x = (x - self.mean) / (self.std + 1e-8)
+        if self.clip_range > 0:
+            x = x.clamp(-self.clip_range, self.clip_range)
+        return x
 
     def inverse(self, z):
         """
-        z shape: [Batch, Nodes, 64]
-        To be used at the end of the Decoder
+        z shape: [Batch, Nodes, 128]
         """
-        # 1. Back project: z @ components
-        # 2. Add mean
-        return torch.matmul(z, self.components) + self.mean
+        if self.zscore:
+            z = (z * self.std) + self.mean
+        return torch.matmul(z, self.components) + self.pca_mean
+
+
+def _spatial_view(x: np.ndarray, key: str) -> np.ndarray:
+    """Apply rotation + optional flip to a (C, H, W) array."""
+    rot_part, flip_part = key.split("_")
+    k = int(rot_part[1:]) // 90
+    out = np.rot90(x, k=k, axes=(1, 2)) if k > 0 else x
+    if flip_part == "f":
+        out = np.flip(out, axis=-1)
+    return np.ascontiguousarray(out)
+
+
+def _center_crop_np(x: np.ndarray, size: int) -> np.ndarray:
+    """Center-crop a (C, H, W) array to (C, size, size)."""
+    _, h, w = x.shape
+    top = (h - size) // 2
+    left = (w - size) // 2
+    return x[:, top : top + size, left : left + size]
+
+
+def make_views(x: np.ndarray, center_crop_size: int | None = None) -> np.ndarray:
+    """Generate 8 spatial views for a single (C, H, W) embedding.
+
+    If *center_crop_size* is given the crop is applied **before** the
+    rotations/flips so that every view contains exactly the same set of values.
+
+    Returns an (8, C, H, W) array ordered by ``IMC_GRAPH_VIEW_KEYS``.
+    """
+    if center_crop_size is not None:
+        x = _center_crop_np(x, center_crop_size)
+    return np.stack([_spatial_view(x, k) for k in IMC_GRAPH_VIEW_KEYS], axis=0)
 
 
 class PickleDataset(Dataset):
-    def __init__(self, hdf5_path, transform=None, only_embeddings: bool = False):
+    def __init__(
+        self,
+        hdf5_path,
+        transform=None,
+        only_embeddings: bool = False,
+        generate_views: bool = False,
+        center_crop_size: int | None = None,
+    ):
         self.hdf5_path = hdf5_path
         self.transform = transform
         self.only_embeddings = only_embeddings
+        self.generate_views = generate_views
+        self.center_crop_size = center_crop_size
 
-        # Only open to get length
         with h5py.File(hdf5_path, "r") as f:
             self._length = len(f[next(iter(f.keys()))])
 
@@ -61,8 +119,12 @@ class PickleDataset(Dataset):
 
     def __getitem__(self, idx):
         with h5py.File(self.hdf5_path, "r") as f:
-            # Load only the item at index idx
             item = {key: f[key][idx] for key in f.keys()}
+
+        if self.generate_views and "embeddings" in item:
+            emb = item["embeddings"]
+            if emb.ndim == 3:
+                item["embeddings"] = make_views(emb, self.center_crop_size)
 
         if self.transform:
             item = self.transform(item)
@@ -155,17 +217,7 @@ class PatchAugmentations(nn.Module):
 
 
 class IMCBaseDictTransform(nn.Module):
-    keys: ClassVar[tuple[str, ...]] = (
-        "r0_f",
-        "r0_nf",
-        "r180_f",
-        "r180_nf",
-        "r270_f",
-        "r270_nf",
-        "r90_f",
-        "r90_nf",
-    )
-
+    keys: ClassVar[tuple[str, ...]] = IMC_GRAPH_VIEW_KEYS
     def __init__(
         self,
         exclude_metadata: list[str] | None = None,
@@ -571,31 +623,41 @@ class DenseGraphDataLoader(torch.utils.data.DataLoader):
 class WelfordOnline:
     def __init__(self, channels: int):
         self.count = 0
+        # Internal accumulators in float64 for precision
         self.mean = torch.zeros(channels, dtype=torch.float64)
-        self.second_moment = torch.zeros(channels, dtype=torch.float64)
+        self.m2 = torch.zeros(channels, dtype=torch.float64)
 
-    def update(self, embedding: torch.Tensor):
+    def update(self, x: torch.Tensor):
         """
-        embedding: (b, a, hw, c)
+        x: (N, channels) where N is (batch_size * seq_len)
         """
-        _, _, _, c = embedding.shape
+        x = x.to(torch.float64)
+        batch_n = x.size(0)
+        
+        # Batch-wise statistics
+        batch_mean = x.mean(dim=0)
+        # Sum of squares of deviations from the batch mean
+        batch_m2 = ((x - batch_mean) ** 2).sum(dim=0)
 
-        x = embedding.permute(3, 0, 1, 2).reshape(c, -1)
-        batch_n = x.size(1)
-
-        # batch statistics
-        batch_mean = x.mean(dim=1)
-        batch_var = x.var(dim=1, unbiased=False)
-
-        delta = batch_mean - self.mean
-        total = self.count + batch_n
-
-        # Welford update
-        self.mean += delta * (batch_n / total)
-        self.second_moment += batch_var * batch_n + delta**2 * self.count * batch_n / total
-
-        self.count = total
+        if self.count == 0:
+            self.mean = batch_mean
+            self.m2 = batch_m2
+            self.count = batch_n
+        else:
+            total_n = self.count + batch_n
+            delta = batch_mean - self.mean
+            
+            # Welford/Chan update formula for merging two sets
+            self.mean += delta * (batch_n / total_n)
+            self.m2 += batch_m2 + (delta**2) * (self.count * batch_n / total_n)
+            
+            self.count = total_n
 
     def finalize(self):
-        var = self.second_moment / self.count
-        return self.mean.float(), var.sqrt().float()
+        if self.count < 1:
+            return self.mean.float(), torch.ones_like(self.mean).float()
+        
+        variance = self.m2 / self.count
+        std = torch.sqrt(torch.maximum(variance, torch.tensor(1e-8)))
+        
+        return self.mean.float(), std.float()

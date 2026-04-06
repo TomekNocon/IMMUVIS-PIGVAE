@@ -5,14 +5,20 @@ hparams:
   train_val_test_split: [16, 360, 0, 3996 + 7308 + 10784] # [18108, 5040, 0, 0]
   num_workers: 7
   pin_memory: False
-  grid_size: 7
-  size: 7
+  grid_size: 6
+  size: 6
   patch_size: 1
   augmentation_prob: 1.0
   is_contrastive: True
   num_aug_per_sample: 8
-  center_crop_size: 7
-  num_channels: 512
+  center_crop_size: 6
+  num_channels: 768
   num_pca_components: 128
   num_node_features: 128
   normalize: False # If you use PCA do not normalize!
+  imc_root: "IMC"
+  imc_dataset_names: 
+    - "cords"
+  zscore: False     # z-score PCA output; False = natural PCA variance weighting
+  clip_range: 3.0  # clamp features to [-C, C] after PCA; clips 5-8σ outliers in early PCs
+  

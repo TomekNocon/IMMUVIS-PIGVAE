@@ -6,7 +6,7 @@ import torch
 from lightning import LightningDataModule
 from omegaconf import DictConfig
 from sklearn.decomposition import IncrementalPCA
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 from tqdm import tqdm
 
 from src.data.components.graphs_datamodules import (
@@ -19,6 +19,14 @@ from src.data.components.graphs_datamodules import (
     PCALayer,
     PickleDataset,
 )
+
+
+def resolve_imc_h5(data_dir: str | Path, imc_root: str, dataset_name: str, split: str) -> Path:
+    """Resolve per-dataset HDF5 path: ``{data_dir}/{imc_root}/{dataset_name}/{split}.h5``."""
+    path = Path(data_dir) / imc_root / dataset_name / f"{split}.h5"
+    if not path.is_file():
+        raise FileNotFoundError(f"No HDF5 at {path}")
+    return path
 
 
 class IMCDataModule(LightningDataModule):
@@ -116,6 +124,47 @@ class IMCDataModule(LightningDataModule):
         self.num_node_features = hparams.num_node_features
         self.center_crop_size = hparams.center_crop_size
         self.normalize = hparams.normalize
+        self.clip_range = hparams.clip_range
+        self.zscore = hparams.zscore
+
+        self.imc_root = hparams.imc_root
+        _extra = hparams.imc_dataset_names
+        self.imc_dataset_names: list[str] = (
+            list(_extra) if _extra is not None and len(_extra) > 0 else []
+        )
+
+    def _active_names(self) -> list[str]:
+        return self.imc_dataset_names if self.imc_dataset_names else [self.imc_dataset_name]
+
+    def _resolve(self, split: str) -> list[Path]:
+        return [
+            resolve_imc_h5(self.data_dir, self.imc_root, name, split) for name in self._active_names()
+        ]
+
+    def _load_datasets(self, paths: list[Path], transform: DualOutputTransform) -> Dataset:
+        parts = [
+            PickleDataset(
+                path,
+                transform=transform,
+                generate_views=True,
+                center_crop_size=self.center_crop_size,
+            )
+            for path in paths
+        ]
+        return parts[0] if len(parts) == 1 else ConcatDataset(parts)
+
+    def _pca_path(self) -> Path:
+        return (
+            Path(self.data_dir)
+            / self.imc_root
+            / f"pca_model_{self.num_pca_components}_center_crop_{self.center_crop_size}.pkl"
+        )
+    def _statistics_path(self) -> Path:
+        return (
+            Path(self.data_dir)
+            / self.imc_root
+            / f"imc_statistics_{self.num_pca_components}_center_crop_{self.center_crop_size}.pt"
+        )
 
     @property
     def num_classes(self) -> int:
@@ -133,24 +182,21 @@ class IMCDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        train_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_train.h5"
-        test_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_test.h5"
-        if not train_path.exists() or not test_path.exists():
-            raise FileNotFoundError(f"Expected dataset at {train_path} and {test_path}")
+        train_paths = self._resolve("train")
+        test_paths = self._resolve("test")
+        for path in train_paths + test_paths:
+            if not path.is_file():
+                raise FileNotFoundError(f"Expected HDF5 at {path}")
 
-        # statistics_path = Path(self.data_dir) / "IMC" / "imc_statistics.pt"
-        pca_model_path = (
-            Path(self.data_dir)
-            / "IMC"
-            / f"pca_model_{self.num_pca_components}_center_crop_{self.center_crop_size}.pkl"
-        )
+        pca_model_path = self._pca_path()
+        statistics_path = self._statistics_path()
 
         # Compute statistics only once (on rank 0)
         if self.trainer and self.trainer.is_global_zero:
             if not pca_model_path.exists():
-                # Load raw dataset (no normalization!)
-                dataset = PickleDataset(
-                    train_path, transform=self.dual_transforms_train, only_embeddings=True
+                dataset = self._load_datasets(
+                    train_paths,
+                    transform=DualOutputTransform(self.base_transforms, self.aug_transforms_train),
                 )
 
                 loader = DataLoader(
@@ -169,7 +215,16 @@ class IMCDataModule(LightningDataModule):
                     x = node_features.reshape(-1, self.num_channels)
                     ipca.partial_fit(x)
 
-                joblib.dump(ipca, pca_model_path)
+                joblib.dump(ipca, str(pca_model_path))
+                # welford_online = WelfordOnline(self.num_pca_components)
+                # for node_features in tqdm(loader, desc="Computing Welford Online", leave=True):
+                #     node_features = node_features[: self.batch_size, :, :]
+                #     x = node_features.view(-1, self.num_channels).cpu().numpy()
+                #     x_proj_np = ipca.transform(x)
+                #     x_proj_torch = torch.from_numpy(x_proj_np)
+                #     welford_online.update(x_proj_torch)
+                # mean, std = welford_online.finalize()
+                # torch.save({"mean": mean, "std": std}, statistics_path)
 
         # DDP sync
         if torch.distributed.is_initialized():
@@ -197,19 +252,10 @@ class IMCDataModule(LightningDataModule):
 
         # load and split datasets only if not loaded already
         if not self.data_train and not self.data_val and not self.data_test:
-            train_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_train.h5"
-            test_path = Path(self.data_dir) / "IMC" / "nsclc2_panel1_test.h5"
-
-            # statistics_path = Path(self.data_dir) / "IMC" / "imc_statistics.pt"
-            # stats = torch.load(statistics_path, map_location="cpu")
-            # mean = stats["mean"]
-            # std = stats["std"]
-            # self.dual_transforms_train.set_mean(mean)
-            # self.dual_transforms_train.set_std(std)
-            # self.dual_transforms_val.set_mean(mean)
-            # self.dual_transforms_val.set_std(std)
-            trainset = PickleDataset(train_path, transform=self.dual_transforms_train)
-            testset = PickleDataset(test_path, transform=self.dual_transforms_val)
+            train_paths = self._resolve("train")
+            test_paths = self._resolve("test")
+            trainset = self._load_datasets(train_paths, self.dual_transforms_train)
+            testset = self._load_datasets(test_paths, self.dual_transforms_val)
             train_ratio, val_ratio, test_ratio, _ = self.train_val_test_split
             size_testset = len(testset)
             size_trainset = len(trainset)
@@ -225,12 +271,11 @@ class IMCDataModule(LightningDataModule):
                 generator=torch.Generator().manual_seed(42),
             )
 
-        pca_model_path = (
-            Path(self.data_dir)
-            / "IMC"
-            / f"pca_model_{self.num_pca_components}_center_crop_{self.center_crop_size}.pkl"
+        pca_model_path = self._pca_path()
+        statistics_path = self._statistics_path()
+        self.pca_layer = PCALayer(
+            pca_model_path, statistics_path, clip_range=self.clip_range, zscore=self.zscore
         )
-        self.pca_layer = PCALayer(pca_model_path)
 
     def _get_collate_fn(self) -> Any:
         return PCADenseGraphCollator(self.pca_layer)

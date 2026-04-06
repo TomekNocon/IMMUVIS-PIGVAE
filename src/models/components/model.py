@@ -16,6 +16,8 @@ from src.models.components.losses import (
     MSEGridLoss,
     PermutationLoss,
     SignalToNoiseRatioLoss,
+    GradientLoss,
+    HuberLoss,
 )
 
 rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
@@ -33,9 +35,9 @@ class Critic(torch.nn.Module):
         # Initialize reconstruction loss with Huber + Cosine + Gradient
         self.reconstruction_loss = GraphReconstructionLoss(
             # loss_alpha=HuberLoss(beta=hparams.huber_beta),
-            loss_alpha=MSEGraphLoss(),
+            loss_alpha=HuberLoss(beta=hparams.huber_beta),
             loss_beta=CosineSimilarityLoss(),
-            loss_gamma=LaplacianLoss(),
+            loss_gamma=GradientLoss(),
             alpha=hparams.alpha_scale,
             beta=hparams.beta_scale,
             gamma=hparams.gamma_scale,

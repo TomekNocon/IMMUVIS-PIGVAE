@@ -437,7 +437,15 @@ class PLGraphAE(L.LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        optimizer = self.hparams.optimizer(params=self.parameters())
+        decoder_transformer_params = set(
+            self.graph_ae.decoder.graph_transformer.parameters()
+        )
+        decay_params = [p for p in self.parameters() if p not in decoder_transformer_params]
+        no_decay_params = list(self.graph_ae.decoder.graph_transformer.parameters())
+        optimizer = self.hparams.optimizer(params=[
+            {"params": decay_params},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ])
         # Calculate total optimizer steps accounting for dynamic grad accumulation
         # Lightning's estimated_stepping_batches assumes fixed accumulation; here we
         # integrate the configured GradientAccumulationScheduler schedule to avoid

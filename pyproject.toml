@@ -5,6 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "h5py>=3.11.0",
+    "networkx>=3.2.1",
     "pandas>=2.2.3",
     "torch>=2.0.0",
     "torchvision>=0.15.0",
@@ -88,4 +90,5 @@ exclude = [
 [dependency-groups]
 dev = [
     "ruff==0.14.10",
+    "jupyterlab>=4.0.0",
 ]

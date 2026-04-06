@@ -64,22 +64,28 @@ class SklearnSpectralEmbedding(nn.Module):
     ):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
-        self.G = nx.grid_2d_graph(grid_size, grid_size)
-        self.A = nx.to_numpy_array(self.G)
+ 
+        # Compute eigenvectors at init — do NOT store G or A as attributes
+        G = nx.grid_2d_graph(grid_size, grid_size)
+        A = nx.to_numpy_array(G)
         transformation = SpectralEmbedding(
             n_components=n_components, affinity="precomputed", **kwargs
         )
-        sorted_eigenvecs = transformation.fit_transform(self.A)
+        sorted_eigenvecs = transformation.fit_transform(A)
         sorted_eigenvecs = torch.tensor(sorted_eigenvecs, dtype=torch.float32)
-
+ 
+        # Register as buffer — moves with .to(device), not a parameter
         self.register_buffer("sorted_eigenvecs", sorted_eigenvecs)
+ 
         self.proj = nn.Linear(n_components, d_model)
         self.to_project = d_model != n_components
-
+ 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch, _, _ = x.shape
-        embedding = torch.tile(self.sorted_eigenvecs, (batch, 1, 1))
+        embedding = self.sorted_eigenvecs.unsqueeze(0).expand(batch, -1, -1)  # no copy
         if self.to_project:
             embedding = self.proj(embedding)
-        x = x + embedding
-        return self.dropout(x)
+ 
+        # dropout before adding, not after — keeps x scale stable
+        embedding = self.dropout(embedding)
+        return x + embedding
