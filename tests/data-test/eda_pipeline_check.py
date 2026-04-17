@@ -48,7 +48,6 @@ from tqdm import tqdm
 # Local shared config
 from eda_config import (
     EDAConfig,
-    build_embeddings_only_loader,
     build_pca_layer,
     build_train_dataloader,
     build_train_val_test,
@@ -115,6 +114,7 @@ def check_transform_chain(cfg: EDAConfig, rpt: Report):
         IMCBaseDictTransform,
         PatchAugmentations,
         PickleDataset,
+        make_views,
     )
 
     # Load one sample raw
@@ -136,8 +136,15 @@ def check_transform_chain(cfg: EDAConfig, rpt: Report):
         cfg.center_crop_size, cfg.normalize
     ))
     base = IMCBaseDictTransform(center_crop_size=cfg.center_crop_size, normalize=cfg.normalize)
+    emb_for_transforms: np.ndarray | None = None
     if isinstance(raw_sample, dict) and "embeddings" in raw_sample:
-        base_out = base(raw_sample["embeddings"])
+        emb = raw_sample["embeddings"]
+        # IMCBaseDictTransform expects 8 spatial views (C,H,W) per key — same as PickleDataset(generate_views=True)
+        if isinstance(emb, np.ndarray) and emb.ndim == 3:
+            emb = make_views(emb, cfg.center_crop_size)
+            rpt(f"  (Applied make_views → shape {emb.shape}, matching training pipeline.)")
+        emb_for_transforms = emb
+        base_out = base(emb_for_transforms)
         rpt(f"  Output type: {type(base_out)}")
         if isinstance(base_out, dict):
             for k, v in base_out.items():
@@ -150,7 +157,12 @@ def check_transform_chain(cfg: EDAConfig, rpt: Report):
     rpt("\n--- After DualOutputTransform + PatchAugmentations ---")
     from eda_config import build_transforms
     dual_train, _ = build_transforms(cfg)
-    full_sample = dual_train(raw_sample)
+    sample_for_dual = (
+        {**raw_sample, "embeddings": emb_for_transforms}
+        if emb_for_transforms is not None
+        else raw_sample
+    )
+    full_sample = dual_train(sample_for_dual)
     rpt(f"  Output is tuple of length {len(full_sample)}")
     names = ["augmented", "argsort_augmented", "perm", "metadata", "paths", "positions"]
     for i, (name, item) in enumerate(zip(names, full_sample)):

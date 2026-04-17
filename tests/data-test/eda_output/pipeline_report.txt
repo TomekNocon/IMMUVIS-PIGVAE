@@ -1,0 +1,196 @@
+
+========================================================================
+  EDA PIPELINE CHECK
+========================================================================
+  Data dir: /raid_encrypted/immucan/embeddings/tnocon/data
+  Seed: 42
+
+========================================================================
+  1. Raw HDF5 Data Inspection
+========================================================================
+
+--- TRAIN: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords/train.h5 ---
+  Keys: ['embeddings', 'metadata', 'paths', 'positions']
+    embeddings: shape=(40843, 768, 16, 16), dtype=float32
+    metadata: shape=(40843, 8, 3), dtype=float32
+    paths: shape=(40843,), dtype=object
+    positions: shape=(40843, 4), dtype=float32
+  Number of samples (first key): 40843
+
+--- TEST: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords/test.h5 ---
+  Keys: ['embeddings', 'metadata', 'paths', 'positions']
+    embeddings: shape=(10197, 768, 16, 16), dtype=float32
+    metadata: shape=(10197, 8, 3), dtype=float32
+    paths: shape=(10197,), dtype=object
+    positions: shape=(10197, 4), dtype=float32
+  Number of samples (first key): 10197
+
+========================================================================
+  2. Transform Chain Verification
+========================================================================
+
+--- Loading one raw sample (no transform) ---
+  Raw sample type: <class 'dict'>
+    'embeddings': shape=(768, 16, 16), dtype=float32
+    'metadata': shape=(8, 3), dtype=float32
+    'paths': type=<class 'bytes'>, len=69
+    'positions': shape=(4,), dtype=float32
+
+--- After IMCBaseDictTransform (center_crop=6, normalize=False) ---
+  (Applied make_views → shape (8, 768, 6, 6), matching training pipeline.)
+  Output type: <class 'dict'>
+    'r0_f': shape=torch.Size([36, 768]), dtype=torch.float32, min=-2.9272, max=2.7562, mean=-0.0121
+    'r0_nf': shape=torch.Size([36, 768]), dtype=torch.float32, min=-2.9272, max=2.7562, mean=-0.0121
+    'r180_f': shape=torch.Size([36, 768]), dtype=torch.float32, min=-2.9272, max=2.7562, mean=-0.0121
+    'r180_nf': shape=torch.Size([36, 768]), dtype=torch.float32, min=-2.9272, max=2.7562, mean=-0.0121
+    'r270_f': shape=torch.Size([36, 768]), dtype=torch.float32, min=-2.9272, max=2.7562, mean=-0.0121
+    'r270_nf': shape=torch.Size([36, 768]), dtype=torch.float32, min=-2.9272, max=2.7562, mean=-0.0121
+    'r90_f': shape=torch.Size([36, 768]), dtype=torch.float32, min=-2.9272, max=2.7562, mean=-0.0121
+    'r90_nf': shape=torch.Size([36, 768]), dtype=torch.float32, min=-2.9272, max=2.7562, mean=-0.0121
+
+--- After DualOutputTransform + PatchAugmentations ---
+  Output is tuple of length 6
+    [0] augmented: shape=torch.Size([8, 36, 768]), dtype=torch.float32, min=-2.9272, max=2.7562
+    [1] argsort_augmented: shape=torch.Size([8, 36]), dtype=torch.int64, min=0.0000, max=35.0000
+    [2] perm: shape=torch.Size([8]), dtype=torch.int64, min=0.0000, max=7.0000
+    [3] metadata: np.array shape=(8, 3), dtype=float32
+    [4] paths: type=<class 'bytes'>
+    [5] positions: np.array shape=(4,), dtype=float32
+
+--- After GridGraphDataset (grid_size=6) ---
+  Tuple length: 8
+    [0] graph: nx.Graph nodes=36, edges=60
+    [1] augmented: shape=torch.Size([8, 36, 768]), dtype=torch.float32
+    [2] argsort: shape=torch.Size([8, 36]), dtype=torch.int64
+    [3] perm: shape=torch.Size([8]), dtype=torch.int64
+    [4] target: type=<class 'int'>
+    [5] metadata: shape=torch.Size([8, 3]), dtype=torch.float32
+    [6] paths: type=<class 'bytes'>
+    [7] positions: shape=torch.Size([4]), dtype=torch.float32
+
+========================================================================
+  3. PCA Diagnostics
+========================================================================
+
+  PCA model path: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords/pca_model_128_center_crop_6.pkl
+  n_components: 128
+  n_features_in_: 768
+  components_ shape: (128, 768)
+  mean_ shape: (768,)
+  explained_variance_ratio_ sum: 0.877532
+  singular_values_ range: [540.0839, 13468.1415]
+
+  Dimension check:
+    Input features:  PCA=768 vs config=768  ✅
+    Output components: PCA=128 vs config=128  ✅
+
+  PCA leakage check:
+    PCA is fit in prepare_data() using ONLY train.h5
+    Test file (test.h5) is NOT used for PCA fitting ✅
+    Welford statistics computed on PCA-projected TRAINING data only ✅
+
+  Explained variance (top-10 components):
+    PC  0: 0.333474  (cumulative: 0.333474)
+    PC  1: 0.066068  (cumulative: 0.399542)
+    PC  2: 0.035812  (cumulative: 0.435354)
+    PC  3: 0.031267  (cumulative: 0.466622)
+    PC  4: 0.030931  (cumulative: 0.497553)
+    PC  5: 0.023159  (cumulative: 0.520712)
+    PC  6: 0.019240  (cumulative: 0.539952)
+    PC  7: 0.016993  (cumulative: 0.556944)
+    PC  8: 0.015223  (cumulative: 0.572168)
+    PC  9: 0.014109  (cumulative: 0.586276)
+    ...
+    PC127: 0.000536  (cumulative: 0.877532)
+
+  Degenerate component check:
+    Components with variance ratio < 1e-6: 0  ✅
+    First component dominance: 0.3800  ✅
+
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/scree_plot.png
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/cumulative_variance.png
+
+========================================================================
+  4. Welford Statistics Check (PCA normalisation)
+========================================================================
+  mean shape: torch.Size([128]), dtype: torch.float32
+  std  shape: torch.Size([128]), dtype: torch.float32
+  mean range: [-0.000000, 0.000000]
+  std  range: [0.158422, 3.926925]
+
+  Near-zero std channels (< 1e-6): 0  ✅
+  Large |mean| channels (> 100): 0  ✅
+
+  Per-component statistics (first 10 / last 5):
+    Comp          mean           std      mean/std
+       0     -0.000000      3.926925     -0.000000
+       1     -0.000000      1.747903     -0.000000
+       2      0.000000      1.286879      0.000000
+       3     -0.000000      1.202445     -0.000000
+       4     -0.000000      1.195968     -0.000000
+       5      0.000000      1.034867      0.000000
+       6     -0.000000      0.943242     -0.000000
+       7     -0.000000      0.886444     -0.000000
+       8     -0.000000      0.839028     -0.000000
+       9     -0.000000      0.807733     -0.000000
+     ...
+     123     -0.000000      0.162086     -0.000000
+     124      0.000000      0.160955      0.000000
+     125      0.000000      0.160424      0.000000
+     126      0.000000      0.159635      0.000000
+     127     -0.000000      0.158422     -0.000000
+
+========================================================================
+  7. Normalization Order Check
+========================================================================
+  Config 'normalize': False
+  normalize=False → raw embeddings go directly into PCA.
+  PCA centers data internally (subtracts pca.mean_) then projects.
+  Post-PCA Welford z-score is applied. ✅
+
+  Pipeline order verified:
+    1. HDF5 → PickleDataset (raw embeddings)
+    2. IMCBaseDictTransform: center_crop=6, norm=False
+    3. PatchAugmentations: 8 augmented views stacked
+    4. GridGraphDataset: grid 6×6 = 36 nodes
+    5. DenseGraphBatch collation: stack into [B*8, N, 512]
+    6. PCALayer: subtract pca_mean_, project 512→128, z-score with Welford stats
+    7. Model input: [B*8, 36, 128]
+
+========================================================================
+  5. Final Model-Input Tensor (after PCA + z-score)
+========================================================================
+  node_features shape: torch.Size([64, 36, 128])  (expected: [B*8, 49, 128])
+  node_features dtype: torch.float32
+  node_features device: cpu
+  min: -5.356438
+  max: 4.527473
+  mean: -0.002018
+  std: 1.054360
+  NaN count: 0  ✅
+  Inf count: 0  ✅
+
+  Shape check: got [64, 36, 128] vs expected [64, 36, 128]  ✅
+
+  edge_features shape: torch.Size([0])
+  mask shape: torch.Size([64, 36]), dtype: torch.bool
+  mask True ratio: 1.0000
+  argsort shape: torch.Size([64, 36])
+  perms shape: torch.Size([64])
+  metadata shape: torch.Size([64, 3])
+  positions shape: torch.Size([32])
+
+========================================================================
+  6. PCA Component Distribution Plots
+========================================================================
+  Collected 115200 node vectors × 128 PCA dims
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/pca_component_distributions.png
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/pca_correlation_matrix.png
+
+  Max off-diagonal |correlation|: 0.0958  ✅
+  Pairs with |corr| > 0.3: 0
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/pca_covariance_matrix.png
+
+========================================================================
+  PIPELINE CHECK COMPLETE
+========================================================================

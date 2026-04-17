@@ -3,7 +3,7 @@ hparams:
   data_dir: ${paths.data_dir}
   batch_size: 16 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
   train_val_test_split: [16, 360, 0, 3996 + 7308 + 10784] # [18108, 5040, 0, 0]
-  num_workers: 7
+  num_workers: 3
   pin_memory: False
   grid_size: 6
   size: 6
@@ -19,6 +19,6 @@ hparams:
   imc_root: "IMC"
   imc_dataset_names: 
     - "cords"
-  zscore: False     # z-score PCA output; False = natural PCA variance weighting
+  zscore: False  # z-score PCA output; False = natural PCA variance weighting
   clip_range: 3.0  # clamp features to [-C, C] after PCA; clips 5-8σ outliers in early PCs
   

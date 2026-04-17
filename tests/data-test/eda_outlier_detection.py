@@ -66,31 +66,44 @@ class Report:
 # Data collection helpers
 # ────────────────────────────────────────────────────────────────────
 
-def collect_data(cfg: EDAConfig, max_batches: int | None = None):
+def collect_data(
+    cfg: EDAConfig,
+    max_batches: int | None = None,
+    max_nodes: int = 500_000,
+):
     """Return (all_nodes, sample_means).
 
-    all_nodes : (total_nodes, D)  – every node vector flattened
-    sample_means : (n_samples, D) – mean feature per sample (graph)
-    sample_node_features : list of (N, D) arrays per sample
+    all_nodes    : (min(total_nodes, max_nodes), D) – node vectors (capped)
+    sample_means : (n_samples, D) – mean feature per sample (full dataset)
+
+    all_nodes is capped at max_nodes to keep memory bounded (~256 MB at
+    500k × 128 float32). sample_means is always collected for all samples
+    because it is 50× smaller.
     """
     loader = build_train_dataloader(cfg, shuffle=False)
     total = len(loader) if max_batches is None else min(max_batches, len(loader))
-    node_chunks = []
-    sample_means = []
-    sample_node_features = []
+    node_chunks: list[np.ndarray] = []
+    sample_means_list: list[np.ndarray] = []
+    collected_nodes = 0
 
     for i, batch in enumerate(tqdm(loader, desc="Collecting data for outlier detection", total=total)):
         nf = batch.node_features.numpy()  # (B*8, N, D)
-        for j in range(nf.shape[0]):
-            sample_node_features.append(nf[j])
-            sample_means.append(nf[j].mean(axis=0))
-        node_chunks.append(nf.reshape(-1, cfg.num_pca_components))
+        sample_means_list.append(nf.mean(axis=1))  # (B*8, D)
+
+        if collected_nodes < max_nodes:
+            flat = nf.reshape(-1, cfg.num_pca_components)
+            remaining = max_nodes - collected_nodes
+            if flat.shape[0] > remaining:
+                flat = flat[:remaining]
+            node_chunks.append(flat)
+            collected_nodes += flat.shape[0]
+
         if max_batches is not None and i >= max_batches - 1:
             break
 
     all_nodes = np.concatenate(node_chunks, axis=0)
-    sample_means = np.stack(sample_means, axis=0)
-    return all_nodes, sample_means, sample_node_features
+    sample_means = np.concatenate(sample_means_list, axis=0)
+    return all_nodes, sample_means
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -100,26 +113,23 @@ def collect_data(cfg: EDAConfig, max_batches: int | None = None):
 def zscore_outliers(cfg: EDAConfig, rpt: Report, all_nodes: np.ndarray, threshold: float = 4.0):
     rpt.section("1. Z-Score Outlier Detection")
 
+    n_total, n_channels = all_nodes.shape
     mean = all_nodes.mean(axis=0)
     std = all_nodes.std(axis=0) + 1e-12
-    z = np.abs((all_nodes - mean) / std)
 
-    outlier_mask = z > threshold
-    n_outlier_nodes = outlier_mask.any(axis=1).sum()
-    n_total = all_nodes.shape[0]
+    z_mask = np.abs((all_nodes - mean) / std) > threshold  # (N, D) bool ~64 MB
+    n_outlier_nodes = int(z_mask.any(axis=1).sum())
+    per_ch_frac = z_mask.mean(axis=0)
     frac = n_outlier_nodes / n_total
 
     rpt(f"  Threshold: |z| > {threshold}")
     rpt(f"  Outlier nodes: {n_outlier_nodes:,} / {n_total:,} ({frac * 100:.2f}%)")
 
-    # Per-channel outlier fraction
-    per_ch_frac = outlier_mask.mean(axis=0)
     rpt(f"\n  Top-10 channels by outlier fraction:")
     top_ch = np.argsort(per_ch_frac)[::-1][:10]
     for ch in top_ch:
         rpt(f"    Ch{ch:4d}: {per_ch_frac[ch] * 100:.3f}%")
 
-    # Plot
     out = cfg.output_dir
     fig, ax = plt.subplots(figsize=(12, 4))
     ax.bar(range(len(per_ch_frac)), per_ch_frac * 100, alpha=0.7)
@@ -133,7 +143,7 @@ def zscore_outliers(cfg: EDAConfig, rpt: Report, all_nodes: np.ndarray, threshol
     plt.close(fig)
     rpt(f"\n  Saved: {out / 'zscore_outlier_fraction.png'}")
 
-    return outlier_mask
+    return n_outlier_nodes, per_ch_frac
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -143,20 +153,21 @@ def zscore_outliers(cfg: EDAConfig, rpt: Report, all_nodes: np.ndarray, threshol
 def iqr_outliers(cfg: EDAConfig, rpt: Report, all_nodes: np.ndarray, k: float = 1.5):
     rpt.section("2. IQR Outlier Detection")
 
+    n_total, n_channels = all_nodes.shape
+
     q1 = np.percentile(all_nodes, 25, axis=0)
     q3 = np.percentile(all_nodes, 75, axis=0)
     iqr = q3 - q1
     lower = q1 - k * iqr
     upper = q3 + k * iqr
 
-    outlier_mask = (all_nodes < lower) | (all_nodes > upper)
-    n_outlier_nodes = outlier_mask.any(axis=1).sum()
-    n_total = all_nodes.shape[0]
+    iqr_mask = (all_nodes < lower) | (all_nodes > upper)  # (N, D) bool ~64 MB
+    n_outlier_nodes = int(iqr_mask.any(axis=1).sum())
+    per_ch_frac = iqr_mask.mean(axis=0)
 
     rpt(f"  IQR multiplier k: {k}")
     rpt(f"  Outlier nodes: {n_outlier_nodes:,} / {n_total:,} ({n_outlier_nodes / n_total * 100:.2f}%)")
 
-    per_ch_frac = outlier_mask.mean(axis=0)
     rpt(f"\n  Top-10 channels by IQR outlier fraction:")
     top_ch = np.argsort(per_ch_frac)[::-1][:10]
     for ch in top_ch:
@@ -173,7 +184,7 @@ def iqr_outliers(cfg: EDAConfig, rpt: Report, all_nodes: np.ndarray, k: float = 
     plt.close(fig)
     rpt(f"\n  Saved: {out / 'iqr_outlier_fraction.png'}")
 
-    return outlier_mask
+    return n_outlier_nodes, per_ch_frac
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -343,8 +354,9 @@ def plot_feature_tails(cfg: EDAConfig, rpt: Report, all_nodes: np.ndarray):
 def outlier_summary(
     cfg: EDAConfig,
     rpt: Report,
-    zscore_mask: np.ndarray,
-    iqr_mask: np.ndarray,
+    z_count: int,
+    iqr_count: int,
+    n_nodes: int,
     if_outliers: np.ndarray,
     lof_outliers_idx: np.ndarray,
     n_samples: int,
@@ -353,10 +365,6 @@ def outlier_summary(
 
     rpt(f"  {'Method':<25s}  {'Outlier Count':>15s}  {'Fraction':>10s}")
     rpt(f"  {'-' * 55}")
-
-    z_count = zscore_mask.any(axis=1).sum()
-    iqr_count = iqr_mask.any(axis=1).sum()
-    n_nodes = zscore_mask.shape[0]
 
     rpt(f"  {'Z-Score (nodes)':<25s}  {z_count:>15,}  {z_count / n_nodes * 100:>9.2f}%")
     rpt(f"  {'IQR (nodes)':<25s}  {iqr_count:>15,}  {iqr_count / n_nodes * 100:>9.2f}%")
@@ -395,19 +403,20 @@ def main():
     rpt.section("EDA OUTLIER DETECTION")
 
     max_batches = None  # Set to e.g. 100 for quick testing
-    all_nodes, sample_means, sample_feats = collect_data(cfg, max_batches=max_batches)
+    all_nodes, sample_means = collect_data(cfg, max_batches=max_batches)
     n_samples = sample_means.shape[0]
+    n_nodes = all_nodes.shape[0]
 
-    rpt(f"  Node vectors: {all_nodes.shape}")
-    rpt(f"  Sample means:  {sample_means.shape}")
+    rpt(f"  Node vectors (capped subsample): {all_nodes.shape}")
+    rpt(f"  Sample means (full dataset):     {sample_means.shape}")
 
-    zscore_mask = zscore_outliers(cfg, rpt, all_nodes)
-    iqr_mask = iqr_outliers(cfg, rpt, all_nodes)
+    z_count, _ = zscore_outliers(cfg, rpt, all_nodes)
+    iqr_count, _ = iqr_outliers(cfg, rpt, all_nodes)
     if_idx, if_scores, if_preds = isolation_forest_outliers(cfg, rpt, sample_means)
     lof_idx, lof_scores, lof_preds = lof_outliers(cfg, rpt, sample_means)
     plot_pca_scatter(cfg, rpt, sample_means, if_idx, lof_idx)
     plot_feature_tails(cfg, rpt, all_nodes)
-    outlier_summary(cfg, rpt, zscore_mask, iqr_mask, if_idx, lof_idx, n_samples)
+    outlier_summary(cfg, rpt, z_count, iqr_count, n_nodes, if_idx, lof_idx, n_samples)
 
     rpt.section("OUTLIER DETECTION COMPLETE")
     rpt.save()

@@ -3,7 +3,7 @@ _target_: lightning.pytorch.trainer.Trainer
 default_root_dir: ${paths.output_dir}
 
 min_epochs: 1 # prevents early stopping
-max_epochs: 100
+max_epochs: 500
 
 accelerator: cpu
 devices: 1
@@ -14,8 +14,8 @@ precision: "16-mixed"
 
 accumulate_grad_batches: 4
 # perform a validation loop every N training epochs
-check_val_every_n_epoch: 5
-log_every_n_steps: 50
+check_val_every_n_epoch: 2
+log_every_n_steps: 2
 enable_checkpointing: true
 enable_progress_bar: true
 enable_model_summary: true

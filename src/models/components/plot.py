@@ -296,6 +296,9 @@ def plot_feature_map(
     # Create figure for each channel (2 channels total)
 
     tensor_data = reshape_feature_map(features, num_example)
+    # Matplotlib cannot convert BFloat16 tensors to NumPy (mixed-precision training).
+    if isinstance(tensor_data, torch.Tensor):
+        tensor_data = tensor_data.detach().float().cpu()
     figures = []
 
     for channel in range(2):  # First 2 channels

@@ -1,0 +1,96 @@
+
+========================================================================
+  EDA BATCH-LEVEL & GRAPH ANALYSIS
+========================================================================
+
+========================================================================
+  1–4. Batch-Level Feature Analysis
+========================================================================
+
+  Number of batches analysed: 5106
+  Batch size (effective): 64
+
+  Batch mean (across channels):
+    Grand mean: 0.000001
+    Std of batch means: 0.012668
+
+  Batch std (across channels):
+    Mean batch std: 0.982970
+    Std of batch stds: 0.037673
+
+  Total NaN across all batches: 0  ✅
+  Total Inf across all batches: 0  ✅
+
+  Max |value| per batch:
+    Mean: 5.5710
+    Max:  14.0789
+    Std:  0.7173
+  Batches with extreme max |value| (>3σ): 68
+    Indices: [68, 245, 250, 432, 475, 488, 595, 603, 617, 675, 777, 833, 837, 925, 1072, 1108, 1129, 1160, 1166, 1169]
+    ⚠️  These batches may cause gradient spikes
+
+  Cross-batch variance per channel (how much batch means fluctuate):
+    Channels with cross-batch mean variance > 0.1: 0
+
+  Outlier-dominated batches (batch mean >3σ from global): 28
+    Indices: [90, 299, 613, 778, 913, 1162, 1232, 1287, 1536, 1859, 1894, 2143, 2224, 2521, 2633, 3029, 3086, 3143, 3481, 3764]
+    Batch 90: mean=-0.0441
+    Batch 299: mean=-0.0434
+    Batch 613: mean=-0.0424
+    Batch 778: mean=-0.0409
+    Batch 913: mean=0.0410
+
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/batch_mean_distribution.png
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/batch_std_distribution.png
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/batch_extreme_values.png
+
+========================================================================
+  5. Graph-Specific Checks
+========================================================================
+  Grid size: 6×6 = 36 nodes
+
+  Reference grid graph:
+    Nodes: 36
+    Edges: 60
+    Connected: True
+    Density: 0.095238
+    Adjacency matrix shape: (36, 36)
+    Adjacency density: 0.092593
+
+  Degree distribution:
+    Min degree: 2
+    Max degree: 4
+    Mean degree: 3.33
+    Isolated nodes: 0  ✅
+    Degree counts: {2: 4, 3: 16, 4: 16}
+
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/graph_degree_distribution.png
+
+  Grid topology analysis:
+    Corner nodes: 4 (degree 2)
+    Edge nodes: 16 (degree 3)
+    Center nodes: 16 (degree 4)
+
+========================================================================
+  6. Node Feature Variance per Graph
+========================================================================
+
+  Per-graph feature variance:
+    Mean: 0.998703
+    Std:  0.214521
+    Min:  0.459654
+    Max:  2.099723
+
+  Per-graph feature range:
+    Mean: 8.317508
+    Std:  1.199550
+    Max:  25.912075
+
+  Graphs with very low variance (<10% of mean): 0
+  Graphs with very high variance (>5x mean): 0
+
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/graph_node_feature_variance.png
+
+========================================================================
+  BATCH & GRAPH ANALYSIS COMPLETE
+========================================================================

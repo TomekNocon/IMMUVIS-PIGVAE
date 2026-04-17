@@ -236,7 +236,7 @@ class PLGraphAE(L.LightningModule):
             if self.perms:
                 perms = self.perms[0]
                 subset_perms = perms[idx_to_show, :, :]
-                permutations = subset_perms.detach().cpu().squeeze().numpy()
+                permutations = subset_perms.detach().cpu().squeeze().float().numpy()
             else:
                 permutations = np.array([])
             subset_predictions = predictions[idx_to_show, :, :]
@@ -263,7 +263,7 @@ class PLGraphAE(L.LightningModule):
 
             diff = pred_imgs - ground_truth_imgs
 
-            pca_predictions = subset_graph_emb.detach().cpu().squeeze().numpy()
+            pca_predictions = subset_graph_emb.detach().cpu().squeeze().float().numpy()
 
             # Calculate shared color scale for predictions and ground truth
             pred_min, pred_max = pred_imgs.min().item(), pred_imgs.max().item()
@@ -358,7 +358,7 @@ class PLGraphAE(L.LightningModule):
             if self.perms:
                 perms = self.perms[0]
                 subset_perms = perms[idx_to_show, :, :]
-                permutations = subset_perms.detach().cpu().squeeze().numpy()
+                permutations = subset_perms.detach().cpu().squeeze().float().numpy()
             else:
                 permutations = np.array([])
             subset_predictions = predictions[idx_to_show, :, :]
@@ -385,6 +385,7 @@ class PLGraphAE(L.LightningModule):
                 .detach()
                 .cpu()
                 .squeeze()
+                .float()
                 .numpy()
             )
             ground_truth_imgs = (
@@ -393,9 +394,10 @@ class PLGraphAE(L.LightningModule):
                 .detach()
                 .cpu()
                 .squeeze()
+                .float()
                 .numpy()
             )
-            pca_predictions = graph_emb.detach().cpu().squeeze().numpy()
+            pca_predictions = graph_emb.detach().cpu().squeeze().float().numpy()
             fig_prediction = pL.plot_images_all_perm(pred_imgs, n_rows=n_examples, n_cols=8)
             fig_ground_truth = pL.plot_images_all_perm(
                 ground_truth_imgs, n_rows=n_examples, n_cols=8

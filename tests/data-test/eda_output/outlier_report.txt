@@ -1,0 +1,94 @@
+
+========================================================================
+  EDA OUTLIER DETECTION
+========================================================================
+  Node vectors (capped subsample): (500000, 128)
+  Sample means (full dataset):     (326744, 128)
+
+========================================================================
+  1. Z-Score Outlier Detection
+========================================================================
+  Threshold: |z| > 4.0
+  Outlier nodes: 34,906 / 500,000 (6.98%)
+
+  Top-10 channels by outlier fraction:
+    Ch   9: 0.525%
+    Ch   8: 0.416%
+    Ch  14: 0.371%
+    Ch  60: 0.267%
+    Ch  16: 0.226%
+    Ch  25: 0.210%
+    Ch  27: 0.206%
+    Ch  21: 0.187%
+    Ch  24: 0.182%
+    Ch  48: 0.149%
+
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/zscore_outlier_fraction.png
+
+========================================================================
+  2. IQR Outlier Detection
+========================================================================
+  IQR multiplier k: 1.5
+  Outlier nodes: 384,399 / 500,000 (76.88%)
+
+  Top-10 channels by IQR outlier fraction:
+    Ch   9: 8.728%
+    Ch  22: 8.198%
+    Ch   8: 7.624%
+    Ch  24: 5.453%
+    Ch  16: 5.434%
+    Ch  45: 5.176%
+    Ch  19: 4.656%
+    Ch  14: 4.405%
+    Ch   6: 3.829%
+    Ch   2: 3.675%
+
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/iqr_outlier_fraction.png
+
+========================================================================
+  3. Isolation Forest (sample-level)
+========================================================================
+  contamination: 0.05
+  Input shape: (326744, 128)
+  Sub-sampled to 20000 samples for fitting
+  Outliers detected: 998 / 20000 (4.99%)
+  Score range: [-0.1147, 0.1077]
+
+========================================================================
+  4. Local Outlier Factor (sample-level)
+========================================================================
+  contamination: 0.05
+  Sub-sampled to 20000 samples for fitting
+  Outliers detected: 1000 / 20000 (5.00%)
+  LOF score range: [-2.1561, -0.9632]
+
+========================================================================
+  5. PCA Scatter Plot with Outlier Highlighting
+========================================================================
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/pca_scatter_outliers.png
+
+========================================================================
+  6. Feature Tail Distribution Analysis
+========================================================================
+  Saved: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/feature_tail_distributions.png
+  Fraction of nodes beyond 3σ: 0.577%
+  Fraction of nodes beyond 4σ: 0.063%
+  Fraction of nodes beyond 5σ: 0.007%
+
+========================================================================
+  7. Outlier Detection Summary
+========================================================================
+  Method                       Outlier Count    Fraction
+  -------------------------------------------------------
+  Z-Score (nodes)                     34,906       6.98%
+  IQR (nodes)                        384,399      76.88%
+  Isolation Forest (samples)              998       0.31%
+  LOF (samples)                        1,000       0.31%
+
+  Saved outlier indices to: /home/tnocon/master_thesis/IMMUVIS-PIGVAE/tests/data-test/eda_output/outlier_sample_indices.npz
+
+  ✅ Outlier fraction is within normal range (<5%)
+
+========================================================================
+  OUTLIER DETECTION COMPLETE
+========================================================================

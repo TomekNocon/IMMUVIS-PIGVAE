@@ -57,19 +57,19 @@ from src.data.components.graphs_datamodules import (
 class EDAConfig:
     """All paths and hyper-parameters needed to reproduce the training data pipeline."""
 
-    data_dir: str = "/raid/tnocon/data"
+    data_dir: str = "/raid_encrypted/immucan/embeddings/tnocon/data"
     batch_size: int = 8
-    train_val_test_split: list[int] = field(default_factory=lambda: [10080, 3600, 0, 0])
+    train_val_test_split: list[int] = field(default_factory=lambda: [40_843, 10_197, 0, 0])
     num_workers: int = 0  # keep 0 for deterministic single-process loading
     pin_memory: bool = False
-    grid_size: int = 7
-    size: int = 7
+    grid_size: int = 6
+    size: int = 6
     patch_size: int = 1
     augmentation_prob: float = 1.0
     is_contrastive: bool = True
     num_aug_per_sample: int = 8
-    center_crop_size: int = 7
-    num_channels: int = 512
+    center_crop_size: int = 6
+    num_channels: int = 768
     num_pca_components: int = 128
     num_node_features: int = 128
     normalize: bool = False  # PCA handles normalisation
@@ -77,23 +77,23 @@ class EDAConfig:
     # Derived paths
     @property
     def train_h5(self) -> Path:
-        return Path(self.data_dir) / "IMC" / "nsclc2_panel1_train.h5"
+        return Path(self.data_dir) / "IMC" / "cords" / "train.h5"
 
     @property
     def test_h5(self) -> Path:
-        return Path(self.data_dir) / "IMC" / "nsclc2_panel1_test.h5"
+        return Path(self.data_dir) /"IMC"/ "cords" / "test.h5"
 
     @property
     def pca_model_path(self) -> Path:
         return (
             Path(self.data_dir)
-            / "IMC"
+            / "IMC" / "cords"
             / f"pca_model_{self.num_pca_components}_center_crop_{self.center_crop_size}.pkl"
         )
 
     @property
     def statistics_path(self) -> Path:
-        return Path(self.data_dir) / "IMC" / "imc_statistics.pt"
+        return Path(self.data_dir) / "IMC" / "cords" / f"imc_statistics_{self.num_pca_components}_center_crop_{self.center_crop_size}.pt"
 
     # Output directory for EDA artefacts
     @property
@@ -138,8 +138,8 @@ def build_train_val_test(cfg: EDAConfig):
     """Return (data_train, data_val, data_test) Subset objects."""
     dual_train, dual_val = build_transforms(cfg)
 
-    trainset = PickleDataset(cfg.train_h5, transform=dual_train)
-    testset = PickleDataset(cfg.test_h5, transform=dual_val)
+    trainset = PickleDataset(cfg.train_h5, transform=dual_train, generate_views=True, center_crop_size=cfg.center_crop_size)
+    testset = PickleDataset(cfg.test_h5, transform=dual_val, generate_views=True, center_crop_size=cfg.center_crop_size)
 
     train_ratio, val_ratio, test_ratio, _ = cfg.train_val_test_split
     size_trainset = len(trainset)
@@ -198,7 +198,7 @@ def build_train_dataloader(cfg: EDAConfig, shuffle: bool = False):
 # ---------------------------------------------------------------------------
 
 def build_raw_train_dataloader(cfg: EDAConfig, shuffle: bool = False):
-    """Return a DataLoader without PCA (raw 512-dim features)."""
+    """Return a DataLoader without PCA (raw 768-dim features)."""
     data_train, _, _ = build_train_val_test(cfg)
 
     train_dataset = GridGraphDataset(
@@ -222,11 +222,19 @@ def build_raw_train_dataloader(cfg: EDAConfig, shuffle: bool = False):
 # ---------------------------------------------------------------------------
 
 def build_embeddings_only_loader(cfg: EDAConfig):
-    """Dataloader that returns only node embeddings (no graph), for PCA fitting checks."""
-    dual_train, _ = build_transforms(cfg)
-    dataset = PickleDataset(cfg.train_h5, transform=dual_train, only_embeddings=True)
+    """Dataloader that returns only augmented tensors (no graph), for PCA fitting checks.
 
-    # Apply same split
+    Each batch element is ``batch[0]`` after default collate (the stacked augmented tensor).
+    """
+    dual_train, _ = build_transforms(cfg)
+    dataset = PickleDataset(
+        cfg.train_h5,
+        transform=dual_train,
+        generate_views=True,
+        center_crop_size=cfg.center_crop_size,
+        only_embeddings=True,
+    )
+
     train_ratio = cfg.train_val_test_split[0]
     size = len(dataset)
     data_train, _ = random_split(
@@ -234,13 +242,12 @@ def build_embeddings_only_loader(cfg: EDAConfig):
         lengths=[train_ratio, size - train_ratio],
         generator=torch.Generator().manual_seed(cfg.seed),
     )
-    loader = DataLoader(
+    return DataLoader(
         data_train,
         batch_size=cfg.batch_size,
         num_workers=cfg.num_workers,
         shuffle=False,
     )
-    return loader
 
 
 def set_seed(seed: int = 42):

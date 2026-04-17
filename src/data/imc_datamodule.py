@@ -18,6 +18,7 @@ from src.data.components.graphs_datamodules import (
     PCADenseGraphCollator,
     PCALayer,
     PickleDataset,
+    WelfordOnline,
 )
 
 
@@ -156,13 +157,13 @@ class IMCDataModule(LightningDataModule):
     def _pca_path(self) -> Path:
         return (
             Path(self.data_dir)
-            / self.imc_root
+            / self.imc_root / self.imc_dataset_names[0]
             / f"pca_model_{self.num_pca_components}_center_crop_{self.center_crop_size}.pkl"
         )
     def _statistics_path(self) -> Path:
         return (
             Path(self.data_dir)
-            / self.imc_root
+            / self.imc_root / self.imc_dataset_names[0]
             / f"imc_statistics_{self.num_pca_components}_center_crop_{self.center_crop_size}.pt"
         )
 
@@ -210,21 +211,24 @@ class IMCDataModule(LightningDataModule):
                     n_components=self.num_pca_components, batch_size=self.batch_size
                 )
 
-                for node_features in tqdm(loader, desc="Fitting IncrementalPCA", leave=True):
-                    node_features = node_features[: self.batch_size, :, :]
-                    x = node_features.reshape(-1, self.num_channels)
+                for batch in tqdm(loader, desc="Fitting IncrementalPCA", leave=True):
+                    # Default collate stacks DualOutputTransform output: (augmented, argsort, perm, ...)
+                    augmented = batch[0][: self.batch_size]
+                    x = augmented.reshape(-1, self.num_channels).detach().cpu().numpy()
+                    if x.shape[0] < self.num_pca_components:
+                        continue
                     ipca.partial_fit(x)
 
                 joblib.dump(ipca, str(pca_model_path))
-                # welford_online = WelfordOnline(self.num_pca_components)
-                # for node_features in tqdm(loader, desc="Computing Welford Online", leave=True):
-                #     node_features = node_features[: self.batch_size, :, :]
-                #     x = node_features.view(-1, self.num_channels).cpu().numpy()
-                #     x_proj_np = ipca.transform(x)
-                #     x_proj_torch = torch.from_numpy(x_proj_np)
-                #     welford_online.update(x_proj_torch)
-                # mean, std = welford_online.finalize()
-                # torch.save({"mean": mean, "std": std}, statistics_path)
+                welford_online = WelfordOnline(self.num_pca_components)
+                for batch in tqdm(loader, desc="Computing Welford Online", leave=True):
+                    augmented = batch[0][: self.batch_size]
+                    x = augmented.reshape(-1, self.num_channels).detach().cpu().numpy()
+                    x_proj_np = ipca.transform(x)
+                    x_proj_torch = torch.from_numpy(x_proj_np)
+                    welford_online.update(x_proj_torch)
+                mean, std = welford_online.finalize()
+                torch.save({"mean": mean, "std": std}, statistics_path)
 
         # DDP sync
         if torch.distributed.is_initialized():

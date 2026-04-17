@@ -7,7 +7,7 @@ graph_ae:
     num_heads: 4
     num_layers: 3
     emb_dim: 768
-    vae: True
+    vae: false
     dropout: 0.1
     encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
@@ -137,7 +137,7 @@ critic:
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.0007
+  lr: 0.001
   weight_decay: 0.01
   # betas: [0.9, 0.9995]
   # eps: 1e-8
@@ -147,7 +147,7 @@ scheduler:
   batch_size: ${data.hparams.batch_size}
   type: one_cycle
   warmup: 0.05
-  max_lr: 0.0007
+  max_lr: 0.001
   div_factor: 10          
   final_div_factor: 100
 

@@ -70,55 +70,69 @@ class Report:
 # Data collection
 # ────────────────────────────────────────────────────────────────────
 
-def collect_all_features(
+def collect_features(
     cfg: EDAConfig,
     max_batches: int | None = None,
-) -> np.ndarray:
-    """Collect all post-PCA node features from the training set.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Single-pass collection of all post-PCA node features.
 
     Returns
     -------
-    all_features : np.ndarray, shape (total_nodes, num_pca_components)
+    all_features : np.ndarray, shape (total_nodes, D)
+        All node vectors flattened across samples.
+    node_mean : np.ndarray, shape (N, D)
+        Per-node mean across all samples (Welford streaming).
+    node_M2 : np.ndarray, shape (N, D)
+        Per-node sum of squared deviations (use to compute std).
+    n_samples : int
+        Total number of graph samples collected.
     """
     loader = build_train_dataloader(cfg, shuffle=False)
     total = len(loader) if max_batches is None else min(max_batches, len(loader))
-    chunks = []
+
+    chunks: list[np.ndarray] = []
+    # Welford accumulators for per-node stats — avoids storing all samples
+    node_mean: np.ndarray | None = None
+    node_M2: np.ndarray | None = None
+    n_samples = 0
+
     for i, batch in enumerate(tqdm(loader, desc="Collecting features", total=total)):
-        nf = batch.node_features  # (B*8, N, D)
-        chunks.append(nf.reshape(-1, cfg.num_pca_components).numpy())
-        if max_batches is not None and i >= max_batches - 1:
-            break
-    return np.concatenate(chunks, axis=0)
-
-
-def collect_per_sample_features(
-    cfg: EDAConfig,
-    max_batches: int | None = None,
-) -> list[np.ndarray]:
-    """Return list of per-sample arrays, each shape (N, D)."""
-    loader = build_train_dataloader(cfg, shuffle=False)
-    total = len(loader) if max_batches is None else min(max_batches, len(loader))
-    samples = []
-    for i, batch in enumerate(tqdm(loader, desc="Collecting per-sample", total=total)):
         nf = batch.node_features.numpy()  # (B*8, N, D)
+        chunks.append(nf.reshape(-1, cfg.num_pca_components))
+
+        # Welford online update per sample
         for j in range(nf.shape[0]):
-            samples.append(nf[j])
+            sample = nf[j]  # (N, D)
+            n_samples += 1
+            if node_mean is None:
+                node_mean = np.zeros_like(sample, dtype=np.float64)
+                node_M2 = np.zeros_like(sample, dtype=np.float64)
+            delta = sample - node_mean
+            node_mean += delta / n_samples
+            node_M2 += delta * (sample - node_mean)
+
         if max_batches is not None and i >= max_batches - 1:
             break
-    return samples
+
+    all_features = np.concatenate(chunks, axis=0)
+    return all_features, node_mean, node_M2, n_samples
 
 
 # ────────────────────────────────────────────────────────────────────
 # 1. Dataset-Level Summary
 # ────────────────────────────────────────────────────────────────────
 
-def dataset_level_summary(cfg: EDAConfig, rpt: Report, all_feats: np.ndarray, samples: list[np.ndarray]):
+def dataset_level_summary(
+    cfg: EDAConfig,
+    rpt: Report,
+    all_feats: np.ndarray,
+    n_samples: int,
+    nodes_per_sample: int,
+):
     rpt.section("1. Dataset-Level Summary")
 
     n_total_nodes = all_feats.shape[0]
     n_channels = all_feats.shape[1]
-    n_samples = len(samples)
-    nodes_per_sample = samples[0].shape[0] if samples else 0
 
     rpt(f"  Number of graph samples (B*8 per batch): {n_samples}")
     rpt(f"  Nodes per sample: {nodes_per_sample}")
@@ -137,17 +151,6 @@ def dataset_level_summary(cfg: EDAConfig, rpt: Report, all_feats: np.ndarray, sa
     inf_count = np.isinf(all_feats).sum()
     rpt(f"\n  NaN count: {nan_count}  {'⚠️' if nan_count > 0 else '✅'}")
     rpt(f"  Inf count: {inf_count}  {'⚠️' if inf_count > 0 else '✅'}")
-
-    # Duplicate detection (sample-level)
-    rpt(f"\n  Checking for duplicate samples...")
-    sample_hashes = set()
-    dups = 0
-    for s in samples:
-        h = hash(s.tobytes())
-        if h in sample_hashes:
-            dups += 1
-        sample_hashes.add(h)
-    rpt(f"  Duplicate samples: {dups}  {'⚠️' if dups > 0 else '✅'}")
 
     # Global statistics
     rpt(f"\n  Global feature statistics:")
@@ -281,25 +284,37 @@ def per_feature_analysis(cfg: EDAConfig, rpt: Report, all_feats: np.ndarray):
 # 3. Per-Node Analysis
 # ────────────────────────────────────────────────────────────────────
 
-def per_node_analysis(cfg: EDAConfig, rpt: Report, samples: list[np.ndarray]):
+def per_node_analysis(
+    cfg: EDAConfig,
+    rpt: Report,
+    node_mean: np.ndarray,
+    node_M2: np.ndarray,
+    n_samples: int,
+):
+    """Per-node analysis using Welford streaming accumulators.
+
+    Parameters
+    ----------
+    node_mean : np.ndarray, shape (N, D)
+    node_M2   : np.ndarray, shape (N, D)  — sum of squared deviations
+    n_samples : int
+    """
     rpt.section("3. Per-Node Analysis (across dataset)")
 
-    if not samples:
+    if node_mean is None or n_samples == 0:
         rpt("  No samples collected.")
         return
 
-    n_nodes = samples[0].shape[0]
-    n_channels = samples[0].shape[1]
-    n_samples = len(samples)
+    n_nodes, n_channels = node_mean.shape
     out = cfg.output_dir
 
-    # Stack all samples: (n_samples, n_nodes, n_channels)
-    all_samples = np.stack(samples, axis=0)
+    # Variance: M2 / (n-1) for sample variance; mean over channels for scalar per node
+    node_var_nd = node_M2 / max(n_samples - 1, 1)           # (N, D)
+    node_std_nd = np.sqrt(node_var_nd)                       # (N, D)
 
-    # Per-node statistics (mean/std/var across samples and channels)
-    node_means = all_samples.mean(axis=(0, 2))  # (n_nodes,)
-    node_stds = all_samples.std(axis=(0, 2))
-    node_vars = all_samples.var(axis=(0, 2))
+    node_means_scalar = node_mean.mean(axis=1)               # (N,)
+    node_stds_scalar = node_std_nd.mean(axis=1)              # (N,)
+    node_vars_scalar = node_var_nd.mean(axis=1)              # (N,)
 
     rpt(f"\n  Nodes: {n_nodes}, Samples: {n_samples}, Channels: {n_channels}")
     rpt(f"\n  {'Node':>6s}  {'mean':>10s}  {'std':>10s}  {'var':>10s}  {'Flags':s}")
@@ -309,10 +324,9 @@ def per_node_analysis(cfg: EDAConfig, rpt: Report, samples: list[np.ndarray]):
     low_var_nodes = []
 
     for n in range(n_nodes):
-        node_data = all_samples[:, n, :]  # (n_samples, n_channels)
-        m = node_data.mean()
-        s = node_data.std()
-        v = node_data.var()
+        m = float(node_means_scalar[n])
+        s = float(node_stds_scalar[n])
+        v = float(node_vars_scalar[n])
         flags = []
         if s < 1e-5:
             flags.append("CONSTANT")
@@ -334,18 +348,15 @@ def per_node_analysis(cfg: EDAConfig, rpt: Report, samples: list[np.ndarray]):
     rpt(f"    Low-variance nodes (0 < var < 0.01): {len(low_var_nodes)}  "
         f"{'⚠️' if low_var_nodes else '✅'}")
 
-    # Plot node mean and std
+    # Plot node mean and std (heatmaps over node_mean / node_std_nd)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
-    # Mean across dataset per node
-    per_node_mean = all_samples.mean(axis=0)  # (n_nodes, n_channels)
-    ax1.imshow(per_node_mean.T, aspect="auto", cmap="RdBu_r")
+    ax1.imshow(node_mean.T, aspect="auto", cmap="RdBu_r")
     ax1.set_xlabel("Node Index")
     ax1.set_ylabel("Channel")
     ax1.set_title("Mean Activation per Node × Channel")
 
-    per_node_std = all_samples.std(axis=0)  # (n_nodes, n_channels)
-    im2 = ax2.imshow(per_node_std.T, aspect="auto", cmap="hot")
+    im2 = ax2.imshow(node_std_nd.T, aspect="auto", cmap="hot")
     ax2.set_xlabel("Node Index")
     ax2.set_ylabel("Channel")
     ax2.set_title("Std Activation per Node × Channel")
@@ -358,9 +369,9 @@ def per_node_analysis(cfg: EDAConfig, rpt: Report, samples: list[np.ndarray]):
 
     # Node variance bar chart
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.bar(range(n_nodes), node_vars, alpha=0.7)
+    ax.bar(range(n_nodes), node_vars_scalar, alpha=0.7)
     ax.set_xlabel("Node Index")
-    ax.set_ylabel("Variance (across samples & channels)")
+    ax.set_ylabel("Variance (mean across channels)")
     ax.set_title("Per-Node Variance")
     fig.tight_layout()
     fig.savefig(out / "node_variance.png", dpi=150)
@@ -405,9 +416,17 @@ def per_channel_analysis(cfg: EDAConfig, rpt: Report, all_feats: np.ndarray):
     plt.close(fig)
     rpt(f"\n  Saved: {out / 'channel_variance_importance.png'}")
 
-    # Correlation matrix
-    rpt(f"\n  Computing correlation matrix...")
-    corr = np.corrcoef(all_feats.T)  # (D, D)
+    # Correlation / covariance: subsample to avoid OOM on full ~11M-row matrix
+    _CORR_SAMPLES = 100_000
+    if all_feats.shape[0] > _CORR_SAMPLES:
+        rng = np.random.default_rng(0)
+        idx = rng.choice(all_feats.shape[0], size=_CORR_SAMPLES, replace=False)
+        feats_sub = all_feats[idx]
+    else:
+        feats_sub = all_feats
+
+    rpt(f"\n  Computing correlation matrix (on {feats_sub.shape[0]:,} samples)...")
+    corr = np.corrcoef(feats_sub.T)  # (D, D)
 
     fig, ax = plt.subplots(figsize=(10, 8))
     im = ax.imshow(corr, vmin=-1, vmax=1, cmap="RdBu_r", aspect="auto")
@@ -443,8 +462,9 @@ def per_channel_analysis(cfg: EDAConfig, rpt: Report, all_feats: np.ndarray):
             if count >= 10:
                 break
 
-    # Covariance matrix
-    cov = np.cov(all_feats.T)
+    # Covariance matrix (reuse same subsample)
+    rpt(f"\n  Computing covariance matrix (on {feats_sub.shape[0]:,} samples)...")
+    cov = np.cov(feats_sub.T)
     fig, ax = plt.subplots(figsize=(10, 8))
     im = ax.imshow(cov, cmap="viridis", aspect="auto")
     ax.set_title("Channel Covariance Matrix")
@@ -498,8 +518,10 @@ def convergence_diagnostics(cfg: EDAConfig, rpt: Report, all_feats: np.ndarray, 
     if zero_var > 0:
         risks.append(f"{zero_var} channels with near-zero variance – dead features")
 
-    # 5f. Highly correlated features
-    corr = np.corrcoef(all_feats.T)
+    # 5f. Highly correlated features (subsample to avoid OOM)
+    _CORR_SAMPLES = 100_000
+    feats_sub = all_feats[np.random.default_rng(0).choice(all_feats.shape[0], size=min(_CORR_SAMPLES, all_feats.shape[0]), replace=False)]
+    corr = np.corrcoef(feats_sub.T)
     np.fill_diagonal(corr, 0)
     n_high = (np.abs(corr) > 0.7).sum() // 2
     if n_high > 0:
@@ -544,14 +566,15 @@ def main():
 
     # Use max_batches=None for full analysis, or a smaller number for quick checks
     max_batches = None  # Set to e.g. 100 for quick debugging
-    all_feats = collect_all_features(cfg, max_batches=max_batches)
-    samples = collect_per_sample_features(cfg, max_batches=max_batches)
+    all_feats, node_mean, node_M2, n_samples = collect_features(cfg, max_batches=max_batches)
 
+    # nodes_per_sample = N (grid size, constant across dataset)
+    nodes_per_sample = node_mean.shape[0] if node_mean is not None else 0
     rpt(f"  Total feature matrix shape: {all_feats.shape}")
 
-    dataset_level_summary(cfg, rpt, all_feats, samples)
+    # dataset_level_summary(cfg, rpt, all_feats, n_samples, nodes_per_sample)
     stats_rows = per_feature_analysis(cfg, rpt, all_feats)
-    per_node_analysis(cfg, rpt, samples)
+    # per_node_analysis(cfg, rpt, node_mean, node_M2, n_samples)
     per_channel_analysis(cfg, rpt, all_feats)
     convergence_diagnostics(cfg, rpt, all_feats, stats_rows)
 

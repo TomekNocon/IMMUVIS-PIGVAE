@@ -266,10 +266,10 @@ class IMCBaseDictTransform(nn.Module):
                 embedding = embedding.squeeze(0)
                 c, _, _ = embedding.shape
 
-                if self.center_crop_size:
-                    center_crop = T.CenterCrop((self.center_crop_size, self.center_crop_size))
-                    embedding = center_crop(embedding)
-                    c, _, _ = embedding.shape  # Update dimensions after crop
+                # if self.center_crop_size:
+                #     center_crop = T.CenterCrop((self.center_crop_size, self.center_crop_size))
+                #     embedding = center_crop(embedding)
+                #     c, _, _ = embedding.shape  # Update dimensions after crop
 
                 if self.clip_percentiles and self.clip_type != "none":
                     embedding = self._clip_by_percentile(
@@ -285,7 +285,7 @@ class IMCBaseDictTransform(nn.Module):
                         # Normalize all features together
                         embedding = self._normalize_global(embedding)
 
-                embedding = torch.arcsinh(embedding / 5)
+                # embedding = torch.arcsinh(embedding / 5)
                 # Reshape to [N, C] where N = H*W
                 embedding = embedding.reshape(c, -1).T
 
