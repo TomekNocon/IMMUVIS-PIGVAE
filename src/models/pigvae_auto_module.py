@@ -69,14 +69,11 @@ class PLGraphAE(L.LightningModule):
         compile: bool,
     ) -> None:
         super().__init__()
-        self.save_hyperparameters(ignore=["graph_ae"])
-        self.save_hyperparameters(ignore=["critic"])
-        self.save_hyperparameters(ignore=["temperature_scheduler"])
-        self.save_hyperparameters(ignore=["entropy_weight_scheduler"])
-        self.save_hyperparameters(ignore=["kld_alpha_scheduler"])
-        # self.save_hyperparameters(ignore=["beta_weight_scheduler"])
-        # self.save_hyperparameters(ignore=["gamma_weight_scheduler"])
-        self.save_hyperparameters(logger=False)
+        self.save_hyperparameters(
+            ignore=["graph_ae", "critic", "temperature_scheduler",
+                    "entropy_weight_scheduler", "kld_alpha_scheduler"],
+            logger=False,
+        )
         self.graph_ae = graph_ae
         self.critic = critic
         self.temperature_scheduler = temperature_scheduler
