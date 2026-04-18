@@ -47,7 +47,9 @@ class Critic(torch.nn.Module):
             normalize_by_latent_dim=True, free_bits=hparams.get("kld_free_bits", 0.0)
         )
 
-        self.permutation_loss = PermutationLoss()
+        self.permutation_loss = PermutationLoss(
+            num_permutations=int(getattr(hparams, "num_aug_per_sample", 8))
+        )
         self.mae_loss = MAELoss()
         self.signal_to_noise_ratio_loss = SignalToNoiseRatioLoss()
         self.mse_loss = MSEGridLoss()

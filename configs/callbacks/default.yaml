@@ -5,6 +5,7 @@ defaults:
   - rich_progress_bar
   - learning_rate
   - activation_monitor
+  - permutation_diagnostics
   - _self_
 
 model_checkpoint:

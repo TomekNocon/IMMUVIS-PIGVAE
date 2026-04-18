@@ -61,7 +61,9 @@ graph_ae:
       grid_size: 6
       break_symmetry_scale: 0.05
       emb_dim: ${model.graph_ae.hparams.emb_dim}
-      turn_off: False
+      turn_off: True          # initial state; overridden by curriculum_epoch at runtime
+      curriculum_epoch: 250   # switch to learned permuter at this epoch (-1 to disable)
+      freeze_epochs: 150      # freeze enc/dec for this many epochs after curriculum switch
       use_ce: False
       use_context: False
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
@@ -70,8 +72,8 @@ graph_ae:
 temperature_scheduler:
   _target_: "src.models.components.schedulers.TemperatureScheduler"
   hparams:
-    initial_tau: 2.0
-    final_tau: 0.8
+    initial_tau: 1.0
+    final_tau: 0.5
     num_epochs: ${trainer.max_epochs}
     start_epoch: ${trainer.min_epochs}
 
@@ -118,7 +120,7 @@ critic:
     kld_loss_scale: 0.0005  # Increased 10x from 0.0001 - prevents ignoring latent code
     kld_free_bits: 2.0  # Free-bits as margin: allow 2 nats/dim before penalizing
 
-    perm_loss_scale: 0.8
+    perm_loss_scale: 0.05  # Sinkhorn already enforces bijective assignment; this is a soft backup only
     contrastive_loss_scale: 0.01
     temperature: 0.07
     num_aug_per_sample: ${data.hparams.num_aug_per_sample}
@@ -137,18 +139,18 @@ critic:
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.001
-  weight_decay: 0.01
+  lr: 0.0001
+  weight_decay: 0.0001
   # betas: [0.9, 0.9995]
   # eps: 1e-8
   # fused: true  # remove if your build doesn't support it
 
 scheduler:
   batch_size: ${data.hparams.batch_size}
-  type: one_cycle
+  type: cosine_warmup
   warmup: 0.05
-  max_lr: 0.001
-  div_factor: 10          
+  max_lr: 0.0001
+  div_factor: 10
   final_div_factor: 100
 
 compile: false

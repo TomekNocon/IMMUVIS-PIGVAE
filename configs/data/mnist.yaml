@@ -19,6 +19,6 @@ hparams:
   imc_root: "IMC"
   imc_dataset_names: 
     - "cords"
-  zscore: False  # z-score PCA output; False = natural PCA variance weighting
+  zscore: True   # z-score PCA output so all 128 components contribute equally to the loss
   clip_range: 3.0  # clamp features to [-C, C] after PCA; clips 5-8σ outliers in early PCs
   

@@ -78,14 +78,15 @@ class SklearnSpectralEmbedding(nn.Module):
         self.register_buffer("sorted_eigenvecs", sorted_eigenvecs)
  
         self.proj = nn.Linear(n_components, d_model)
+        self.proj_norm = nn.LayerNorm(d_model)
         self.to_project = d_model != n_components
- 
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch, _, _ = x.shape
         embedding = self.sorted_eigenvecs.unsqueeze(0).expand(batch, -1, -1)  # no copy
         if self.to_project:
-            embedding = self.proj(embedding)
- 
+            embedding = self.proj_norm(self.proj(embedding))
+
         # dropout before adding, not after — keeps x scale stable
         embedding = self.dropout(embedding)
         return x + embedding

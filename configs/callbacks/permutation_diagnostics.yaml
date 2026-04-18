@@ -1,0 +1,2 @@
+permutation_diagnostics:
+  _target_: src.utils.callbacks.permutation_diagnostics.PermutationDiagnosticsCallback

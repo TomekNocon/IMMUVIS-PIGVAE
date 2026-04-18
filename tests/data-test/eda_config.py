@@ -73,6 +73,8 @@ class EDAConfig:
     num_pca_components: int = 128
     num_node_features: int = 128
     normalize: bool = False  # PCA handles normalisation
+    zscore: bool = True      # must match configs/data/mnist.yaml
+    clip_range: float = 3.0  # must match configs/data/mnist.yaml
 
     # Derived paths
     @property
@@ -164,7 +166,7 @@ def build_train_val_test(cfg: EDAConfig):
 
 def build_pca_layer(cfg: EDAConfig) -> PCALayer:
     """Load the fitted PCA layer used during training."""
-    return PCALayer(cfg.pca_model_path, cfg.statistics_path)
+    return PCALayer(cfg.pca_model_path, cfg.statistics_path, zscore=cfg.zscore, clip_range=cfg.clip_range)
 
 
 # ---------------------------------------------------------------------------

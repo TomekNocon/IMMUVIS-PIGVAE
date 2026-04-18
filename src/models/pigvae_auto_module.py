@@ -109,7 +109,30 @@ class PLGraphAE(L.LightningModule):
             - A tensor of target labels.
         """
 
+    def _apply_curriculum(self) -> None:
+        permuter = self.graph_ae.permuter
+        if permuter.curriculum_epoch <= 0:
+            return
+
+        was_off = permuter.turn_off
+        permuter.turn_off = self.current_epoch < permuter.curriculum_epoch
+        self.log("permuter/turn_off", float(permuter.turn_off), batch_size=1)
+
+        freeze_epochs = getattr(permuter, "freeze_epochs", 0)
+        if freeze_epochs > 0:
+            # Freeze enc/dec for `freeze_epochs` after curriculum switch to let permuter warm up
+            in_freeze_window = (
+                permuter.curriculum_epoch
+                <= self.current_epoch
+                < permuter.curriculum_epoch + freeze_epochs
+            )
+            for name, param in self.graph_ae.named_parameters():
+                if "permuter" not in name:
+                    param.requires_grad = not in_freeze_window
+            self.log("permuter/enc_dec_frozen", float(in_freeze_window), batch_size=1)
+
     def training_step(self, graph: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
+        self._apply_curriculum()
         tau = self.temperature_scheduler(self.current_epoch)
         beta = self.entropy_weight_scheduler(self.current_epoch)
         alpha = self.kld_alpha_scheduler(self.current_epoch)
@@ -139,6 +162,7 @@ class PLGraphAE(L.LightningModule):
         "Lightning hook that is called when a training epoch ends."
 
     def validation_step(self, graph: DenseGraphBatch, batch_idx: int) -> dict[str, Any]:
+        self._apply_curriculum()
         tau = self.temperature_scheduler(self.current_epoch)
         beta = self.entropy_weight_scheduler(self.current_epoch)
         alpha = self.kld_alpha_scheduler(self.current_epoch)
@@ -148,7 +172,7 @@ class PLGraphAE(L.LightningModule):
         # self.critic.reconstruction_loss.weights["beta"] = recon_beta
         # self.critic.reconstruction_loss.weights["gamma"] = recon_gamma
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
-            graph=graph, training=True, tau=tau
+            graph=graph, training=False, tau=tau
         )
 
         if perm is not None:

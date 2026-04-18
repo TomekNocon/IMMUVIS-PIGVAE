@@ -27,17 +27,17 @@ class GraphAE(torch.nn.Module):
 
     def encode(
         self, graph: DenseGraphBatch
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         node_features = graph.node_features
         edge_features = graph.edge_features
         mask = graph.mask
-        graph_emb, node_features = self.encoder(
+        graph_emb, node_features, permuter_features = self.encoder(
             node_features=node_features,
             edge_features=edge_features,
             mask=mask,
         )
         graph_emb, mu, logvar = self.bottle_neck_encoder(graph_emb)
-        return graph_emb, node_features, mu, logvar
+        return graph_emb, node_features, mu, logvar, permuter_features
 
     def decode(
         self,
@@ -56,9 +56,9 @@ class GraphAE(torch.nn.Module):
         return graph_pred
 
     def forward(self, graph: DenseGraphBatch, training: bool, tau: float = 1.0) -> tuple:
-        graph_emb, node_features, mu, logvar = self.encode(graph=graph)
+        graph_emb, node_features, mu, logvar, permuter_features = self.encode(graph=graph)
         perm, context, soft_probs, _ = self.permuter(
-            node_features, mask=graph.mask, hard=not training, tau=tau
+            permuter_features, mask=graph.mask, hard=not training, tau=tau
         )
         if context is not None:
             graph_emb += context
@@ -86,7 +86,7 @@ class GraphEncoder(torch.nn.Module):
         )
         self.fc_in = nn.Linear(hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim)
         # self.layer_norm = nn.LayerNorm(hparams.graph_encoder_hidden_dim)
-        self.dropout = nn.Dropout(0)
+        self.dropout = nn.Dropout(hparams.dropout)
 
     def add_emb_node_and_feature(
         self,
@@ -122,13 +122,17 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if self.project:
             node_features = self.projection_in(node_features)
+        # After linear projection each node only represents its own content —
+        # no neighborhood mixing yet. The permuter uses these so it sees
+        # orientation-specific features rather than the transformer's averaged output.
+        permuter_features = node_features
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=None, is_encoder=True)
         graph_emb, node_features = self.read_out_message_matrix(x)
-        return graph_emb, node_features
+        return graph_emb, node_features, permuter_features
 
 
 class GraphDecoder(torch.nn.Module):
@@ -170,22 +174,20 @@ class GraphDecoder(torch.nn.Module):
         self, graph_emb: torch.Tensor, perm: torch.Tensor, num_nodes: int
     ) -> torch.Tensor:
         batch_size = graph_emb.size(0)
-        
+
         # Get positional embeddings and permute them based on predicted permutation
         pos_emb = self.positional_embedding(batch_size, num_nodes)
-        
-        # Permute positional embeddings: tells each position which node to reconstruct
         pos_emb = torch.matmul(perm, pos_emb)
 
-        # Add positional embeddings
-        # if not self.graph_transformer.is_rope:
-        #     positions = torch.arange(x.shape[1], device=device).unsqueeze(0)
-        #     pos_encoding = self.embedding(positions)
-        #     x = x + pos_encoding
-        #     del pos_encoding  # Explicit cleanup
+        # Broadcast graph_emb to every node position and add positional structure.
+        # Each node token carries both content (from graph_emb) and spatial location
+        # (from pos_emb), giving the decoder a much shorter credit-assignment path
+        # than routing content from a single CLS token through attention.
+        graph_emb_broadcast = graph_emb.unsqueeze(1).expand(-1, num_nodes, -1)
+        node_tokens = graph_emb_broadcast + pos_emb  # (B, num_nodes, D)
 
-        
-        x = torch.cat([graph_emb.unsqueeze(1), pos_emb], dim=1)  # (B, 1+num_nodes, D)
+        # Prepend the z token as a communication hub; read_out_message_matrix skips it.
+        x = torch.cat([graph_emb.unsqueeze(1), node_tokens], dim=1)  # (B, 1+num_nodes, D)
         x = F.silu(self.fc_in(x))
         x = self.dropout(x)
 
@@ -426,6 +428,8 @@ class SimplePermuter(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.turn_off = hparams.turn_off
+        self.curriculum_epoch = getattr(hparams, "curriculum_epoch", -1)
+        self.freeze_epochs = getattr(hparams, "freeze_epochs", 0)
         self.use_ce = hparams.use_ce
         self.scoring_fc = torch.nn.Linear(
             hparams.graph_decoder_hidden_dim, hparams.num_permutations
@@ -450,6 +454,7 @@ class SimplePermuter(torch.nn.Module):
 
         self.grid_size = hparams.grid_size
         self.num_permutations = hparams.num_permutations
+        self.num_views = hparams.num_permutations  # D4 group size = num augmented views
         self.break_symmetry_scale = hparams.break_symmetry_scale
 
         self.register_buffer(
@@ -538,7 +543,18 @@ class SimplePermuter(torch.nn.Module):
 
             fixed_perms = torch.stack(fixed_perms, dim=0)  # (8, N, N)
             perm = fixed_perms.repeat_interleave(batch_size, dim=0)  # (8*B, N, N)
-            return perm, None, None, None
+
+            # Shadow mode: run learned forward for perm_loss pre-training.
+            # The oracle perm is returned for the decoder, but soft_probs flow
+            # through perm_loss so the permuter learns diversity before the switch.
+            shadow_features = node_features + torch.randn_like(node_features) * min(self.break_symmetry_scale, 0.1)
+            shadow_features = self.spectral_embeddings(shadow_features)
+            cls_tokens = self.perm_node.expand(total_batch, -1, -1)
+            shadow_features = torch.cat([cls_tokens, shadow_features], dim=1)
+            shadow_features = self.graph_transformer(shadow_features, mask=mask, is_encoder=False)
+            shadow_scores = self.scoring_fc(shadow_features[:, 0, :])
+            _, soft_probs = sinkhorn_head(shadow_scores, tau, num_views=self.num_views)
+            return perm, None, soft_probs, None
 
         # Add noise to break symmetry
         if self.break_symmetry_scale > 0.1:
@@ -560,8 +576,13 @@ class SimplePermuter(torch.nn.Module):
         scores = self.scoring_fc(cls_out)
 
         ce_loss = None
-        probs, soft_probs = softmax_head(scores, tau, training=not hard)
+        if self.use_ce:
+            # Ground truth labels are implicit in the batch layout:
+            # rows 0..B-1 = class 0, B..2B-1 = class 1, ..., 7B..8B-1 = class 7.
+            labels = torch.arange(self.num_permutations, device=device).repeat_interleave(batch_size)
+            ce_loss = F.cross_entropy(scores, labels)
 
+        probs, soft_probs = sinkhorn_head(scores, tau, num_views=self.num_views)
         perm = self._compute_weighted_permutation(probs)
 
         return perm, None, soft_probs, ce_loss
@@ -666,6 +687,77 @@ def softmax_head(
 
     # Straight-Through Logic
     one_hot = torch.zeros_like(soft_probs).scatter_(1, soft_probs.argmax(dim=-1, keepdim=True), 1.0)
+    probs = (one_hot - soft_probs).detach() + soft_probs
+
+    return probs, soft_probs
+
+
+def sinkhorn_normalization(
+    log_alpha: torch.Tensor, n_iters: int = 20
+) -> torch.Tensor:
+    """Sinkhorn-Knopp iterations on a log-domain [B, n_views, n_classes] tensor.
+
+    Produces a doubly-stochastic matrix: each view sums to 1 across classes
+    (row norm) and each class sums to 1 across views (column norm). This
+    jointly enforces a bijective assignment — no two views of the same image
+    collapse onto the same class — without any explicit diversity loss.
+    """
+    for _ in range(n_iters):
+        log_alpha = log_alpha - torch.logsumexp(log_alpha, dim=2, keepdim=True)  # rows
+        log_alpha = log_alpha - torch.logsumexp(log_alpha, dim=1, keepdim=True)  # cols
+    return torch.exp(log_alpha)
+
+
+def sinkhorn_head(
+    scores: torch.Tensor,
+    tau: float,
+    num_views: int,
+    n_iters: int = 20,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sinkhorn-based permutation head.
+
+    Jointly assigns all `num_views` views of each image to distinct classes
+    via doubly-stochastic normalisation.  Straight-through estimator makes
+    the hard argmax selection differentiable.
+
+    Args:
+        scores:    [num_views * B, num_classes]  — raw logits from scoring_fc
+        tau:       temperature (lower = more peaked)
+        num_views: number of augmented views per image (8 for D4)
+        n_iters:   Sinkhorn iterations
+
+    Returns:
+        probs:      [num_views * B, num_classes]  STE-hard probs (one-hot fwd)
+        soft_probs: [num_views * B, num_classes]  soft doubly-stochastic probs
+    """
+    total_batch, num_classes = scores.shape
+    B = total_batch // num_views
+
+    # Fall back to independent softmax when the batch isn't a clean multiple of
+    # num_views (e.g. single-image inference, or odd batch sizes at epoch end).
+    # Sinkhorn is a training-time diversity enforcer; the learned scores are still
+    # meaningful for argmax prediction without it.
+    if B == 0 or total_batch % num_views != 0:
+        soft_probs = torch.softmax(scores / tau, dim=-1)
+        one_hot = torch.zeros_like(soft_probs).scatter_(
+            1, soft_probs.argmax(dim=-1, keepdim=True), 1.0
+        )
+        probs = (one_hot - soft_probs).detach() + soft_probs
+        return probs, soft_probs
+
+    # Reshape to [B, num_views, num_classes] — group views per image
+    log_alpha = scores.view(num_views, B, num_classes).permute(1, 0, 2) / tau
+
+    # Doubly-stochastic assignment via Sinkhorn
+    assignment = sinkhorn_normalization(log_alpha, n_iters=n_iters)  # [B, V, C]
+
+    # Flatten back to [num_views * B, num_classes] in original batch order
+    soft_probs = assignment.permute(1, 0, 2).reshape(total_batch, num_classes)
+
+    # Straight-through: forward = argmax one-hot, backward = soft_probs
+    one_hot = torch.zeros_like(soft_probs).scatter_(
+        1, soft_probs.argmax(dim=-1, keepdim=True), 1.0
+    )
     probs = (one_hot - soft_probs).detach() + soft_probs
 
     return probs, soft_probs

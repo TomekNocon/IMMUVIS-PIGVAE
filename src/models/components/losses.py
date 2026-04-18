@@ -513,20 +513,26 @@ class ContrastiveLoss(torch.nn.Module):
 
 
 class PermutationLoss(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, num_permutations: int = 8):
         super().__init__()
+        self.num_permutations = num_permutations
 
     def forward(self, probs: torch.Tensor = None):
         if probs is None:
-            return 0
-        # logits: (batch_size, num_classes)
-        avg_probs = probs.mean(dim=0)  # (num_classes,)
-        log_avg_probs = torch.log(avg_probs + 1e-12)
-        entropy = -torch.sum(avg_probs * log_avg_probs)  # scalar
-        max_entropy = torch.log(
-            torch.tensor(avg_probs.size(0), dtype=avg_probs.dtype, device=avg_probs.device)
-        )
-        return max_entropy - entropy  # always positive, minimizing this maximizes entropy
+            return torch.tensor(0.0)
+        # Batch layout: rows 0..B-1 = view 0, rows B..2B-1 = view 1, ..., rows 7B..8B-1 = view 7.
+        # For each image, average the 8 view predictions — this average should be uniform
+        # (each view predicted a different class). This directly penalises the failure mode
+        # where all 8 views of the same image collapse to the same class, which the old
+        # batch-average entropy could not detect.
+        total = probs.shape[0]
+        batch_size = total // self.num_permutations
+        # [num_perms, B, num_classes] → mean over views → [B, num_classes]
+        avg_per_image = probs.view(self.num_permutations, batch_size, self.num_permutations).mean(dim=0)
+        log_avg = torch.log(avg_per_image + 1e-12)
+        entropy_per_image = -(avg_per_image * log_avg).sum(dim=-1)  # [B]
+        max_entropy = torch.log(torch.tensor(self.num_permutations, dtype=probs.dtype, device=probs.device))
+        return (max_entropy - entropy_per_image).mean()
 
 
 class PermutaionMatrixLoss(torch.nn.Module):
