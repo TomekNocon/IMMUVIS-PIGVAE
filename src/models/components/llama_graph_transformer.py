@@ -55,10 +55,15 @@ class Transformer(nn.Module):
             block.init_weights()
 
     def forward(
-        self, x: torch.Tensor, is_encoder: bool, mask: torch.Tensor | None = None
+        self,
+        x: torch.Tensor,
+        is_encoder: bool,
+        mask: torch.Tensor | None = None,
+        film_params: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
     ) -> torch.Tensor:
-        for block in self.blocks:
-            x = block(x, is_encoder, mask)
+        for i, block in enumerate(self.blocks):
+            film = film_params[i] if film_params is not None else None
+            x = block(x, is_encoder, mask, film=film)
 
         output = self.final_norm(x)
         return output
@@ -114,11 +119,22 @@ class TransformerBlock(nn.Module):
         x: torch.Tensor,
         is_encoder: bool,
         attention_mask: torch.Tensor | None = None,
+        film: tuple[torch.Tensor, torch.Tensor] | None = None,
     ) -> torch.Tensor:
-        out_attention = self.attention_layer(self.attention_norm(x), is_encoder, attention_mask)
+        if film is not None:
+            gamma, beta = film  # [B, D] each
+            # (1 + gamma) * norm(x) + beta: identity at init when gamma=beta=0
+            attn_in = (1 + gamma.unsqueeze(1)) * self.attention_norm(x) + beta.unsqueeze(1)
+        else:
+            attn_in = self.attention_norm(x)
+        out_attention = self.attention_layer(attn_in, is_encoder, attention_mask)
         x = x + out_attention
 
-        out_feed_forward = self.feed_forward_layer(self.ffn_norm(x))
+        if film is not None:
+            ffn_in = (1 + gamma.unsqueeze(1)) * self.ffn_norm(x) + beta.unsqueeze(1)
+        else:
+            ffn_in = self.ffn_norm(x)
+        out_feed_forward = self.feed_forward_layer(ffn_in)
         x = x + out_feed_forward
         return x
 

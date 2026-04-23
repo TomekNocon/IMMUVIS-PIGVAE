@@ -34,6 +34,7 @@ graph_ae:
       num_edge_features: 0
       project: True
       grid_size: 6  # enables 2D positional encoding
+      use_film: true
 
     bottle_neck_encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}

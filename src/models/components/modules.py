@@ -131,12 +131,40 @@ class GraphEncoder(torch.nn.Module):
         return graph_emb, node_features
 
 
+class FiLMConditioner(nn.Module):
+    """Projects z into per-layer (gamma, beta) pairs for FiLM conditioning.
+
+    Uses a small shared bottleneck to keep parameter count manageable.
+    Output projections are zero-initialized so FiLM is identity at the
+    start of training — no change to initial optimization landscape.
+    """
+
+    def __init__(self, z_dim: int, hidden_dim: int, num_layers: int):
+        super().__init__()
+        mid = hidden_dim // 4
+        self.encode = nn.Sequential(nn.Linear(z_dim, mid), nn.SiLU())
+        self.layer_projs = nn.ModuleList([
+            nn.Linear(mid, 2 * hidden_dim) for _ in range(num_layers)
+        ])
+        for proj in self.layer_projs:
+            nn.init.zeros_(proj.weight)
+            nn.init.zeros_(proj.bias)
+        self.num_layers = num_layers
+        self.hidden_dim = hidden_dim
+
+    def forward(self, z: torch.Tensor) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        h = self.encode(z)  # [B, mid]
+        params = []
+        for proj in self.layer_projs:
+            out = proj(h)  # [B, 2*hidden_dim]
+            gamma, beta = out.chunk(2, dim=-1)  # [B, hidden_dim] each
+            params.append((gamma, beta))
+        return params
+
+
 class GraphDecoder(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
-        #  # TODO: check what should be the dim
-        # self.positional_embedding = PositionalEncoding(hparams.
-        # graph_decoder_pos_emb_dim)
         grid_size = getattr(hparams, "grid_size", 0)
         self.positional_embedding = PositionalEncoding(
             hparams.graph_decoder_pos_emb_dim, grid_size=grid_size
@@ -150,6 +178,13 @@ class GraphDecoder(torch.nn.Module):
             output_init_std=0.02,
             rope=LLamaRotaryEmbedding(hparams.head_dim),
         )
+        self.use_film = getattr(hparams, "use_film", False)
+        if self.use_film:
+            self.film = FiLMConditioner(
+                z_dim=hparams.graph_decoder_hidden_dim,
+                hidden_dim=hparams.graph_decoder_hidden_dim,
+                num_layers=hparams.graph_decoder_num_layers,
+            )
         self.fc_in = nn.Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim)
         if hparams.project:
             self.node_fc_out = nn.Linear(
@@ -200,7 +235,8 @@ class GraphDecoder(torch.nn.Module):
         self, graph_emb: torch.Tensor, perm: torch.Tensor, mask: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
-        x = self.graph_transformer(x, mask=mask, is_encoder=False)
+        film_params = self.film(graph_emb) if self.use_film else None
+        x = self.graph_transformer(x, mask=mask, is_encoder=False, film_params=film_params)
         node_features, edge_features = self.read_out_message_matrix(x)
         return node_features, edge_features
 
