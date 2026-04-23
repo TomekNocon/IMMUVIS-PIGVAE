@@ -153,7 +153,28 @@ class PLGraphAE(L.LightningModule):
             logvar=logvar,
         )
         self.log_dict(loss)
+        if mu is not None:
+            self._log_latent_stats(mu, logvar, alpha, prefix="")
         return loss
+
+    def _log_latent_stats(
+        self,
+        mu: torch.Tensor,
+        logvar: torch.Tensor,
+        kld_alpha: float,
+        prefix: str = "",
+    ) -> None:
+        bs = mu.shape[0]
+        std = (0.5 * logvar).exp()
+        per_dim_kld = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar)  # [B, D]
+        per_dim_kld_mean = per_dim_kld.mean(0)  # [D] — avg over batch
+        p = f"{prefix}latent/" if prefix else "latent/"
+        self.log(f"{p}mu_mean", mu.mean(), batch_size=bs)
+        self.log(f"{p}mu_std", mu.std(), batch_size=bs)
+        self.log(f"{p}std_mean", std.mean(), batch_size=bs)
+        self.log(f"{p}active_dims", (per_dim_kld_mean > 0.1).float().sum(), batch_size=bs)
+        self.log(f"{p}kld_per_dim_median", per_dim_kld_mean.median(), batch_size=bs)
+        self.log(f"{p}kld_alpha", kld_alpha, batch_size=bs)
 
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a training epoch ends."
@@ -229,6 +250,8 @@ class PLGraphAE(L.LightningModule):
             on_step=False,
             batch_size=batch_size,
         )
+        if mu is not None:
+            self._log_latent_stats(mu, logvar, alpha, prefix="val_")
         return metrics
 
     def on_validation_epoch_end(self) -> None:
