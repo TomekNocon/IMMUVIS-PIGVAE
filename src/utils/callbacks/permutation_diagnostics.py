@@ -22,25 +22,25 @@ class PermutationDiagnosticsCallback(Callback):
         "r270_f", "r270_nf", "r90_f", "r90_nf",
     ]
 
+    @staticmethod
+    def _grad_norm(module: torch.nn.Module) -> float:
+        total_sq = sum(
+            p.grad.data.norm(2).item() ** 2
+            for p in module.parameters()
+            if p.grad is not None
+        )
+        return total_sq ** 0.5
+
     def on_after_backward(self, trainer, pl_module) -> None:
         if not trainer.is_global_zero:
             return
         if trainer.global_step % max(trainer.log_every_n_steps, 1) != 0:
             return
 
-        permuter = pl_module.graph_ae.permuter
-        total_norm_sq = sum(
-            p.grad.data.norm(2).item() ** 2
-            for p in permuter.parameters()
-            if p.grad is not None
-        )
-        pl_module.log(
-            "perm_diag/permuter_grad_norm",
-            total_norm_sq ** 0.5,
-            on_step=True,
-            on_epoch=False,
-            prog_bar=False,
-        )
+        ae = pl_module.graph_ae
+        pl_module.log("perm_diag/permuter_grad_norm", self._grad_norm(ae.permuter), on_step=True, on_epoch=False, prog_bar=False)
+        pl_module.log("perm_diag/encoder_grad_norm",  self._grad_norm(ae.encoder),  on_step=True, on_epoch=False, prog_bar=False)
+        pl_module.log("perm_diag/decoder_grad_norm",  self._grad_norm(ae.decoder),  on_step=True, on_epoch=False, prog_bar=False)
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
         if not trainer.is_global_zero:

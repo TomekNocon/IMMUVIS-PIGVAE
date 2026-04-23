@@ -7,8 +7,8 @@ graph_ae:
     num_heads: 4
     num_layers: 3
     emb_dim: 768
-    vae: false
-    dropout: 0.1
+    vae: true
+    dropout: 0.15
     encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
       num_node_features: 128
@@ -61,9 +61,9 @@ graph_ae:
       grid_size: 6
       break_symmetry_scale: 0.05
       emb_dim: ${model.graph_ae.hparams.emb_dim}
-      turn_off: True          # initial state; overridden by curriculum_epoch at runtime
-      curriculum_epoch: 250   # switch to learned permuter at this epoch (-1 to disable)
-      freeze_epochs: 150      # freeze enc/dec for this many epochs after curriculum switch
+      turn_off: False          # permuter active from epoch 1 (no curriculum)
+      curriculum_epoch: -1   # curriculum disabled
+      freeze_epochs: 0       # no freeze — enc/dec continue training after switch
       use_ce: False
       use_context: False
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
@@ -89,12 +89,11 @@ entropy_weight_scheduler:
 kld_alpha_scheduler:
   _target_: "src.models.components.schedulers.KLDAlphaScheduler"
   hparams:
-    # Warm up KL from 0 to 1x scale over the first third of training
     initial_alpha: 0.0
     final_alpha: 1.0
     mode: linear
     num_epochs: ${divide:${trainer.max_epochs},3}
-    start_epoch: ${trainer.min_epochs}
+    start_epoch: 1
 
 # beta_weight_scheduler:
 #   _target_: "src.models.components.schedulers.LinearDecay"
@@ -115,10 +114,8 @@ critic:
   _target_: "src.models.components.model.Critic"
   hparams:
     # KLD LOSS SETTINGS - CRITICAL FOR VAE
-    # Increased from 0.0001 to prevent posterior collapse while preserving detail
-    # For feature space: start higher than pixel space
-    kld_loss_scale: 0.0005  # Increased 10x from 0.0001 - prevents ignoring latent code
-    kld_free_bits: 2.0  # Free-bits as margin: allow 2 nats/dim before penalizing
+    kld_loss_scale: 0.05  # moderate — permuter implicit regularization prevents collapse
+    kld_free_bits: 0.0  # disabled: free_bits creates a dead zone with zero gradient below threshold
 
     perm_loss_scale: 0.05  # Sinkhorn already enforces bijective assignment; this is a soft backup only
     contrastive_loss_scale: 0.01
@@ -139,8 +136,8 @@ critic:
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.0001
-  weight_decay: 0.0001
+  lr: 0.0003
+  weight_decay: 0.01
   # betas: [0.9, 0.9995]
   # eps: 1e-8
   # fused: true  # remove if your build doesn't support it
@@ -149,7 +146,7 @@ scheduler:
   batch_size: ${data.hparams.batch_size}
   type: cosine_warmup
   warmup: 0.05
-  max_lr: 0.0001
+  max_lr: 0.0003
   div_factor: 10
   final_div_factor: 100
 

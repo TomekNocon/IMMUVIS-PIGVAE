@@ -2,8 +2,8 @@ _target_: src.data.imc_datamodule.IMCDataModule
 hparams:
   data_dir: ${paths.data_dir}
   batch_size: 16 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
-  train_val_test_split: [16, 360, 0, 3996 + 7308 + 10784] # [18108, 5040, 0, 0]
-  num_workers: 3
+  train_val_test_split: [40843, 10197, 0, 0] # [18108, 5040, 0, 0]
+  num_workers: 5
   pin_memory: False
   grid_size: 6
   size: 6

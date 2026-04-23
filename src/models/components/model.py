@@ -69,9 +69,9 @@ class Critic(torch.nn.Module):
     ) -> dict[str, Any]:
         recon_loss = self.reconstruction_loss(graph_true=graph_true, graph_pred=graph_pred)
         # contrastive_loss = self.contrastive_loss(graph_emb)
-        permutation_loss = self.permutation_loss(
-            soft_probs if soft_probs is not None else None  # perm
-        )
+        permutation_loss = self.permutation_loss(soft_probs)
+        if not isinstance(permutation_loss, torch.Tensor) or not permutation_loss.is_cuda:
+            permutation_loss = permutation_loss.to(graph_pred.node_features.device)
 
         mae_loss = self.mae_loss(graph_true=graph_true, graph_pred=graph_pred)
         mse_loss = self.mse_loss(graph_true=graph_true, graph_pred=graph_pred)

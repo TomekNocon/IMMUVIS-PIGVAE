@@ -27,17 +27,17 @@ class GraphAE(torch.nn.Module):
 
     def encode(
         self, graph: DenseGraphBatch
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         node_features = graph.node_features
         edge_features = graph.edge_features
         mask = graph.mask
-        graph_emb, node_features, permuter_features = self.encoder(
+        graph_emb, node_features = self.encoder(
             node_features=node_features,
             edge_features=edge_features,
             mask=mask,
         )
         graph_emb, mu, logvar = self.bottle_neck_encoder(graph_emb)
-        return graph_emb, node_features, mu, logvar, permuter_features
+        return graph_emb, node_features, mu, logvar
 
     def decode(
         self,
@@ -56,9 +56,9 @@ class GraphAE(torch.nn.Module):
         return graph_pred
 
     def forward(self, graph: DenseGraphBatch, training: bool, tau: float = 1.0) -> tuple:
-        graph_emb, node_features, mu, logvar, permuter_features = self.encode(graph=graph)
+        graph_emb, node_features, mu, logvar = self.encode(graph=graph)
         perm, context, soft_probs, _ = self.permuter(
-            permuter_features, mask=graph.mask, hard=not training, tau=tau
+            node_features, mask=graph.mask, hard=not training, tau=tau
         )
         if context is not None:
             graph_emb += context
@@ -122,17 +122,13 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.project:
             node_features = self.projection_in(node_features)
-        # After linear projection each node only represents its own content —
-        # no neighborhood mixing yet. The permuter uses these so it sees
-        # orientation-specific features rather than the transformer's averaged output.
-        permuter_features = node_features
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=None, is_encoder=True)
         graph_emb, node_features = self.read_out_message_matrix(x)
-        return graph_emb, node_features, permuter_features
+        return graph_emb, node_features
 
 
 class GraphDecoder(torch.nn.Module):

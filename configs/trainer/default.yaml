@@ -3,23 +3,23 @@ _target_: lightning.pytorch.trainer.Trainer
 default_root_dir: ${paths.output_dir}
 
 min_epochs: 1 # prevents early stopping
-max_epochs: 600
+max_epochs: 200
 
 accelerator: cpu
 devices: 1
 num_sanity_val_steps: 2  # Run validation on a few batches before training
 
 # mixed precision for extra speed-up
-precision: "16-mixed"
+precision: "bf16-mixed"
 
 accumulate_grad_batches: 1
 # perform a validation loop every N training epochs
-check_val_every_n_epoch: 2
-log_every_n_steps: 2
+check_val_every_n_epoch: 1
+log_every_n_steps: 250
 enable_checkpointing: true
 enable_progress_bar: true
 enable_model_summary: true
-profiler: "simple"  # Options: simple, advanced, pytorch
+profiler: null
 
 # Debugging options
 detect_anomaly: false  # Helps catch NaN issues early

@@ -78,7 +78,8 @@ class SklearnSpectralEmbedding(nn.Module):
         self.register_buffer("sorted_eigenvecs", sorted_eigenvecs)
  
         self.proj = nn.Linear(n_components, d_model)
-        self.proj_norm = nn.LayerNorm(d_model)
+        # elementwise_affine=False: proj learns direction, not scale — prevents unbounded growth
+        self.proj_norm = nn.LayerNorm(d_model, elementwise_affine=False)
         self.to_project = d_model != n_components
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

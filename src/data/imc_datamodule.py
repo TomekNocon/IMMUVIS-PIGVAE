@@ -313,16 +313,34 @@ class IMCDataModule(LightningDataModule):
         :return: The validation dataloader.
         """
         # TODO: "Using train dataloader for validation."
-        if self.data_train is None:
+        # if self.data_train is None:
+        #     raise RuntimeError(
+        #         "Expected self.data_train to be set in setup() before calling train_dataloader().",
+        #     )
+        # train_dataset = GridGraphDataset(
+        #     grid_size=self.grid_size, dataset=self.data_train, channels=list(range(4))
+        # )
+
+        # return DenseGraphDataLoader(
+        #     dataset=train_dataset,
+        #     batch_size=self.batch_size_per_device,
+        #     num_workers=self.num_workers,
+        #     pin_memory=self.pin_memory,
+        #     persistent_workers=self.num_workers > 0,
+        #     collate_fn=self._get_collate_fn(),
+        #     shuffle=False,
+        # )
+
+        if self.data_val is None:
             raise RuntimeError(
-                "Expected self.data_train to be set in setup() before calling train_dataloader().",
+                "Expected self.data_val to be set in setup() before calling val_dataloader().",
             )
-        train_dataset = GridGraphDataset(
-            grid_size=self.grid_size, dataset=self.data_train, channels=list(range(4))
+        val_dataset = GridGraphDataset(
+            grid_size=self.grid_size, dataset=self.data_val, channels=list(range(64))
         )
 
         return DenseGraphDataLoader(
-            dataset=train_dataset,
+            dataset=val_dataset,
             batch_size=self.batch_size_per_device,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
@@ -330,23 +348,6 @@ class IMCDataModule(LightningDataModule):
             collate_fn=self._get_collate_fn(),
             shuffle=False,
         )
-
-        # if self.data_val is None:
-        #     raise RuntimeError(
-        #         "Expected self.data_val to be set in setup() before calling val_dataloader().",
-        #     )
-        # val_dataset = GridGraphDataset(
-        #     grid_size=self.grid_size, dataset=self.data_val, channels=list(range(64))
-        # )
-
-        # return DenseGraphDataLoader(
-        #     dataset=val_dataset,
-        #     batch_size=self.batch_size_per_device,
-        #     num_workers=self.num_workers,
-        #     pin_memory=self.pin_memory,
-        #     persistent_workers=self.num_workers > 0,
-        #     collate_fn=self._get_collate_fn(),
-        # )
 
     def test_dataloader(self) -> DataLoader[Any]:
         """Create and return the test dataloader.

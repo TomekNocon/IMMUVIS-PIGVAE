@@ -407,8 +407,9 @@ class KLDLoss(torch.nn.Module):
 
         Args:
             normalize_by_latent_dim: If True, average over latent dims instead of sum
-            free_bits: Free bits threshold - KLD below this per dimension is not penalized.
-                      Typical values: 0.0 (disabled), 0.5, 1.0, 2.0
+            free_bits: Free bits threshold. KLD below this per dimension is not penalized
+                      (dead zone — no gradient below threshold). Set to 0.0 to always
+                      have gradient. Typical values: 0.0 (disabled), 0.5, 1.0, 2.0
         """
         super().__init__()
         self.normalize_by_latent_dim = normalize_by_latent_dim
@@ -423,8 +424,8 @@ class KLDLoss(torch.nn.Module):
             kld_per_dim = -0.5 * (1 + logvar32 - mu32.pow(2) - logvar32.exp())
 
         if self.free_bits > 0:
-            # Apply free bits using a margin: max(KLD_per_dim - free_bits, 0)
-            # Penalize only the excess above the threshold per-dimension.
+            # Free bits: do not penalize the first `free_bits` nats of KL per latent dimension.
+            # Only KL above that threshold contributes to the loss and receives gradient.
             kld_per_dim = torch.relu(kld_per_dim - self.free_bits)
 
         if self.normalize_by_latent_dim:

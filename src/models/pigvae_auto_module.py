@@ -460,11 +460,17 @@ class PLGraphAE(L.LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        decoder_transformer_params = set(
-            self.graph_ae.decoder.graph_transformer.parameters()
-        )
-        decay_params = [p for p in self.parameters() if p not in decoder_transformer_params]
-        no_decay_params = list(self.graph_ae.decoder.graph_transformer.parameters())
+        # Standard transformer split: decay 2-D weight matrices; never decay
+        # 1-D parameters (norm gains / biases) or small-init output projections.
+        no_decay_names = {"bias", "summary_node", "perm_node"}
+        decay_params, no_decay_params = [], []
+        for name, param in self.named_parameters():
+            if not param.requires_grad:
+                continue
+            if param.ndim == 1 or any(nd in name for nd in no_decay_names):
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
         optimizer = self.hparams.optimizer(params=[
             {"params": decay_params},
             {"params": no_decay_params, "weight_decay": 0.0},
@@ -569,6 +575,31 @@ class PLGraphAE(L.LightningModule):
                 "name": "CosineWarmupLR",
             }
         return [optimizer], [scheduler]
+
+    def configure_gradient_clipping(
+        self,
+        optimizer: torch.optim.Optimizer,
+        gradient_clip_val: float | None = None,
+        gradient_clip_algorithm: str | None = None,
+    ) -> None:
+        # Raw grad norms reach 100k–200k in encoder/decoder (LayerNorm amplification +
+        # O(N) broadcast). Without per-component pre-clipping the global clip is consumed
+        # entirely by whichever component happens to be largest, starving the others.
+        # Pre-clip every major component to the same budget before the global clip so that
+        # all components get a proportional share regardless of their relative magnitudes.
+        ae = self.graph_ae
+        component_max_norm = 5.0
+        for component in (
+            ae.encoder, ae.decoder,
+            ae.bottle_neck_encoder, ae.bottle_neck_decoder,
+            ae.permuter,
+        ):
+            torch.nn.utils.clip_grad_norm_(component.parameters(), max_norm=component_max_norm)
+        self.clip_gradients(
+            optimizer,
+            gradient_clip_val=gradient_clip_val,
+            gradient_clip_algorithm=gradient_clip_algorithm,
+        )
 
     def optimizer_step(
         self,
