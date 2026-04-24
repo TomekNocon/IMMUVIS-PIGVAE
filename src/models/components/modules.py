@@ -21,9 +21,8 @@ class GraphAE(torch.nn.Module):
         self.vae = hparams.vae
         self.encoder = GraphEncoder(hparams.encoder)
         self.bottle_neck_encoder = BottleNeckEncoder(hparams.bottle_neck_encoder)
-        self.bottle_neck_decoder = BottleNeckDecoder(hparams.bottle_neck_decoder)
         self.permuter = SimplePermuter(hparams.permuter)
-        self.decoder = GraphDecoder(hparams.decoder)
+        self.decoder = CNNDecoder(hparams.decoder)
 
     def encode(
         self, graph: DenseGraphBatch
@@ -45,8 +44,7 @@ class GraphAE(torch.nn.Module):
         perm: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> DenseGraphBatch:
-        graph_emb = self.bottle_neck_decoder(graph_emb)
-        node_logits, edge_logits = self.decoder(graph_emb=graph_emb, perm=perm, mask=mask)
+        node_logits, edge_logits = self.decoder(z=graph_emb, perm=perm, mask=mask)
         graph_pred = DenseGraphBatch(
             node_features=node_logits,
             edge_features=edge_logits,
@@ -203,6 +201,53 @@ class GraphDecoder(torch.nn.Module):
         x = self.graph_transformer(x, mask=mask, is_encoder=False)
         node_features, edge_features = self.read_out_message_matrix(x)
         return node_features, edge_features
+
+
+class CNNDecoder(nn.Module):
+    """CNN decoder: z [B, emb_dim] → node features [B, N, num_node_features].
+
+    Upsampling path via transposed convolutions: 1×1 → 3×3 → grid_size×grid_size.
+    The canonical grid output is then permuted to match the input node ordering.
+    """
+
+    def __init__(self, hparams: DictConfig):
+        super().__init__()
+        emb_dim = hparams.emb_dim
+        hidden_dim = hparams.graph_decoder_hidden_dim
+        num_node_features = hparams.num_node_features
+        grid_size = hparams.grid_size
+        dropout = hparams.dropout
+
+        self.grid_size = grid_size
+
+        self.fc_in = nn.Linear(emb_dim, hidden_dim)
+
+        # 1×1 → 3×3: output = (1-1)*1 + 3 = 3
+        self.deconv1 = nn.ConvTranspose2d(hidden_dim, hidden_dim, kernel_size=3, stride=1, bias=False)
+        self.norm1 = nn.GroupNorm(8, hidden_dim)
+
+        # 3×3 → 6×6: output = (3-1)*2 + 2 = 6
+        self.deconv2 = nn.ConvTranspose2d(hidden_dim, hidden_dim, kernel_size=2, stride=2, bias=False)
+        self.norm2 = nn.GroupNorm(8, hidden_dim)
+
+        self.fc_out = nn.Conv2d(hidden_dim, num_node_features, kernel_size=1)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        z: torch.Tensor,
+        perm: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        x = F.gelu(self.fc_in(z)).unsqueeze(-1).unsqueeze(-1)  # [B, D, 1, 1]
+        x = F.gelu(self.norm1(self.deconv1(x)))                 # [B, D, 3, 3]
+        x = F.gelu(self.norm2(self.deconv2(x)))                 # [B, D, 6, 6]
+        x = self.dropout(x)
+        x = self.fc_out(x)                                       # [B, F, 6, 6]
+        x = x.flatten(2).transpose(1, 2)                         # [B, 36, F]
+        x = torch.matmul(perm, x)                                # [B, 36, F] in input ordering
+        edge_features = torch.empty(0, device=z.device)
+        return x, edge_features
 
 
 # class Permuter(torch.nn.Module):

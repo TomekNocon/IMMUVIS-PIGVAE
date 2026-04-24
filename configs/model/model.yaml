@@ -3,10 +3,10 @@ _target_: "src.models.pigvae_auto_module.PLGraphAE"
 graph_ae:
   _target_: "src.models.components.modules.GraphAE"
   hparams:
-    input_size: 768
+    input_size: 256
     num_heads: 4
     num_layers: 3
-    emb_dim: 768
+    emb_dim: 128
     vae: true
     dropout: 0.15
     encoder:
@@ -22,18 +22,11 @@ graph_ae:
       project: True
 
     decoder:
+      emb_dim: ${model.graph_ae.hparams.emb_dim}
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
-      graph_decoder_pos_emb_dim: ${model.graph_ae.hparams.input_size}
-      graph_decoder_num_heads: ${model.graph_ae.hparams.num_heads}
-      graph_decoder_ppf_hidden_dim: ${multiply:${model.graph_ae.hparams.input_size},4}
-      graph_decoder_num_layers: ${model.graph_ae.hparams.num_layers}
-      dropout: ${model.graph_ae.hparams.dropout}
-      head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
-      num_embeddings: 170 # not use if is_rope is True
       num_node_features: 128
-      num_edge_features: 0
-      project: True
-      grid_size: 6  # enables 2D positional encoding
+      dropout: ${model.graph_ae.hparams.dropout}
+      grid_size: 6
 
     bottle_neck_encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
@@ -41,11 +34,6 @@ graph_ae:
       vae: ${model.graph_ae.hparams.vae}
       activation: silu
       num_permutations: ${data.hparams.num_aug_per_sample}
-
-    bottle_neck_decoder:
-      emb_dim: ${model.graph_ae.hparams.emb_dim}
-      graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
-      num_nodes: 36  # grid_size^2 — decoder produces one unique vector per node
 
     property_predictor:
       emb_dim: ${model.graph_ae.hparams.emb_dim}
