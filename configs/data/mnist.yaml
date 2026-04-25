@@ -10,7 +10,8 @@ hparams:
   patch_size: 1
   augmentation_prob: 1.0
   is_contrastive: True
-  num_aug_per_sample: 8
+  num_aug_per_sample: 1
+  single_view: true
   center_crop_size: 6
   num_channels: 768
   num_pca_components: 128

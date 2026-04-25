@@ -18,6 +18,7 @@ from src.data.components.graphs_datamodules import (
     PCADenseGraphCollator,
     PCALayer,
     PickleDataset,
+    SingleViewTransform,
     WelfordOnline,
 )
 
@@ -83,30 +84,42 @@ class IMCDataModule(LightningDataModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
 
-        self.base_transforms = IMCBaseDictTransform(
-            center_crop_size=hparams.center_crop_size, normalize=hparams.normalize
-        )
+        self.single_view = hparams.get("single_view", False)
 
-        self.aug_transforms_train = PatchAugmentations(
-            prob=hparams.augmentation_prob,
-            size=hparams.size,
-            patch_size=hparams.patch_size,
-        )
-
-        self.aug_transforms_val = PatchAugmentations(
-            prob=hparams.augmentation_prob,
-            size=hparams.size,
-            patch_size=hparams.patch_size,
-            is_validation=True,
-        )
-
-        self.dual_transforms_train = DualOutputTransform(
-            self.base_transforms, self.aug_transforms_train
-        )
-
-        self.dual_transforms_val = DualOutputTransform(
-            self.base_transforms, self.aug_transforms_val
-        )
+        if self.single_view:
+            svt_kwargs = dict(
+                center_crop_size=hparams.center_crop_size,
+                normalize=hparams.normalize,
+            )
+            self.dual_transforms_train = DualOutputTransform(
+                base_transforms=None,
+                augmentation_transforms=SingleViewTransform(is_validation=False, **svt_kwargs),
+            )
+            self.dual_transforms_val = DualOutputTransform(
+                base_transforms=None,
+                augmentation_transforms=SingleViewTransform(is_validation=True, **svt_kwargs),
+            )
+        else:
+            self.base_transforms = IMCBaseDictTransform(
+                center_crop_size=hparams.center_crop_size, normalize=hparams.normalize
+            )
+            self.aug_transforms_train = PatchAugmentations(
+                prob=hparams.augmentation_prob,
+                size=hparams.size,
+                patch_size=hparams.patch_size,
+            )
+            self.aug_transforms_val = PatchAugmentations(
+                prob=hparams.augmentation_prob,
+                size=hparams.size,
+                patch_size=hparams.patch_size,
+                is_validation=True,
+            )
+            self.dual_transforms_train = DualOutputTransform(
+                self.base_transforms, self.aug_transforms_train
+            )
+            self.dual_transforms_val = DualOutputTransform(
+                self.base_transforms, self.aug_transforms_val
+            )
 
         self.data_train: Dataset | None = None
         self.data_val: Dataset | None = None
@@ -147,8 +160,9 @@ class IMCDataModule(LightningDataModule):
             PickleDataset(
                 path,
                 transform=transform,
-                generate_views=True,
+                generate_views=not self.single_view,
                 center_crop_size=self.center_crop_size,
+                single_view=self.single_view,
             )
             for path in paths
         ]
