@@ -211,7 +211,7 @@ class IMCDataModule(LightningDataModule):
             if not pca_model_path.exists():
                 dataset = self._load_datasets(
                     train_paths,
-                    transform=DualOutputTransform(self.base_transforms, self.aug_transforms_train),
+                    transform=self.dual_transforms_train,
                 )
 
                 loader = DataLoader(
