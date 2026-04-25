@@ -22,22 +22,21 @@ class GraphAE(torch.nn.Module):
         self.encoder = GraphEncoder(hparams.encoder)
         self.bottle_neck_encoder = BottleNeckEncoder(hparams.bottle_neck_encoder)
         self.bottle_neck_decoder = BottleNeckDecoder(hparams.bottle_neck_decoder)
-        self.permuter = SimplePermuter(hparams.permuter)
         self.decoder = GraphDecoder(hparams.decoder)
 
     def encode(
         self, graph: DenseGraphBatch
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         node_features = graph.node_features
         edge_features = graph.edge_features
         mask = graph.mask
-        graph_emb, node_features = self.encoder(
+        graph_emb, _ = self.encoder(
             node_features=node_features,
             edge_features=edge_features,
             mask=mask,
         )
         graph_emb, mu, logvar = self.bottle_neck_encoder(graph_emb)
-        return graph_emb, node_features, mu, logvar
+        return graph_emb, mu, logvar
 
     def decode(
         self,
@@ -55,15 +54,14 @@ class GraphAE(torch.nn.Module):
         )
         return graph_pred
 
-    def forward(self, graph: DenseGraphBatch, training: bool, tau: float = 1.0) -> tuple:
-        graph_emb, node_features, mu, logvar = self.encode(graph=graph)
-        perm, context, soft_probs, _ = self.permuter(
-            node_features, mask=graph.mask, hard=not training, tau=tau
-        )
-        if context is not None:
-            graph_emb += context
-        graph_pred = self.decode(graph_emb, perm, graph.mask)
-        return graph_emb, graph_pred, soft_probs, perm, mu, logvar
+    def forward(self, graph: DenseGraphBatch) -> tuple:
+        graph_emb, mu, logvar = self.encode(graph=graph)
+        B = graph_emb.shape[0]
+        N = graph.mask.shape[1]
+        device = graph_emb.device
+        eye = torch.eye(N, device=device).unsqueeze(0).expand(B, -1, -1)
+        graph_pred = self.decode(graph_emb, eye, graph.mask)
+        return graph_emb, graph_pred, mu, logvar
 
 
 class GraphEncoder(torch.nn.Module):
@@ -606,7 +604,6 @@ class BottleNeckEncoder(torch.nn.Module):
         self.d_in = hparams.graph_encoder_hidden_dim
         self.d_out = hparams.emb_dim
         self.vae = hparams.vae
-        self.num_permutations = hparams.num_permutations
         self.activation = {
             "relu": torch.nn.ReLU(),
             "gelu": torch.nn.GELU(),
@@ -627,19 +624,11 @@ class BottleNeckEncoder(torch.nn.Module):
         # Correct order: Linear → Activation → Linear (preserves full input info)
         x = self.w(self.activation(self.fc_hidden(x)))
         if self.vae:
-            batch_size = x.shape[0] // self.num_permutations
             mu = x[:, : self.d_out]
             logvar = x[:, self.d_out :]
             logvar = torch.clamp(logvar, -10, 10)  # prevents std explosion
             std = torch.exp(0.5 * logvar)
-            batch_std = std[:batch_size, :]
-            batch_eps = torch.randn_like(batch_std)
-            eps = (
-                batch_eps
-                .unsqueeze(0)
-                .repeat(self.num_permutations, 1, 1)
-                .view(-1, batch_eps.shape[1])
-            )
+            eps = torch.randn_like(std)
             x = mu + eps * std
             return x, mu, logvar
         else:
