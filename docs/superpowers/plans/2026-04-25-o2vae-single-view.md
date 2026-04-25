@@ -228,7 +228,7 @@ class TestSingleViewTransform:
 
 ```
 cd /home/tnocon/master_thesis/IMMUVIS-PIGVAE
-python -m pytest tests/test_single_view_transform.py -v
+uv run pytest tests/test_single_view_transform.py -v
 ```
 
 Expected: `ImportError: cannot import name 'SingleViewTransform'`
@@ -240,7 +240,7 @@ Apply changes 1a, 1b, 1c described above.
 - [ ] **Step 4: Run test to verify it passes**
 
 ```
-python -m pytest tests/test_single_view_transform.py -v
+uv run pytest tests/test_single_view_transform.py -v
 ```
 
 Expected: All 5 tests PASS
@@ -377,7 +377,7 @@ class TestSingleViewDataModuleWiring:
 - [ ] **Step 2: Run test to verify it fails**
 
 ```
-python -m pytest tests/test_single_view_datamodule.py -v
+uv run pytest tests/test_single_view_datamodule.py -v
 ```
 
 Expected: FAIL — `TypeError` from `DualOutputTransform.__call__` trying `original["embeddings"] = self.base_transforms(...)` when base_transforms is `None`. (Actually it's guarded by `if self.base_transforms is not None`, so it should pass already — this test verifies the existing guard works with the new transform.)
@@ -389,7 +389,7 @@ Apply changes 2a–2d above.
 - [ ] **Step 4: Run test to verify it passes**
 
 ```
-python -m pytest tests/test_single_view_datamodule.py tests/test_single_view_transform.py -v
+uv run pytest tests/test_single_view_datamodule.py tests/test_single_view_transform.py -v
 ```
 
 Expected: All tests PASS
@@ -584,7 +584,7 @@ class TestD4AlignmentLoss:
 - [ ] **Step 2: Run test to verify it fails**
 
 ```
-python -m pytest tests/test_d4_alignment_loss.py -v
+uv run pytest tests/test_d4_alignment_loss.py -v
 ```
 
 Expected: `ImportError: cannot import name 'D4AlignmentLoss'`
@@ -596,7 +596,7 @@ Add `import math` at the top of `losses.py` if not present. Add the `D4Alignment
 - [ ] **Step 4: Run test to verify it passes**
 
 ```
-python -m pytest tests/test_d4_alignment_loss.py -v
+uv run pytest tests/test_d4_alignment_loss.py -v
 ```
 
 Expected: All 6 tests PASS
@@ -764,7 +764,7 @@ class TestGraphAENoPermuter:
 - [ ] **Step 2: Run test to verify it fails**
 
 ```
-python -m pytest tests/test_graph_ae_no_permuter.py -v
+uv run pytest tests/test_graph_ae_no_permuter.py -v
 ```
 
 Expected: FAIL — `forward` returns 6-tuple (current code), test expects 4-tuple. `test_no_permuter_attribute` also fails since `permuter` attribute still exists.
@@ -774,7 +774,7 @@ Expected: FAIL — `forward` returns 6-tuple (current code), test expects 4-tupl
 - [ ] **Step 4: Run test to verify it passes**
 
 ```
-python -m pytest tests/test_graph_ae_no_permuter.py -v
+uv run pytest tests/test_graph_ae_no_permuter.py -v
 ```
 
 Expected: Both tests PASS
@@ -894,7 +894,7 @@ class TestBottleNeckEncoderSingleView:
 - [ ] **Step 2: Run test to verify it fails**
 
 ```
-python -m pytest tests/test_bottleneck_encoder.py -v
+uv run pytest tests/test_bottleneck_encoder.py -v
 ```
 
 Expected: `test_no_num_permutations_attr` FAILS (attribute still present). `test_different_samples_get_different_eps` FAILS (old code shares eps so z1 == z2 for same input in same forward call... actually they are different forward calls so eps differs anyway — but the test for `num_permutations` will fail).
@@ -906,7 +906,7 @@ Remove `self.num_permutations = hparams.num_permutations` from `__init__`. Repla
 - [ ] **Step 4: Run test to verify it passes**
 
 ```
-python -m pytest tests/test_bottleneck_encoder.py -v
+uv run pytest tests/test_bottleneck_encoder.py -v
 ```
 
 Expected: All 4 tests PASS
@@ -1109,7 +1109,7 @@ class TestCriticD4:
 - [ ] **Step 2: Run test to verify it fails**
 
 ```
-python -m pytest tests/test_critic_d4.py -v
+uv run pytest tests/test_critic_d4.py -v
 ```
 
 Expected: `test_no_permutation_loss_key` FAILS (`permutation_loss` still in output). Other tests may fail due to signature mismatch.
@@ -1119,7 +1119,7 @@ Expected: `test_no_permutation_loss_key` FAILS (`permutation_loss` still in outp
 - [ ] **Step 4: Run test to verify it passes**
 
 ```
-python -m pytest tests/test_critic_d4.py tests/test_d4_alignment_loss.py -v
+uv run pytest tests/test_critic_d4.py tests/test_d4_alignment_loss.py -v
 ```
 
 Expected: All tests PASS
@@ -1377,7 +1377,7 @@ def predict_step(self, batch: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
 - [ ] **Step 3: Verify no syntax errors**
 
 ```
-python -c "from src.models.pigvae_auto_module import PLGraphAE; print('OK')"
+uv run python -c "from src.models.pigvae_auto_module import PLGraphAE; print('OK')"
 ```
 
 Expected: `OK`
@@ -1497,7 +1497,7 @@ compile: false
 - [ ] **Step 2: Verify Hydra can load the config**
 
 ```
-python -c "
+uv run python -c "
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
 GlobalHydra.instance().clear()
@@ -1532,7 +1532,7 @@ Run the existing `test_train_fast_dev_run` test. This exercises one full trainin
 - [ ] **Step 1: Run smoke test**
 
 ```
-python -m pytest tests/test_train.py::test_train_fast_dev_run -v -s 2>&1 | head -80
+uv run pytest tests/test_train.py::test_train_fast_dev_run -v -s 2>&1 | head -80
 ```
 
 Expected: PASS
@@ -1542,7 +1542,7 @@ If it fails with `KeyError` on a config key (e.g. `temperature_scheduler`), chec
 - [ ] **Step 2: Run all new unit tests together**
 
 ```
-python -m pytest tests/test_single_view_transform.py tests/test_single_view_datamodule.py tests/test_d4_alignment_loss.py tests/test_graph_ae_no_permuter.py tests/test_bottleneck_encoder.py tests/test_critic_d4.py -v
+uv run pytest tests/test_single_view_transform.py tests/test_single_view_datamodule.py tests/test_d4_alignment_loss.py tests/test_graph_ae_no_permuter.py tests/test_bottleneck_encoder.py tests/test_critic_d4.py -v
 ```
 
 Expected: All PASS
