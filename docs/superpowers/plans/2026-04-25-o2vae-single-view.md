@@ -403,7 +403,7 @@ git commit -m "feat: wire SingleViewTransform into IMCDataModule, set single_vie
 
 ---
 
-## Task 3: Add D4AlignmentLoss to losses.py
+## Task 3: Add PerSampleReconLoss and D4AlignmentLoss to losses.py
 
 **Files:**
 - Modify: `src/models/components/losses.py`
@@ -411,45 +411,88 @@ git commit -m "feat: wire SingleViewTransform into IMCDataModule, set single_vie
 
 ### What to implement
 
-Add at the end of `losses.py`, after the existing classes. Requires `import math` (add to existing imports if missing):
+Two classes, added at the end of `losses.py`. Requires `import math` (add to top if missing).
+
+**`PerSampleReconLoss`** — knows about Huber + Cosine + Gradient, returns `[B]` per-sample tensor for use inside the logsumexp loop. All params come from config via the Critic.
 
 ```python
-class D4AlignmentLoss(torch.nn.Module):
-    """Orientation-invariant reconstruction loss over the D4 symmetry group.
+class PerSampleReconLoss(torch.nn.Module):
+    """Per-sample Huber + Cosine + Gradient reconstruction loss returning [B].
 
-    Tries all 8 D4 transforms of the decoder output and takes the
-    logsumexp soft-min per sample. +log(8) normalises for the uniform
-    prior over orientations (partition function of the discrete group).
+    Intended solely for use inside D4AlignmentLoss — not for direct use in Critic.
     """
 
     def __init__(
         self,
         grid_size: int,
-        huber_beta: float = 1.0,
-        alpha: float = 1.0,
-        beta: float = 0.1,
-        gamma: float = 0.001,
+        huber_beta: float,
+        alpha: float,
+        beta: float,
+        gamma: float,
     ):
         super().__init__()
+        self.grid_size = grid_size
         self.huber_beta = huber_beta
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            pred:   [B, N, C]
+            target: [B, N, C]
+        Returns:
+            [B] per-sample loss
+        """
+        B, N, C = pred.shape
+        H = self.grid_size
+
+        huber = F.smooth_l1_loss(pred, target, beta=self.huber_beta, reduction="none").mean(
+            dim=[-2, -1]
+        )  # [B]
+        cosine = 1.0 - F.cosine_similarity(pred.flatten(1), target.flatten(1), dim=-1)  # [B]
+
+        pred_grid = pred.view(B, H, H, C).permute(0, 3, 1, 2)      # [B, C, H, W]
+        target_grid = target.view(B, H, H, C).permute(0, 3, 1, 2)
+        pred_gx = pred_grid[:, :, :, 1:] - pred_grid[:, :, :, :-1]
+        true_gx = target_grid[:, :, :, 1:] - target_grid[:, :, :, :-1]
+        pred_gy = pred_grid[:, :, 1:, :] - pred_grid[:, :, :-1, :]
+        true_gy = target_grid[:, :, 1:, :] - target_grid[:, :, :-1, :]
+        gradient = (
+            (pred_gx - true_gx).abs().mean(dim=[-3, -2, -1])
+            + (pred_gy - true_gy).abs().mean(dim=[-3, -2, -1])
+        )  # [B]
+
+        return self.alpha * huber + self.beta * cosine + self.gamma * gradient  # [B]
+```
+
+**`D4AlignmentLoss`** — thin logsumexp wrapper; knows nothing about individual loss formulas. Receives a `reconstruction_loss(pred [B,N,C], target [B,N,C]) -> [B]` module injected from outside.
+
+```python
+class D4AlignmentLoss(torch.nn.Module):
+    """Logsumexp orientation-invariance wrapper over the D4 symmetry group.
+
+    Applies reconstruction_loss to all 8 D4 transforms of the prediction
+    and takes the per-sample soft-min via logsumexp. +log(8) normalises for
+    the uniform prior over orientations.
+    """
+
+    def __init__(self, grid_size: int, reconstruction_loss: torch.nn.Module):
+        super().__init__()
         self.grid_size = grid_size
+        self.reconstruction_loss = reconstruction_loss
         self.register_buffer("perm_matrices", self._precompute_d4(grid_size))
 
     @staticmethod
     def _precompute_d4(n: int) -> torch.Tensor:
-        """Compute the 8 D4 permutation matrices for an n×n grid."""
         n_nodes = n * n
         matrices = []
-        # 4 rotations
         for k in range(4):
             idx = torch.arange(n_nodes).reshape(n, n)
             for _ in range(k):
                 idx = idx.rot90(-1)
             matrices.append(torch.eye(n_nodes)[idx.reshape(-1)])
-        # 4 reflections (horizontal flip composed with each rotation)
         base_idx = torch.arange(n_nodes).reshape(n, n)
         reflected_idx = base_idx.flip(1).reshape(-1)
         reflection = torch.eye(n_nodes)[reflected_idx]
@@ -461,46 +504,19 @@ class D4AlignmentLoss(torch.nn.Module):
             matrices.append(torch.matmul(reflection, rot))
         return torch.stack(matrices, dim=0)  # [8, N, N]
 
-    @staticmethod
-    def _huber_per_sample(pred: torch.Tensor, target: torch.Tensor, beta: float) -> torch.Tensor:
-        return F.smooth_l1_loss(pred, target, beta=beta, reduction="none").mean(dim=[-2, -1])  # [B]
-
-    @staticmethod
-    def _cosine_per_sample(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        return 1.0 - F.cosine_similarity(pred.flatten(1), target.flatten(1), dim=-1)  # [B]
-
-    @staticmethod
-    def _gradient_per_sample(pred_grid: torch.Tensor, target_grid: torch.Tensor) -> torch.Tensor:
-        pred_gx = pred_grid[:, :, :, 1:] - pred_grid[:, :, :, :-1]
-        true_gx = target_grid[:, :, :, 1:] - target_grid[:, :, :, :-1]
-        pred_gy = pred_grid[:, :, 1:, :] - pred_grid[:, :, :-1, :]
-        true_gy = target_grid[:, :, 1:, :] - target_grid[:, :, :-1, :]
-        return (
-            (pred_gx - true_gx).abs().mean(dim=[-3, -2, -1])
-            + (pred_gy - true_gy).abs().mean(dim=[-3, -2, -1])
-        )  # [B]
-
     def forward(
         self, graph_true: "DenseGraphBatch", graph_pred: "DenseGraphBatch"
     ) -> dict[str, torch.Tensor]:
         device = graph_pred.node_features.device
-        x = graph_true.node_features.to(device)      # [B, N, C]
-        x_hat = graph_pred.node_features.to(device)  # [B, N, C]
-        B, N, C = x_hat.shape
-        H = self.grid_size
+        x = graph_true.node_features.to(device)
+        x_hat = graph_pred.node_features.to(device)
 
-        x_grid = x.view(B, H, H, C).permute(0, 3, 1, 2)     # [B, C, H, W]
-
-        losses_per_k = []
-        for k in range(8):
-            x_hat_k = torch.einsum("nm,bnd->bmd", self.perm_matrices[k], x_hat)  # [B, N, C]
-            x_hat_k_grid = x_hat_k.view(B, H, H, C).permute(0, 3, 1, 2)         # [B, C, H, W]
-            loss_k = (
-                self.alpha * self._huber_per_sample(x_hat_k, x, self.huber_beta)
-                + self.beta * self._cosine_per_sample(x_hat_k, x)
-                + self.gamma * self._gradient_per_sample(x_hat_k_grid, x_grid)
-            )  # [B]
-            losses_per_k.append(loss_k)
+        losses_per_k = [
+            self.reconstruction_loss(
+                torch.einsum("nm,bnd->bmd", self.perm_matrices[k], x_hat), x
+            )
+            for k in range(8)
+        ]  # each [B]
 
         losses = torch.stack(losses_per_k, dim=1)              # [B, 8]
         lse = -torch.logsumexp(-losses, dim=1) + math.log(8)  # [B]
@@ -517,66 +533,81 @@ import torch
 import pytest
 
 from src.data.components.graphs_datamodules import DenseGraphBatch
-from src.models.components.losses import D4AlignmentLoss
+from src.models.components.losses import D4AlignmentLoss, PerSampleReconLoss
 
 
 def make_batch(B: int = 4, grid_size: int = 6, C: int = 8):
     N = grid_size * grid_size
-    node_features = torch.randn(B, N, C)
-    return DenseGraphBatch(
-        node_features=node_features,
-        edge_features=torch.empty(0),
-    )
+    return DenseGraphBatch(node_features=torch.randn(B, N, C), edge_features=torch.empty(0))
+
+
+def make_d4_loss(grid_size=6, alpha=1.0, beta=0.0, gamma=0.0):
+    recon = PerSampleReconLoss(grid_size=grid_size, huber_beta=1.0, alpha=alpha, beta=beta, gamma=gamma)
+    return D4AlignmentLoss(grid_size=grid_size, reconstruction_loss=recon)
+
+
+class TestPerSampleReconLoss:
+    def test_output_shape(self):
+        loss_fn = PerSampleReconLoss(grid_size=6, huber_beta=1.0, alpha=1.0, beta=0.1, gamma=0.001)
+        pred = torch.randn(4, 36, 8)
+        target = torch.randn(4, 36, 8)
+        out = loss_fn(pred, target)
+        assert out.shape == (4,), f"expected [B], got {out.shape}"
+
+    def test_zero_loss_for_identical_inputs(self):
+        loss_fn = PerSampleReconLoss(grid_size=6, huber_beta=1.0, alpha=1.0, beta=0.0, gamma=0.0)
+        x = torch.randn(4, 36, 8)
+        out = loss_fn(x, x)
+        assert out.abs().max().item() < 1e-5
+
+    def test_gradients_flow(self):
+        loss_fn = PerSampleReconLoss(grid_size=6, huber_beta=1.0, alpha=1.0, beta=0.1, gamma=0.001)
+        pred = torch.randn(4, 36, 8, requires_grad=True)
+        target = torch.randn(4, 36, 8)
+        loss_fn(pred, target).sum().backward()
+        assert pred.grad is not None
 
 
 class TestD4AlignmentLoss:
     def test_output_is_dict_with_loss(self):
-        loss_fn = D4AlignmentLoss(grid_size=6)
-        gt = make_batch()
-        pred = make_batch()
-        out = loss_fn(gt, pred)
-        assert "loss" in out
-        assert "d4_alignment_loss" in out
-        assert out["loss"].ndim == 0  # scalar
+        loss_fn = make_d4_loss()
+        out = loss_fn(make_batch(), make_batch())
+        assert "loss" in out and "d4_alignment_loss" in out
+        assert out["loss"].ndim == 0
 
     def test_loss_is_positive(self):
-        loss_fn = D4AlignmentLoss(grid_size=6)
-        gt = make_batch()
-        pred = make_batch()
-        out = loss_fn(gt, pred)
+        out = make_d4_loss()(make_batch(), make_batch())
         assert out["loss"].item() >= 0
 
-    def test_perfect_reconstruction_gives_log8_normalised_zero(self):
-        """When pred == gt for all orientations, logsumexp soft-min approaches 0."""
-        loss_fn = D4AlignmentLoss(grid_size=6, alpha=1.0, beta=0.0, gamma=0.0)
+    def test_perfect_reconstruction_zero(self):
+        """pred == gt → huber=0 for all k → logsumexp(0,...,0) = log(8) → +log(8) cancels to 0."""
+        loss_fn = make_d4_loss(alpha=1.0, beta=0.0, gamma=0.0)
         gt = make_batch(B=2)
-        # Use the same tensor for pred as gt — loss should be near 0 before +log(8)
-        pred = DenseGraphBatch(
-            node_features=gt.node_features.clone(),
-            edge_features=torch.empty(0),
-        )
-        out = loss_fn(gt, pred)
-        # huber(pred==gt) = 0 for each k, logsumexp(0,...,0) = log(8), +log(8) normalises to 0
-        assert abs(out["loss"].item()) < 1e-4
+        pred = DenseGraphBatch(node_features=gt.node_features.clone(), edge_features=torch.empty(0))
+        assert abs(loss_fn(gt, pred)["loss"].item()) < 1e-4
 
     def test_perm_matrices_shape(self):
-        loss_fn = D4AlignmentLoss(grid_size=6)
-        assert loss_fn.perm_matrices.shape == (8, 36, 36)
+        assert make_d4_loss().perm_matrices.shape == (8, 36, 36)
 
     def test_perm_matrices_are_orthogonal(self):
-        loss_fn = D4AlignmentLoss(grid_size=6)
+        loss_fn = make_d4_loss()
+        I = torch.eye(36)
         for k in range(8):
             P = loss_fn.perm_matrices[k]
-            I = torch.eye(36)
             assert torch.allclose(P @ P.T, I, atol=1e-5), f"P[{k}] not orthogonal"
 
+    def test_d4_loss_has_no_loss_params(self):
+        """D4AlignmentLoss should not hold huber_beta / alpha / beta / gamma directly."""
+        loss_fn = make_d4_loss()
+        assert not hasattr(loss_fn, "huber_beta")
+        assert not hasattr(loss_fn, "alpha")
+
     def test_gradients_flow(self):
-        loss_fn = D4AlignmentLoss(grid_size=6)
+        loss_fn = make_d4_loss()
         gt = make_batch()
         pred_features = torch.randn(4, 36, 8, requires_grad=True)
         pred = DenseGraphBatch(node_features=pred_features, edge_features=torch.empty(0))
-        out = loss_fn(gt, pred)
-        out["loss"].backward()
+        loss_fn(gt, pred)["loss"].backward()
         assert pred_features.grad is not None
         assert not torch.isnan(pred_features.grad).any()
 ```
@@ -589,9 +620,9 @@ uv run pytest tests/test_d4_alignment_loss.py -v
 
 Expected: `ImportError: cannot import name 'D4AlignmentLoss'`
 
-- [ ] **Step 3: Add `D4AlignmentLoss` to `losses.py`**
+- [ ] **Step 3: Add both classes to `losses.py`**
 
-Add `import math` at the top of `losses.py` if not present. Add the `D4AlignmentLoss` class at the end of the file.
+Add `import math` at the top of `losses.py` if not present. Add `PerSampleReconLoss` then `D4AlignmentLoss` at the end of the file.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -599,13 +630,13 @@ Add `import math` at the top of `losses.py` if not present. Add the `D4Alignment
 uv run pytest tests/test_d4_alignment_loss.py -v
 ```
 
-Expected: All 6 tests PASS
+Expected: All 9 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/models/components/losses.py tests/test_d4_alignment_loss.py
-git commit -m "feat: add D4AlignmentLoss with logsumexp orientation invariance"
+git commit -m "feat: add PerSampleReconLoss and thin D4AlignmentLoss to losses.py"
 ```
 
 ---
@@ -928,7 +959,7 @@ git commit -m "feat: simplify BottleNeckEncoder to standard VAE reparameterizati
 
 ### What to implement
 
-Replace the entire `model.py` content:
+Replace the entire `model.py` content. The Critic constructs `PerSampleReconLoss` from config params, then injects it into `D4AlignmentLoss`. All loss params come from `hparams`.
 
 ```python
 import os
@@ -944,6 +975,7 @@ from src.models.components.losses import (
     KLDLoss,
     MAELoss,
     MSEGridLoss,
+    PerSampleReconLoss,
     SignalToNoiseRatioLoss,
 )
 
@@ -955,12 +987,16 @@ class Critic(torch.nn.Module):
         super().__init__()
         self.kld_scale = float(getattr(hparams, "kld_loss_scale", 1.0))
         self.vae = hparams.vae
-        self.d4_alignment_loss = D4AlignmentLoss(
+        per_sample_loss = PerSampleReconLoss(
             grid_size=hparams.grid_size,
             huber_beta=hparams.huber_beta,
             alpha=hparams.alpha_scale,
             beta=hparams.beta_scale,
             gamma=hparams.gamma_scale,
+        )
+        self.d4_alignment_loss = D4AlignmentLoss(
+            grid_size=hparams.grid_size,
+            reconstruction_loss=per_sample_loss,
         )
         self.kld_loss = KLDLoss(
             normalize_by_latent_dim=True, free_bits=hparams.get("kld_free_bits", 0.0)
@@ -1036,7 +1072,7 @@ def make_critic_hparams():
         "kld_loss_scale": 0.05,
         "kld_free_bits": 0.0,
         "vae": True,
-        "grid_size": 4,
+        "grid_size": 4,   # all loss params passed flat from config
         "huber_beta": 2.0,
         "alpha_scale": 1.0,
         "beta_scale": 0.1,
@@ -1104,6 +1140,13 @@ class TestCriticD4:
         )
         assert "val_loss" in out
         assert "val_d4_alignment_loss" in out
+
+    def test_d4_loss_is_injected_per_sample_loss(self):
+        """Critic must delegate to PerSampleReconLoss, not re-implement loss logic."""
+        from src.models.components.model import Critic
+        from src.models.components.losses import PerSampleReconLoss
+        critic = Critic(make_critic_hparams())
+        assert isinstance(critic.d4_alignment_loss.reconstruction_loss, PerSampleReconLoss)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
