@@ -40,19 +40,23 @@ Inference:
 
 ### `src/data/components/graphs_datamodules.py`
 
-**Add `SingleViewTransform`** — replaces `IMCBaseDictTransform + PatchAugmentations` in the
-single-view path:
-- Takes the 8-view numpy array `[8, C, H, W]` already stored in the HDF5
-- Training: picks a **random index** `i = randint(0, 7)` each call → online augmentation,
-  one random D4 orientation per sample per epoch
-- Validation (`is_validation=True`): always picks index 1 (`r0_nf` = identity, no rotation,
-  no flip) → stable, deterministic
-- Reshapes the chosen `[C, H, W]` view to `[N, C]` (node-feature layout)
+**Add `SingleViewTransform`** — replaces **both `IMCBaseDictTransform` and
+`PatchAugmentations`** entirely. Takes the raw single `[C, H, W]` embedding directly from
+`PickleDataset` and handles everything in one pass:
+- Training: randomly picks one key from `IMC_GRAPH_VIEW_KEYS` (`randint(0, 7)`), calls
+  `_spatial_view(emb, key)` (already in the file) to apply one D4 transform on demand
+- Validation (`is_validation=True`): always uses `_spatial_view(emb, "r0_nf")` (identity —
+  no rotation, no flip) → stable, deterministic
+- Applies all preprocessing to that **one view**: center-crop, clip, normalise (same params
+  as the current `IMCBaseDictTransform`: `center_crop_size`, `normalize`, `clip_percentiles`,
+  etc.)
+- Reshapes `[C, H, W]` → `[N, C]`
 - Returns `(tensor [1, N, C], argsort [1, N], perm [0])` — same interface as
   `PatchAugmentations`, single-element leading dim so `from_sparse_graph_list` is unchanged
 
-**`PickleDataset`:** No changes needed — `generate_views=True` already produces `[8, C, H, W]`
-which `SingleViewTransform` consumes.
+**`PickleDataset`:** Add `single_view: bool = False`. When `True`, set `generate_views=False`
+internally so `make_views()` is never called and the raw `[C, H, W]` embedding is returned
+directly. No 8-view array is ever allocated.
 
 **`DenseGraphBatch.from_sparse_graph_list`:** No changes needed — `augmented_embedding[perm]`
 with `perm=[0]` and shape `[1, N, D]` produces `[N, D]`; the stack+flatten logic produces
@@ -195,8 +199,8 @@ All locations that assume `batch_size = total // 8` or produce `8*B` output:
 
 | File | Change type |
 |---|---|
-| `src/data/components/graphs_datamodules.py` | Add `SingleViewTransform` |
-| `src/data/imc_datamodule.py` | Add `single_view` param, wire `SingleViewTransform` |
+| `src/data/components/graphs_datamodules.py` | Add `SingleViewTransform` (replaces `IMCBaseDictTransform + PatchAugmentations`) |
+| `src/data/imc_datamodule.py` | Add `single_view` param; wire `SingleViewTransform` + `single_view=True` in `PickleDataset` |
 | `src/models/components/losses.py` | Add `D4AlignmentLoss`; remove `PermutationLoss` usage |
 | `src/models/components/modules.py` | Remove permuter from `GraphAE`; simplify `BottleNeckEncoder` |
 | `src/models/components/model.py` | Replace recon+perm losses with `D4AlignmentLoss` in `Critic` |
