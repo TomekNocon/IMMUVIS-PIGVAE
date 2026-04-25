@@ -104,13 +104,14 @@ class PickleDataset(Dataset):
         only_embeddings: bool = False,
         generate_views: bool = False,
         center_crop_size: int | None = None,
+        single_view: bool = False,
     ):
         self.hdf5_path = hdf5_path
         self.transform = transform
         self.only_embeddings = only_embeddings
-        self.generate_views = generate_views
+        self.generate_views = generate_views and not single_view
         self.center_crop_size = center_crop_size
-
+        self.single_view = single_view
         with h5py.File(hdf5_path, "r") as f:
             self._length = len(f[next(iter(f.keys()))])
 
@@ -214,6 +215,96 @@ class PatchAugmentations(nn.Module):
             out = torch.flip(out, dims=[-1])
 
         return out
+
+
+class SingleViewTransform(nn.Module):
+    """Single-view replacement for PatchAugmentations.
+
+    Takes a raw (C, H, W) numpy array, applies one random D4 transform
+    (or identity for validation), preprocesses it, and returns the same
+    interface as PatchAugmentations with a leading dim of 1.
+    """
+
+    def __init__(
+        self,
+        is_validation: bool = False,
+        center_crop_size: int | None = None,
+        normalize: bool = False,
+        norm_type: str = "channel_wise",
+        clip_percentiles: bool = False,
+        clip_lower: float = 0.01,
+        clip_upper: float = 0.99,
+        clip_type: str = "channel_wise",
+    ):
+        super().__init__()
+        self.is_validation = is_validation
+        self.center_crop_size = center_crop_size
+        self.normalize = normalize
+        self.norm_type = norm_type
+        self.clip_percentiles = clip_percentiles
+        self.clip_lower = clip_lower
+        self.clip_upper = clip_upper
+        self.clip_type = clip_type
+
+    def forward(self, emb: np.ndarray) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            emb: np.ndarray [C, H, W] — raw single embedding from PickleDataset
+
+        Returns:
+            aug_tensor:     [1, N, C]  float32 tensor
+            argsort_tensor: [1, N]     int64 tensor (identity argsort)
+            perm:           tensor([0]) int64 — single-element perm index
+        """
+        if self.center_crop_size is not None:
+            emb = _center_crop_np(emb, self.center_crop_size)
+
+        if self.is_validation:
+            key = "r0_nf"  # identity: no rotation, no flip
+        else:
+            key = IMC_GRAPH_VIEW_KEYS[torch.randint(0, 8, (1,)).item()]
+
+        emb = _spatial_view(emb, key)
+
+        t = torch.from_numpy(emb.copy()).float()  # [C, H, W]
+
+        if self.clip_percentiles and self.clip_type != "none":
+            t = self._clip_by_percentile(t, self.clip_lower, self.clip_upper, self.clip_type)
+
+        if self.normalize:
+            if self.norm_type == "channel_wise":
+                eps = 1e-6
+                mean = t.mean(dim=(1, 2), keepdim=True)
+                std = t.std(dim=(1, 2), keepdim=True) + eps
+                t = (t - mean) / std
+            elif self.norm_type == "global":
+                eps = 1e-6
+                t = (t - t.mean()) / (t.std() + eps)
+
+        c = t.shape[0]
+        flat = t.reshape(c, -1).T  # [N, C]
+        n = flat.shape[0]
+
+        aug_tensor = flat.unsqueeze(0)  # [1, N, C]
+        argsort_tensor = torch.arange(n, dtype=torch.long).unsqueeze(0)  # [1, N]
+        perm = torch.tensor([0], dtype=torch.long)  # [1]
+
+        return aug_tensor, argsort_tensor, perm
+
+    @staticmethod
+    def _clip_by_percentile(
+        x: torch.Tensor, lower: float, upper: float, mode: str
+    ) -> torch.Tensor:
+        if mode == "global":
+            flat = x.flatten()
+            return torch.clamp(x, min=torch.quantile(flat, lower), max=torch.quantile(flat, upper))
+        elif mode == "channel_wise":
+            c = x.shape[0]
+            x_reshaped = x.reshape(c, -1)
+            q_low = torch.quantile(x_reshaped, lower, dim=1, keepdim=True).reshape(c, 1, 1)
+            q_high = torch.quantile(x_reshaped, upper, dim=1, keepdim=True).reshape(c, 1, 1)
+            return torch.maximum(torch.minimum(x, q_high), q_low)
+        return x
 
 
 class IMCBaseDictTransform(nn.Module):
@@ -515,14 +606,14 @@ class DenseGraphBatch:
             graph.add_nodes_from(list(range(num_nodes, max_num_nodes)))
             node_features.append(augmented_embedding[perm].squeeze(1))
             argsort_augmented_indices.append(argsort_augmented[perm].squeeze(1))
-            perms.append(perm.squeeze(0))
+            perms.append(perm)
             mask.append((torch.arange(max_num_nodes) < num_nodes).unsqueeze(0))
             metadata_list.append(metadata_item)
             paths_list.append(paths_item)
             positions_list.append(positions_item)
         node_features = torch.stack(node_features, dim=1).flatten(0, 1)
         argsort_augmented_indices = torch.stack(argsort_augmented_indices, dim=1).flatten(0, 1)
-        perms = torch.stack(perms, dim=1).flatten(0, 1)
+        perms = torch.stack(perms, dim=0)
         batch_size = node_features.size(0)
         edge_features = edge_features_tensor
         mask = torch.cat(mask, dim=0)
