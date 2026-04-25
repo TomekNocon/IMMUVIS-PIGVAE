@@ -555,3 +555,108 @@ class PermutaionMatrixLoss(torch.nn.Module):
         entropy_row = self.entropy(perm, axis=2, normalize=False)
         loss = entropy_col.mean() + entropy_row.mean()
         return loss
+
+
+class PerSampleReconLoss(torch.nn.Module):
+    """Per-sample Huber + Cosine + Gradient reconstruction loss returning [B].
+
+    Intended solely for use inside D4AlignmentLoss — not for direct use in Critic.
+    """
+
+    def __init__(
+        self,
+        grid_size: int,
+        huber_beta: float,
+        alpha: float,
+        beta: float,
+        gamma: float,
+    ):
+        super().__init__()
+        self.grid_size = grid_size
+        self.huber_beta = huber_beta
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            pred:   [B, N, C]
+            target: [B, N, C]
+        Returns:
+            [B] per-sample loss
+        """
+        B, N, C = pred.shape
+        H = self.grid_size
+
+        huber = F.smooth_l1_loss(pred, target, beta=self.huber_beta, reduction="none").mean(
+            dim=[-2, -1]
+        )  # [B]
+        cosine = 1.0 - F.cosine_similarity(pred.flatten(1), target.flatten(1), dim=-1)  # [B]
+
+        pred_grid = pred.view(B, H, H, C).permute(0, 3, 1, 2)      # [B, C, H, W]
+        target_grid = target.view(B, H, H, C).permute(0, 3, 1, 2)
+        pred_gx = pred_grid[:, :, :, 1:] - pred_grid[:, :, :, :-1]
+        true_gx = target_grid[:, :, :, 1:] - target_grid[:, :, :, :-1]
+        pred_gy = pred_grid[:, :, 1:, :] - pred_grid[:, :, :-1, :]
+        true_gy = target_grid[:, :, 1:, :] - target_grid[:, :, :-1, :]
+        gradient = (
+            (pred_gx - true_gx).abs().mean(dim=[-3, -2, -1])
+            + (pred_gy - true_gy).abs().mean(dim=[-3, -2, -1])
+        )  # [B]
+
+        return self.alpha * huber + self.beta * cosine + self.gamma * gradient  # [B]
+
+
+class D4AlignmentLoss(torch.nn.Module):
+    """Logsumexp orientation-invariance wrapper over the D4 symmetry group.
+
+    Applies reconstruction_loss to all 8 D4 transforms of the prediction
+    and takes the per-sample soft-min via logsumexp. +log(8) normalises for
+    the uniform prior over orientations.
+    """
+
+    def __init__(self, grid_size: int, reconstruction_loss: torch.nn.Module):
+        super().__init__()
+        self.grid_size = grid_size
+        self.reconstruction_loss = reconstruction_loss
+        self.register_buffer("perm_matrices", self._precompute_d4(grid_size))
+
+    @staticmethod
+    def _precompute_d4(n: int) -> torch.Tensor:
+        n_nodes = n * n
+        matrices = []
+        for k in range(4):
+            idx = torch.arange(n_nodes).reshape(n, n)
+            for _ in range(k):
+                idx = idx.rot90(-1)
+            matrices.append(torch.eye(n_nodes)[idx.reshape(-1)])
+        base_idx = torch.arange(n_nodes).reshape(n, n)
+        reflected_idx = base_idx.flip(1).reshape(-1)
+        reflection = torch.eye(n_nodes)[reflected_idx]
+        for k in range(4):
+            idx = torch.arange(n_nodes).reshape(n, n)
+            for _ in range(k):
+                idx = idx.rot90(-1)
+            rot = torch.eye(n_nodes)[idx.reshape(-1)]
+            matrices.append(torch.matmul(reflection, rot))
+        return torch.stack(matrices, dim=0)  # [8, N, N]
+
+    def forward(
+        self, graph_true: "DenseGraphBatch", graph_pred: "DenseGraphBatch"
+    ) -> dict[str, torch.Tensor]:
+        device = graph_pred.node_features.device
+        x = graph_true.node_features.to(device)
+        x_hat = graph_pred.node_features.to(device)
+
+        losses_per_k = [
+            self.reconstruction_loss(
+                torch.einsum("nm,bnd->bmd", self.perm_matrices[k], x_hat), x
+            )
+            for k in range(8)
+        ]  # each [B]
+
+        losses = torch.stack(losses_per_k, dim=1)              # [B, 8]
+        lse = -torch.logsumexp(-losses, dim=1) + math.log(8)  # [B]
+        total = lse.mean()
+        return {"loss": total, "d4_alignment_loss": total}
