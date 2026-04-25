@@ -613,7 +613,7 @@ class DenseGraphBatch:
             positions_list.append(positions_item)
         node_features = torch.stack(node_features, dim=1).flatten(0, 1)
         argsort_augmented_indices = torch.stack(argsort_augmented_indices, dim=1).flatten(0, 1)
-        perms = torch.stack(perms, dim=0)
+        perms = torch.stack(perms, dim=0)  # [B, V] — single-view: V=1; old 8-view path: V=8
         batch_size = node_features.size(0)
         edge_features = edge_features_tensor
         mask = torch.cat(mask, dim=0)
