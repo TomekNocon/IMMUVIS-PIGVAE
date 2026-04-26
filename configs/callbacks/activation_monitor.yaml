@@ -11,6 +11,4 @@ activation_monitor:
   # What to monitor (dotted paths from the LightningModule).
   module_paths:
     - graph_ae.encoder.graph_transformer
-    - graph_ae.permuter.spectral_embeddings
-    - graph_ae.permuter.graph_transformer
     - graph_ae.decoder.graph_transformer

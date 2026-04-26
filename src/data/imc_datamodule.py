@@ -23,6 +23,19 @@ from src.data.components.graphs_datamodules import (
 )
 
 
+def _pca_collate(batch):
+    """Collate for the PCA-fitting DataLoader.
+
+    Stacks tensors/arrays normally but keeps the paths element (index 4) as a
+    plain list — torch's default collate cannot handle numpy byte-string arrays.
+    """
+    from torch.utils.data._utils.collate import default_collate
+
+    n = len(batch[0])
+    cols = list(zip(*batch))
+    return tuple(default_collate(list(col)) if i != 4 else list(col) for i, col in enumerate(cols))
+
+
 def resolve_imc_h5(data_dir: str | Path, imc_root: str, dataset_name: str, split: str) -> Path:
     """Resolve per-dataset HDF5 path: ``{data_dir}/{imc_root}/{dataset_name}/{split}.h5``."""
     path = Path(data_dir) / imc_root / dataset_name / f"{split}.h5"
@@ -219,6 +232,7 @@ class IMCDataModule(LightningDataModule):
                     batch_size=self.batch_size,
                     num_workers=self.num_workers,
                     shuffle=False,
+                    collate_fn=_pca_collate,
                 )
 
                 ipca = IncrementalPCA(

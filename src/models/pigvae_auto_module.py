@@ -164,12 +164,11 @@ class PLGraphAE(L.LightningModule):
         return metrics
 
     def on_validation_epoch_end(self) -> None:
-        if self.trainer.is_global_zero:
+        if self.trainer.is_global_zero and wandb.run is not None:
             n_examples = 4
             predictions = self.validation_step_outputs[0]["prediction"].node_features
             ground_truths = self.validation_step_outputs[0]["ground_truth"].node_features
             graph_emb = self.validation_step_outputs[0]["graph_emb"]
-            targets = self.validation_step_outputs[0]["ground_truth"].y
 
             batch_size = predictions.shape[0]
             n_show = min(n_examples, batch_size)
@@ -227,7 +226,7 @@ class PLGraphAE(L.LightningModule):
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
-        if self.trainer.is_global_zero:
+        if self.trainer.is_global_zero and wandb.run is not None:
             n_examples = 10
             predictions = self.test_step_outputs[0]["prediction"].node_features
             ground_truths = self.test_step_outputs[0]["ground_truth"].node_features

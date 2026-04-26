@@ -105,3 +105,36 @@ def cfg_eval(cfg_eval_global: DictConfig, tmp_path: Path) -> DictConfig:
     yield cfg
 
     GlobalHydra.instance().clear()
+
+
+@pytest.fixture(scope="session")
+def synthetic_imc_data(tmp_path_factory):
+    """Minimal synthetic IMC HDF5 dataset for end-to-end smoke tests (no real data needed)."""
+    import h5py
+    import numpy as np
+
+    root = tmp_path_factory.mktemp("imc_data")
+    data_dir = root / "IMC" / "cords"
+    data_dir.mkdir(parents=True)
+
+    N_train, N_test = 30, 20
+    C, H, W = 16, 6, 6  # small channel count for fast PCA
+
+    rng = np.random.default_rng(42)
+    for split, N in (("train", N_train), ("test", N_test)):
+        with h5py.File(data_dir / f"{split}.h5", "w") as f:
+            f.create_dataset(
+                "embeddings",
+                data=rng.standard_normal((N, C, H, W)).astype(np.float32),
+            )
+            f.create_dataset("metadata", data=np.zeros((N, 1), dtype=np.int64))
+            f.create_dataset(
+                "paths",
+                data=np.array([f"{split}_{i}".encode() for i in range(N)]).reshape(N, 1),
+            )
+            f.create_dataset(
+                "positions",
+                data=np.zeros((N, 1, 2), dtype=np.float32),
+            )
+
+    return str(root)
