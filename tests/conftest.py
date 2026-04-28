@@ -1,12 +1,13 @@
 """This file prepares config fixtures for other tests."""
 
+import operator
 from pathlib import Path
 
 import pytest
 import rootutils
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
-from omegaconf import DictConfig, open_dict
+from omegaconf import DictConfig, OmegaConf, open_dict
 
 
 @pytest.fixture(scope="package")
@@ -15,6 +16,10 @@ def cfg_train_global() -> DictConfig:
 
     :return: A DictConfig object containing a default Hydra configuration for training.
     """
+    # Register custom resolvers
+    OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
+    OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
+
     with initialize(version_base="1.3", config_path="../configs"):
         cfg = compose(config_name="train.yaml", return_hydra_config=True, overrides=[])
 
@@ -42,6 +47,10 @@ def cfg_eval_global() -> DictConfig:
 
     :return: A DictConfig containing a default Hydra configuration for evaluation.
     """
+    # Register custom resolvers
+    OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
+    OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
+
     with initialize(version_base="1.3", config_path="../configs"):
         cfg = compose(config_name="eval.yaml", return_hydra_config=True, overrides=["ckpt_path=."])
 

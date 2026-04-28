@@ -35,3 +35,20 @@ def test_eval_config(cfg_eval: DictConfig) -> None:
     hydra.utils.instantiate(cfg_eval.data)
     hydra.utils.instantiate(cfg_eval.model)
     hydra.utils.instantiate(cfg_eval.trainer)
+
+
+def test_model_latent_dim(cfg_train: DictConfig) -> None:
+    """Verify the model instantiates with emb_dim=128 and free_bits=1.0."""
+    from hydra.utils import instantiate
+
+    model_cfg = cfg_train.model
+    model = instantiate(model_cfg)
+
+    # emb_dim drives the bottleneck output size
+    assert model.graph_ae.bottle_neck_encoder.d_out == 128, (
+        f"Expected emb_dim=128, got {model.graph_ae.bottle_neck_encoder.d_out}"
+    )
+    # free_bits should be 1.0, not 0
+    assert model.critic.kld_loss.free_bits == 1.0, (
+        f"Expected free_bits=1.0, got {model.critic.kld_loss.free_bits}"
+    )

@@ -43,19 +43,21 @@ class KLDAlphaScheduler(torch.nn.Module):
         self.initial_alpha = hparams.initial_alpha
         self.final_alpha = hparams.final_alpha
         self.total_epochs = hparams.num_epochs
+        self.start_epoch = int(getattr(hparams, "start_epoch", 0))
         self.mode = getattr(hparams, "mode", "linear")
 
     def forward(self, epoch: int) -> float:
-        t = min(epoch, self.total_epochs)
+        if epoch < self.start_epoch:
+            return self.initial_alpha
+        t = min(epoch - self.start_epoch, self.total_epochs)
+        denom = max(1, self.total_epochs)
         if self.mode == "linear":
-            return self.initial_alpha * (1 - t / self.total_epochs) + self.final_alpha * (
-                t / self.total_epochs
-            )
+            return self.initial_alpha * (1 - t / denom) + self.final_alpha * (t / denom)
         elif self.mode == "exponential":
             # Guard zero initial_alpha in exponential mode
             start = max(self.initial_alpha, 1e-12)
             ratio = self.final_alpha / start
-            return start * (ratio ** (t / self.total_epochs))
+            return start * (ratio ** (t / denom))
         elif self.mode == "constant":
             return self.final_alpha
         else:

@@ -3,10 +3,10 @@ _target_: "src.models.pigvae_auto_module.PLGraphAE"
 graph_ae:
   _target_: "src.models.components.modules.GraphAE"
   hparams:
-    input_size: 768
+    input_size: 128
     num_heads: 4
     num_layers: 3
-    emb_dim: 768
+    emb_dim: 128
     vae: true
     dropout: 0.15
     encoder:
@@ -92,8 +92,8 @@ kld_alpha_scheduler:
     initial_alpha: 0.0
     final_alpha: 1.0
     mode: linear
-    num_epochs: ${divide:${trainer.max_epochs},3}
-    start_epoch: 1
+    num_epochs: ${divide:${trainer.max_epochs},2}
+    start_epoch: 10
 
 # beta_weight_scheduler:
 #   _target_: "src.models.components.schedulers.LinearDecay"
@@ -115,7 +115,7 @@ critic:
   hparams:
     # KLD LOSS SETTINGS - CRITICAL FOR VAE
     kld_loss_scale: 0.05  # moderate — permuter implicit regularization prevents collapse
-    kld_free_bits: 0.0  # disabled: free_bits creates a dead zone with zero gradient below threshold
+    kld_free_bits: 1.0  # protects each dim from zero-gradient collapse
 
     perm_loss_scale: 0.05  # Sinkhorn already enforces bijective assignment; this is a soft backup only
     contrastive_loss_scale: 0.01
