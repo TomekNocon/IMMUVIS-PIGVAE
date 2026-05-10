@@ -3,7 +3,7 @@ _target_: "src.models.pigvae_auto_module.PLGraphAE"
 graph_ae:
   _target_: "src.models.components.modules.GraphAE"
   hparams:
-    input_size: 128
+    input_size: 256
     num_heads: 4
     num_layers: 3
     emb_dim: 128
@@ -73,8 +73,8 @@ temperature_scheduler:
   _target_: "src.models.components.schedulers.TemperatureScheduler"
   hparams:
     initial_tau: 1.0
-    final_tau: 0.5
-    num_epochs: ${trainer.max_epochs}
+    final_tau: 0.05
+    num_epochs: 10
     start_epoch: ${trainer.min_epochs}
 
 entropy_weight_scheduler:
