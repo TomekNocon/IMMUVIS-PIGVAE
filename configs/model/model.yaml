@@ -3,10 +3,10 @@ _target_: "src.models.pigvae_auto_module.PLGraphAE"
 graph_ae:
   _target_: "src.models.components.modules.GraphAE"
   hparams:
-    input_size: 256
-    num_heads: 4
-    num_layers: 3
-    emb_dim: 128
+    input_size: 512
+    num_heads: 8
+    num_layers: 4
+    emb_dim: 256
     vae: false
     dropout: 0.15
     encoder:
@@ -35,6 +35,7 @@ graph_ae:
       project: True
       grid_size: 6  # enables 2D positional encoding
       use_film: true
+      emb_dim: ${model.graph_ae.hparams.emb_dim}
 
     bottle_neck_encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}

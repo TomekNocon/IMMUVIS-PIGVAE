@@ -45,8 +45,9 @@ class GraphAE(torch.nn.Module):
         perm: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> DenseGraphBatch:
+        z = graph_emb  # [B, emb_dim] — raw latent for FiLM conditioning
         graph_emb = self.bottle_neck_decoder(graph_emb)
-        node_logits, edge_logits = self.decoder(graph_emb=graph_emb, perm=perm, mask=mask)
+        node_logits, edge_logits = self.decoder(graph_emb=graph_emb, perm=perm, mask=mask, z=z)
         graph_pred = DenseGraphBatch(
             node_features=node_logits,
             edge_features=edge_logits,
@@ -181,7 +182,7 @@ class GraphDecoder(torch.nn.Module):
         self.use_film = getattr(hparams, "use_film", False)
         if self.use_film:
             self.film = FiLMConditioner(
-                z_dim=hparams.graph_decoder_hidden_dim,
+                z_dim=hparams.emb_dim,
                 hidden_dim=hparams.graph_decoder_hidden_dim,
                 num_layers=hparams.graph_decoder_num_layers,
             )
@@ -232,10 +233,14 @@ class GraphDecoder(torch.nn.Module):
         return node_features, edge_features
 
     def forward(
-        self, graph_emb: torch.Tensor, perm: torch.Tensor, mask: torch.Tensor
+        self,
+        graph_emb: torch.Tensor,
+        perm: torch.Tensor,
+        mask: torch.Tensor,
+        z: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
-        film_params = self.film(graph_emb) if self.use_film else None
+        film_params = self.film(z if z is not None else graph_emb) if self.use_film else None
         x = self.graph_transformer(x, mask=mask, is_encoder=False, film_params=film_params)
         node_features, edge_features = self.read_out_message_matrix(x)
         return node_features, edge_features
