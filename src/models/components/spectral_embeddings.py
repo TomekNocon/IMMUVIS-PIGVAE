@@ -81,6 +81,9 @@ class SklearnSpectralEmbedding(nn.Module):
         # elementwise_affine=False: proj learns direction, not scale — prevents unbounded growth
         self.proj_norm = nn.LayerNorm(d_model, elementwise_affine=False)
         self.to_project = d_model != n_components
+        # Normalize content to unit scale before adding SE — prevents SE (std~1.1) from
+        # drowning out learned content features (std~0.15) during early training.
+        self.content_norm = nn.LayerNorm(d_model, elementwise_affine=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         batch, _, _ = x.shape
@@ -90,4 +93,4 @@ class SklearnSpectralEmbedding(nn.Module):
 
         # dropout before adding, not after — keeps x scale stable
         embedding = self.dropout(embedding)
-        return x + embedding
+        return self.content_norm(x) + embedding

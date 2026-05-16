@@ -272,7 +272,13 @@ def _create_neighborhood_mask(num_nodes: int, is_encoder: bool, device: str):
     adjacency_matrix = torch.tensor(nx.to_numpy_array(graph), dtype=torch.bool)
     mask = adjacency_matrix | torch.eye(adjacency_matrix.shape[0], dtype=torch.bool)
     if is_encoder:
-        mask = F.pad(mask, (1, 0, 1, 0), value=True)
+        # CLS is at position 0.
+        # Col 0 (CLS as key)  = False: content nodes cannot attend to CLS.
+        # Row 0 (CLS as query) = True: CLS attends to all content nodes.
+        # Without this asymmetry the CLS acts as a global bus — every content node
+        # reads the global average through CLS and all nodes collapse to the same repr.
+        mask = F.pad(mask, (1, 0, 0, 0), value=False)  # left col: content→CLS = False
+        mask = F.pad(mask, (0, 0, 1, 0), value=True)   # top row:  CLS→all   = True
     return mask.to(device)
 
 
