@@ -67,6 +67,7 @@ class PLGraphAE(L.LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler._LRScheduler,
         compile: bool,
+        node_feat_diversity_weight: float = 0.01,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(
@@ -82,13 +83,14 @@ class PLGraphAE(L.LightningModule):
         # self.beta_weight_scheduler = beta_weight_scheduler
         # self.gamma_weight_scheduler = gamma_weight_scheduler
         self.automatic_optimization = True
+        self.node_feat_diversity_weight = node_feat_diversity_weight
         self.validation_step_outputs: list[dict[str, Any]] = []
         self.test_step_outputs: list[dict[str, Any]] = []
         self.perms: list[torch.Tensor] = []
 
     def forward(self, graph: DenseGraphBatch, training: bool, tau: float) -> tuple:
-        graph_emb, graph_pred, soft_probs, perm, mu, logvar = self.graph_ae(graph, training, tau)
-        return graph_emb, graph_pred, soft_probs, perm, mu, logvar
+        graph_emb, graph_pred, soft_probs, perm, mu, logvar, node_features = self.graph_ae(graph, training, tau)
+        return graph_emb, graph_pred, soft_probs, perm, mu, logvar, node_features
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -138,7 +140,7 @@ class PLGraphAE(L.LightningModule):
         # recon_gamma = self.gamma_weight_scheduler(self.current_epoch)
         # self.critic.reconstruction_loss.weights["beta"] = recon_beta
         # self.critic.reconstruction_loss.weights["gamma"] = recon_gamma
-        graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
+        graph_emb, graph_pred, soft_probs, perm, mu, logvar, node_features = self(
             graph=graph, training=True, tau=tau
         )
         loss = self.critic(
@@ -152,6 +154,10 @@ class PLGraphAE(L.LightningModule):
             mu=mu,
             logvar=logvar,
         )
+        if self.node_feat_diversity_weight > 0 and node_features is not None:
+            div_loss = self._aug_diversity_loss(node_features)
+            loss["loss"] = loss["loss"] + self.node_feat_diversity_weight * div_loss
+            loss["enc_diag/aug_cos_sim"] = div_loss.detach()
         self.log_dict(loss)
         if mu is not None:
             self._log_latent_stats(mu, logvar, alpha, prefix="")
@@ -176,6 +182,32 @@ class PLGraphAE(L.LightningModule):
         self.log(f"{p}kld_per_dim_median", per_dim_kld_mean.median(), batch_size=bs)
         self.log(f"{p}kld_alpha", kld_alpha, batch_size=bs)
 
+    def _aug_diversity_loss(self, node_features: torch.Tensor) -> torch.Tensor:
+        """Mean pairwise cosine similarity across augmented views of the same image.
+
+        Compares node features at the *same grid position* across augmented views.
+        D4 augmentations bring different physical cells to each position, so a
+        discriminative encoder should produce different features at the same position
+        for different augmentations.  High value → encoder is blind to augmentation.
+
+        NOTE: do NOT mean-pool over nodes before comparing — that collapses to a
+        permutation-invariant aggregate (same for all augmentations by construction).
+
+        Batch layout: rows 0..B-1 = aug 0, B..2B-1 = aug 1, …, 7B..8B-1 = aug 7.
+        """
+        import torch.nn.functional as F
+        num_views = 8
+        total_B, N, D = node_features.shape
+        B = total_B // num_views
+        if B == 0 or total_B % num_views != 0:
+            return node_features.new_zeros(1).squeeze()
+        views = node_features.view(num_views, B, N, D)    # [8, B, N, D]
+        views_norm = F.normalize(views, dim=-1)            # [8, B, N, D]
+        # Compare same grid position across augmentation pairs; average over positions
+        sim = torch.einsum("vbnd,ubnd->uvb", views_norm, views_norm) / N  # [8, 8, B]
+        off_diag = ~torch.eye(num_views, device=sim.device, dtype=torch.bool)
+        return sim[off_diag].mean()   # 1 = identical at every position, 0 = orthogonal
+
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a training epoch ends."
 
@@ -189,7 +221,7 @@ class PLGraphAE(L.LightningModule):
         # recon_gamma = self.gamma_weight_scheduler(self.current_epoch)
         # self.critic.reconstruction_loss.weights["beta"] = recon_beta
         # self.critic.reconstruction_loss.weights["gamma"] = recon_gamma
-        graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
+        graph_emb, graph_pred, soft_probs, perm, mu, logvar, node_features = self(
             graph=graph, training=False, tau=tau
         )
 
@@ -200,6 +232,7 @@ class PLGraphAE(L.LightningModule):
             "ground_truth": graph,
             "graph_emb": graph_emb,
             "soft_probs": soft_probs,
+            "node_features": node_features.detach() if node_features is not None else None,
         }
         self.validation_step_outputs.append(outputs)
         batch_size = graph_pred.node_features.shape[0]
@@ -374,7 +407,7 @@ class PLGraphAE(L.LightningModule):
         :param batch_idx: The index of the current batch.
         """
 
-        graph_emb, graph_pred, _, perm, _, _ = self(graph=graph, training=False, tau=1.0)
+        graph_emb, graph_pred, _, perm, _, _, _ = self(graph=graph, training=False, tau=1.0)
         if perm is not None:
             self.perms.append(perm)
         outputs = {
@@ -614,7 +647,7 @@ class PLGraphAE(L.LightningModule):
         component_max_norm = 5.0
         for component in (
             ae.encoder, ae.decoder,
-            ae.bottle_neck_encoder, ae.bottle_neck_decoder,
+            ae.bottle_neck_encoder,
             ae.permuter,
         ):
             torch.nn.utils.clip_grad_norm_(component.parameters(), max_norm=component_max_norm)

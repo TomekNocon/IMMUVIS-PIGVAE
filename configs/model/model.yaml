@@ -52,7 +52,6 @@ graph_ae:
       turn_off: False          # permuter active from epoch 1 (no curriculum)
       curriculum_epoch: -1   # curriculum disabled
       freeze_epochs: 0       # no freeze — enc/dec continue training after switch
-      use_ce: False
       use_context: False
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
       n_components: 16
@@ -80,7 +79,7 @@ kld_alpha_scheduler:
     initial_alpha: 0.0
     final_alpha: 1.0
     mode: linear
-    num_epochs: ${divide:${trainer.max_epochs},3}
+    num_epochs: ${divide:${trainer.max_epochs},6}  # was /3 — reach full weight by ~epoch 33, before collapse sets in
     start_epoch: 1
 
 # beta_weight_scheduler:
@@ -102,8 +101,8 @@ critic:
   _target_: "src.models.components.model.Critic"
   hparams:
     # KLD LOSS SETTINGS - CRITICAL FOR VAE
-    kld_loss_scale: 0.05  # moderate — permuter implicit regularization prevents collapse
-    kld_free_bits: 0.0  # disabled: free_bits creates a dead zone with zero gradient below threshold
+    kld_loss_scale: 0.1   # increased from 0.05 — effective weight was too weak given slow alpha ramp
+    kld_free_bits: 0.5   # per-dim floor: dims below 0.5 nats are not pushed toward prior
 
     perm_loss_scale: 0.05  # Sinkhorn already enforces bijective assignment; this is a soft backup only
     contrastive_loss_scale: 0.01
@@ -139,3 +138,9 @@ scheduler:
   final_div_factor: 100
 
 compile: false
+
+# Penalise cosine similarity between augmented-view encoder features.
+# Ensures the encoder produces distinctive features per augmentation so the
+# permuter has a non-trivial input signal.  0 = disabled.
+# Raised from 0.01: enc/aug cos_sim was stuck at 0.9999 — too weak vs reconstruction.
+node_feat_diversity_weight: 0.05

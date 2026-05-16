@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 from lightning.pytorch.callbacks import Callback
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -78,15 +81,8 @@ class ActivationMonitorCallback(Callback):
             try:
                 mod = _resolve_attr(pl_module, path)
             except AttributeError:
-                # If a path is wrong/missing, log a one-time warning metric.
                 if trainer.is_global_zero:
-                    pl_module.log(
-                        f"actmon/missing_module/{path}",
-                        1.0,
-                        on_step=False,
-                        on_epoch=True,
-                        prog_bar=False,
-                    )
+                    log.warning("ActivationMonitorCallback: module path %r not found, skipping.", path)
                 continue
 
             # Store module reference for reading latest stats.

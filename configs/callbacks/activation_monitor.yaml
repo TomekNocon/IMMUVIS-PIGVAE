@@ -13,4 +13,5 @@ activation_monitor:
     - graph_ae.encoder.graph_transformer
     - graph_ae.permuter.spectral_embeddings
     - graph_ae.permuter.graph_transformer
-    - graph_ae.decoder.graph_transformer
+    - graph_ae.decoder.deconv2
+    - graph_ae.decoder.fc_out

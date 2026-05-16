@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import torch
+import torch.nn.functional as F
 from lightning.pytorch.callbacks import Callback
 
 
@@ -88,3 +89,24 @@ class PermutationDiagnosticsCallback(Callback):
             on_step=False,
             batch_size=1,
         )
+
+        # Encoder node-feature diversity across augmented views.
+        # High aug_cos_sim  → encoder produces similar features for all augmentations
+        #                    → permuter is blind (bad).
+        # Low  aug_cos_sim  → features are distinctive per augmentation (good).
+        # High aug_feat_std → features vary across augmentations (good).
+        node_features = pl_module.validation_step_outputs[0].get("node_features")
+        if node_features is not None and total_batch % num_views == 0:
+            nf = node_features  # [8B, N, D]
+            _, N, D = nf.shape
+            views = nf.view(num_views, B, N, D)            # [8, B, N, D]
+            views_norm = F.normalize(views, dim=-1)
+            # Compare same grid position across augmentation pairs (no mean pooling)
+            sim = torch.einsum("vbnd,ubnd->uvb", views_norm, views_norm) / N  # [8, 8, B]
+            off_diag = ~torch.eye(num_views, device=sim.device, dtype=torch.bool)
+            cos_sim = sim[off_diag].mean().item()
+
+            std_across_aug = nf.view(num_views, B, N, D).std(dim=0).mean().item()
+
+            pl_module.log("enc_diag/aug_cos_sim",   cos_sim,         on_epoch=True, on_step=False, batch_size=1)
+            pl_module.log("enc_diag/aug_feat_std",  std_across_aug,  on_epoch=True, on_step=False, batch_size=1)

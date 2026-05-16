@@ -61,7 +61,8 @@ class GraphAE(torch.nn.Module):
         if context is not None:
             graph_emb += context
         graph_pred = self.decode(graph_emb, perm, graph.mask)
-        return graph_emb, graph_pred, soft_probs, perm, mu, logvar
+        # node_features returned so callers can monitor/penalise augmentation distinctiveness
+        return graph_emb, graph_pred, soft_probs, perm, mu, logvar, node_features
 
 
 class GraphEncoder(torch.nn.Module):
@@ -471,7 +472,6 @@ class SimplePermuter(torch.nn.Module):
         self.turn_off = hparams.turn_off
         self.curriculum_epoch = getattr(hparams, "curriculum_epoch", -1)
         self.freeze_epochs = getattr(hparams, "freeze_epochs", 0)
-        self.use_ce = hparams.use_ce
         self.scoring_fc = torch.nn.Linear(
             hparams.graph_decoder_hidden_dim, hparams.num_permutations
         )
@@ -616,17 +616,10 @@ class SimplePermuter(torch.nn.Module):
         cls_out = node_features[:, 0, :]
         scores = self.scoring_fc(cls_out)
 
-        ce_loss = None
-        if self.use_ce:
-            # Ground truth labels are implicit in the batch layout:
-            # rows 0..B-1 = class 0, B..2B-1 = class 1, ..., 7B..8B-1 = class 7.
-            labels = torch.arange(self.num_permutations, device=device).repeat_interleave(batch_size)
-            ce_loss = F.cross_entropy(scores, labels)
-
         probs, soft_probs = sinkhorn_head(scores, tau, num_views=self.num_views)
         perm = self._compute_weighted_permutation(probs)
 
-        return perm, None, soft_probs, ce_loss
+        return perm, None, soft_probs, None
 
     def _compute_weighted_permutation(self, probs: torch.Tensor) -> torch.Tensor:
         """Compute weighted sum of permutation matrices using precomputed buffers.
