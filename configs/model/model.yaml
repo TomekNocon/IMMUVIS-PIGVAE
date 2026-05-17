@@ -47,7 +47,7 @@ graph_ae:
       dropout: ${model.graph_ae.hparams.dropout}
       num_permutations: ${data.hparams.num_aug_per_sample}
       grid_size: 6
-      break_symmetry_scale: 0.05
+      break_symmetry_scale: 0.3
       emb_dim: ${model.graph_ae.hparams.emb_dim}
       turn_off: False          # permuter active from epoch 1 (no curriculum)
       curriculum_epoch: -1   # curriculum disabled
@@ -143,4 +143,4 @@ compile: false
 # Ensures the encoder produces distinctive features per augmentation so the
 # permuter has a non-trivial input signal.  0 = disabled.
 # Raised from 0.01: enc/aug cos_sim was stuck at 0.9999 — too weak vs reconstruction.
-node_feat_diversity_weight: 0.05
+node_feat_diversity_weight: 0.0

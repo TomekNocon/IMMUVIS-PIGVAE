@@ -84,7 +84,7 @@ class GraphEncoder(torch.nn.Module):
             dropout=hparams.dropout,
         )
         self.fc_in = nn.Linear(hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim)
-        # self.layer_norm = nn.LayerNorm(hparams.graph_encoder_hidden_dim)
+        self.output_norm = nn.LayerNorm(hparams.graph_encoder_hidden_dim, elementwise_affine=False)
         self.dropout = nn.Dropout(hparams.dropout)
 
     def add_emb_node_and_feature(
@@ -127,6 +127,7 @@ class GraphEncoder(torch.nn.Module):
         x, _ = self.init_message_matrix(node_features, edge_features, mask)
         x = self.graph_transformer(x, mask=None, is_encoder=True)
         graph_emb, node_features = self.read_out_message_matrix(x)
+        node_features = self.output_norm(node_features)
         return graph_emb, node_features
 
 
@@ -588,8 +589,9 @@ class SimplePermuter(torch.nn.Module):
             # Shadow mode: run learned forward for perm_loss pre-training.
             # The oracle perm is returned for the decoder, but soft_probs flow
             # through perm_loss so the permuter learns diversity before the switch.
-            shadow_features = node_features + torch.randn_like(node_features) * min(self.break_symmetry_scale, 0.1)
-            shadow_features = self.spectral_embeddings(shadow_features)
+            shadow_features = self.spectral_embeddings(node_features)
+            if self.break_symmetry_scale > 0:
+                shadow_features = shadow_features + torch.randn_like(shadow_features) * self.break_symmetry_scale
             cls_tokens = self.perm_node.expand(total_batch, -1, -1)
             shadow_features = torch.cat([cls_tokens, shadow_features], dim=1)
             shadow_features = self.graph_transformer(shadow_features, mask=mask, is_encoder=False)
@@ -597,16 +599,12 @@ class SimplePermuter(torch.nn.Module):
             _, soft_probs = sinkhorn_head(shadow_scores, tau, num_views=self.num_views)
             return perm, None, soft_probs, None
 
-        # Add noise to break symmetry
-        if self.break_symmetry_scale > 0.1:
-            import warnings
-            warnings.warn(
-                f"break_symmetry_scale={self.break_symmetry_scale} capped to 0.1"
-            )
-        noise_scale = min(self.break_symmetry_scale, 0.1)
-        node_features = node_features + torch.randn_like(node_features) * noise_scale
-
         node_features = self.spectral_embeddings(node_features)
+
+        # Noise added AFTER content_norm+SE so it is not normalized away.
+        # With SE output std≈1.41, scale=0.05 → ~3.5% perturbation (was <1% before).
+        if self.break_symmetry_scale > 0:
+            node_features = node_features + torch.randn_like(node_features) * self.break_symmetry_scale
 
         cls_tokens = self.perm_node.expand(total_batch, -1, -1)
         node_features = torch.cat([cls_tokens, node_features], dim=1)

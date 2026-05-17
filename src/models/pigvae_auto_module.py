@@ -154,10 +154,6 @@ class PLGraphAE(L.LightningModule):
             mu=mu,
             logvar=logvar,
         )
-        if self.node_feat_diversity_weight > 0 and node_features is not None:
-            div_loss = self._aug_diversity_loss(node_features)
-            loss["loss"] = loss["loss"] + self.node_feat_diversity_weight * div_loss
-            loss["enc_diag/aug_cos_sim"] = div_loss.detach()
         self.log_dict(loss)
         if mu is not None:
             self._log_latent_stats(mu, logvar, alpha, prefix="")
