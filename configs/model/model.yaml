@@ -8,7 +8,7 @@ graph_ae:
     num_layers: 4
     emb_dim: 256
     vae: false
-    dropout: 0.15
+    dropout: 0.05
     encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
       num_node_features: 128
@@ -20,6 +20,12 @@ graph_ae:
       dropout: ${model.graph_ae.hparams.dropout}
       grid_size: 6
       project: True
+      use_hadamard: false   # Idea 6: h_i ⊙ h_j over grid edges — zero-param
+      use_mlp_edges: true  # Idea 3: MLP(concat(h_i, h_j)) — learned cross-dim
+      use_spectrum: false   # Idea 4: eigenvalues of content-weighted Laplacian
+      n_spectral: 8         # number of eigenvalues to keep (only used if use_spectrum)
+      use_pma: false        # Idea 2: replace CLS with K-seed cross-attention (PMA)
+      pma_k: 4              # number of seeds (only used if use_pma)
 
     decoder:
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
@@ -36,6 +42,7 @@ graph_ae:
       grid_size: 6  # enables 2D positional encoding
       use_film: true
       emb_dim: ${model.graph_ae.hparams.emb_dim}
+      pos_scale: 1.0  # multiplier on positional embeddings before adding to z broadcast; increase to 4.0 if decoder std stays low
 
     bottle_neck_encoder:
       graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
@@ -61,11 +68,11 @@ graph_ae:
       dropout: ${model.graph_ae.hparams.dropout}
       num_permutations: ${data.hparams.num_aug_per_sample}
       grid_size: 6
-      break_symmetry_scale: 0.05
+      break_symmetry_scale: 0.3
       emb_dim: ${model.graph_ae.hparams.emb_dim}
-      turn_off: True          # oracle permuter: returns ground-truth inverse transform, decoder not learning
-      curriculum_epoch: -1   # curriculum disabled
-      freeze_epochs: 0       # no freeze — enc/dec continue training after switch
+      turn_off: True          # use oracle perms until curriculum_epoch
+      curriculum_epoch: 40   # switch to active permuter at epoch 40
+      freeze_epochs: 10      # freeze enc/dec for 10 epochs after switch so permuter can warm up
       use_ce: False
       use_context: False
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
@@ -138,7 +145,7 @@ critic:
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.0003
+  lr: 0.0007
   weight_decay: 0.01
   # betas: [0.9, 0.9995]
   # eps: 1e-8

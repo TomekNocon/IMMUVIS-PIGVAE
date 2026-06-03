@@ -247,7 +247,14 @@ class SelfAttention(torch.nn.Module):
                     is_causal=False,
                 )
         except (RuntimeError, ImportError) as e:
-            print(f"Falling back to manual attention: {e}")
+            print(f"Falling back to standard attention: {e}")
+            attention_output = F.scaled_dot_product_attention(
+                query=query,
+                key=key,
+                value=value,
+                attn_mask=attn_mask,
+                is_causal=False,
+            )
 
         output = self.output_projection(attention_output.transpose(1, 2).flatten(-2))
         output = self.dropout(output)

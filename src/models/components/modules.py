@@ -1,5 +1,6 @@
 from typing import Any
 
+import networkx as nx
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,6 +13,141 @@ from src.models.components.embeddings import PositionalEncoding
 from src.models.components.llama_graph_transformer import Transformer
 from src.models.components.rotary_embedding import LLamaRotaryEmbedding
 from src.models.components.spectral_embeddings import SklearnSpectralEmbedding
+
+
+class NodeStatsProjection(nn.Module):
+    """Residual correction to CLS z from pooled node statistics (mean, var, max).
+
+    Zero-initialized so the correction starts at 0 — training begins identical
+    to the baseline and the model learns when/how much to use the stats.
+    """
+
+    def __init__(self, hidden_dim: int):
+        super().__init__()
+        self.proj = nn.Linear(3 * hidden_dim, hidden_dim, bias=False)
+        nn.init.zeros_(self.proj.weight)
+
+    def forward(self, node_features: torch.Tensor) -> torch.Tensor:
+        # node_features: [B, N, D]
+        mean = node_features.mean(dim=1)                      # [B, D]
+        var  = node_features.var(dim=1, unbiased=False)       # [B, D]
+        max_ = node_features.max(dim=1).values                # [B, D]
+        stats = torch.cat([mean, var, max_], dim=-1)          # [B, 3D]
+        return self.proj(stats)                               # [B, D]
+
+
+class StructuralCorrection(nn.Module):
+    """Residual correction to CLS graph_emb from grid-topology structural features.
+
+    Supports three composable components (Ideas 3, 4, 6 from latent_enrichment_ideas.md):
+      use_hadamard  (Idea 6): mean of h_i ⊙ h_j over grid edges — zero-param, fast
+      use_mlp_edges (Idea 3): mean of MLP(concat(h_i, h_j)) — learns cross-dim interactions
+      use_spectrum  (Idea 4): top-k eigenvalues of content-weighted Laplacian — global structure
+
+    All components use a precomputed edge_index buffer (fixed 6×6 grid topology).
+    DenseGraphBatch.edge_features is never read. The final projection is zero-initialized
+    so training begins identical to the baseline regardless of which flags are on.
+    """
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        grid_size: int = 6,
+        use_hadamard: bool = True,
+        use_mlp_edges: bool = False,
+        use_spectrum: bool = False,
+        n_spectral: int = 8,
+    ):
+        super().__init__()
+        self.use_hadamard = use_hadamard
+        self.use_mlp_edges = use_mlp_edges
+        self.use_spectrum = use_spectrum
+        self.n_spectral = n_spectral
+
+        G = nx.grid_2d_graph(grid_size, grid_size)
+        node_to_idx = {n: i for i, n in enumerate(G.nodes())}
+        edge_index = torch.tensor(
+            [(node_to_idx[u], node_to_idx[v]) for u, v in G.edges()], dtype=torch.long
+        )
+        self.register_buffer("edge_index", edge_index)  # [E, 2]
+
+        if use_spectrum:
+            A = torch.tensor(nx.to_numpy_array(G), dtype=torch.float32)
+            self.register_buffer("A_grid", A)  # [N, N]
+
+        if use_mlp_edges:
+            self.edge_mlp = nn.Sequential(
+                nn.Linear(2 * hidden_dim, hidden_dim),
+                nn.GELU(),
+            )
+
+        in_dim = (hidden_dim if use_hadamard else 0) + \
+                 (hidden_dim if use_mlp_edges else 0) + \
+                 (n_spectral if use_spectrum else 0)
+        assert in_dim > 0, "Enable at least one of use_hadamard, use_mlp_edges, use_spectrum"
+
+        self.proj = nn.Linear(in_dim, hidden_dim, bias=False)
+        nn.init.zeros_(self.proj.weight)
+
+    def forward(self, node_features: torch.Tensor) -> torch.Tensor:
+        # node_features: [B, N, D]
+        h_i = node_features[:, self.edge_index[:, 0], :]  # [B, E, D]
+        h_j = node_features[:, self.edge_index[:, 1], :]  # [B, E, D]
+
+        parts = []
+
+        if self.use_hadamard:
+            parts.append((h_i * h_j).mean(dim=1))          # [B, D]
+
+        if self.use_mlp_edges:
+            parts.append(
+                self.edge_mlp(torch.cat([h_i, h_j], dim=-1)).mean(dim=1)  # [B, D]
+            )
+
+        if self.use_spectrum:
+            h_norm = F.normalize(node_features, dim=-1)
+            sim = torch.bmm(h_norm, h_norm.transpose(1, 2))           # [B, N, N]
+            W = F.relu(sim) * self.A_grid.unsqueeze(0)                 # [B, N, N]
+            D_w = torch.diag_embed(W.sum(dim=-1))
+            L_w = D_w - W
+            N = node_features.shape[1]
+            L_w = L_w + 1e-4 * torch.eye(N, device=L_w.device)
+            eigenvalues = torch.linalg.eigvalsh(L_w)                   # [B, N]
+            parts.append(eigenvalues[:, :self.n_spectral])             # [B, n_spectral]
+
+        return self.proj(torch.cat(parts, dim=-1))                     # [B, hidden_dim]
+
+
+class PMAReadout(nn.Module):
+    """K-seed cross-attention pooling (Pool by Multihead Attention, Lee et al. 2019).
+
+    Drop-in replacement for the CLS token readout:
+      k=1  → single seed, cross-attends to all nodes — equivalent to CLS but computed
+              after (not inside) the transformer, so the transformer sees only content nodes.
+      k>1  → K independent summaries, concatenated and projected to hidden_dim.
+
+    Set use_pma=False in GraphEncoder to keep the original CLS-in-transformer approach.
+    """
+
+    def __init__(self, hidden_dim: int, num_heads: int, dropout: float, k: int = 4):
+        super().__init__()
+        self.k = k
+        self.seeds = nn.Parameter(torch.empty(k, hidden_dim))
+        nn.init.trunc_normal_(self.seeds, std=0.02)
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=hidden_dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.proj = nn.Linear(k * hidden_dim, hidden_dim, bias=False) if k > 1 else nn.Identity()
+
+    def forward(self, node_features: torch.Tensor) -> torch.Tensor:
+        # node_features: [B, N, D]
+        B = node_features.shape[0]
+        seeds = self.seeds.unsqueeze(0).expand(B, -1, -1)                           # [B, K, D]
+        pooled, _ = self.cross_attn(query=seeds, key=node_features, value=node_features)  # [B, K, D]
+        return self.proj(pooled.flatten(1))                                          # [B, D]
 
 
 class GraphAE(torch.nn.Module):
@@ -45,7 +181,7 @@ class GraphAE(torch.nn.Module):
         perm: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> DenseGraphBatch:
-        z = graph_emb  # [B, emb_dim] — raw latent for FiLM conditioning
+        z = F.layer_norm(graph_emb, graph_emb.shape[-1:])  # normalize z for FiLM
         graph_emb = self.bottle_neck_decoder(graph_emb)
         node_logits, edge_logits = self.decoder(graph_emb=graph_emb, perm=perm, mask=mask, z=z)
         graph_pred = DenseGraphBatch(
@@ -71,8 +207,17 @@ class GraphEncoder(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
 
-        self.summary_node = nn.Parameter(torch.randn(1, 1, hparams.graph_encoder_hidden_dim))
-        nn.init.trunc_normal_(self.summary_node, std=0.02)
+        self.use_pma = getattr(hparams, "use_pma", False)
+        if self.use_pma:
+            self.pma = PMAReadout(
+                hidden_dim=hparams.graph_encoder_hidden_dim,
+                num_heads=hparams.graph_encoder_num_heads,
+                dropout=hparams.dropout,
+                k=getattr(hparams, "pma_k", 4),
+            )
+        else:
+            self.summary_node = nn.Parameter(torch.randn(1, 1, hparams.graph_encoder_hidden_dim))
+            nn.init.trunc_normal_(self.summary_node, std=0.02)
         if hparams.project:
             self.projection_in = nn.Linear(
                 hparams.num_node_features, hparams.graph_encoder_hidden_dim
@@ -86,7 +231,22 @@ class GraphEncoder(torch.nn.Module):
             dropout=hparams.dropout,
         )
         self.fc_in = nn.Linear(hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim)
-        # self.layer_norm = nn.LayerNorm(hparams.graph_encoder_hidden_dim)
+        self.output_norm = nn.LayerNorm(hparams.graph_encoder_hidden_dim, elementwise_affine=False)
+        self.stats_correction = NodeStatsProjection(hparams.graph_encoder_hidden_dim)
+        use_hadamard  = getattr(hparams, "use_hadamard",  False)
+        use_mlp_edges = getattr(hparams, "use_mlp_edges", False)
+        use_spectrum  = getattr(hparams, "use_spectrum",  False)
+        if use_hadamard or use_mlp_edges or use_spectrum:
+            self.structural_correction = StructuralCorrection(
+                hidden_dim=hparams.graph_encoder_hidden_dim,
+                grid_size=hparams.grid_size,
+                use_hadamard=use_hadamard,
+                use_mlp_edges=use_mlp_edges,
+                use_spectrum=use_spectrum,
+                n_spectral=getattr(hparams, "n_spectral", 8),
+            )
+        else:
+            self.structural_correction = None
         self.dropout = nn.Dropout(hparams.dropout)
 
     def add_emb_node_and_feature(
@@ -126,9 +286,22 @@ class GraphEncoder(torch.nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.project:
             node_features = self.projection_in(node_features)
-        x, _ = self.init_message_matrix(node_features, edge_features, mask)
-        x = self.graph_transformer(x, mask=None, is_encoder=True)
-        graph_emb, node_features = self.read_out_message_matrix(x)
+        if self.use_pma:
+            # No CLS in sequence — transformer sees only the 36 content nodes.
+            # is_encoder=False gives a plain symmetric 6×6 neighborhood mask for N=36.
+            x = self.dropout(F.silu(self.fc_in(node_features)))
+            x = self.graph_transformer(x, mask=None, is_encoder=False)
+            node_features = self.output_norm(x)
+            graph_emb = self.pma(node_features)
+        else:
+            # CLS mode — prepend summary node, run transformer, read out position 0.
+            x, _ = self.init_message_matrix(node_features, edge_features, mask)
+            x = self.graph_transformer(x, mask=None, is_encoder=True)
+            x = self.output_norm(x)
+            graph_emb, node_features = self.read_out_message_matrix(x)
+        graph_emb = graph_emb + self.stats_correction(node_features)
+        if self.structural_correction is not None:
+            graph_emb = graph_emb + self.structural_correction(node_features)
         return graph_emb, node_features
 
 
@@ -176,9 +349,10 @@ class GraphDecoder(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
             num_layers=hparams.graph_decoder_num_layers,
             dropout=hparams.dropout,
-            output_init_std=0.02,
+            output_init_std=0.1,
             rope=LLamaRotaryEmbedding(hparams.head_dim),
         )
+        self.pos_scale = float(getattr(hparams, "pos_scale", 1.0))
         self.use_film = getattr(hparams, "use_film", False)
         if self.use_film:
             self.film = FiLMConditioner(
@@ -216,7 +390,7 @@ class GraphDecoder(torch.nn.Module):
         # (from pos_emb), giving the decoder a much shorter credit-assignment path
         # than routing content from a single CLS token through attention.
         graph_emb_broadcast = graph_emb.unsqueeze(1).expand(-1, num_nodes, -1)
-        node_tokens = graph_emb_broadcast + pos_emb  # (B, num_nodes, D)
+        node_tokens = graph_emb_broadcast + self.pos_scale * pos_emb  # (B, num_nodes, D)
 
         # Prepend the z token as a communication hub; read_out_message_matrix skips it.
         x = torch.cat([graph_emb.unsqueeze(1), node_tokens], dim=1)  # (B, 1+num_nodes, D)
@@ -241,6 +415,7 @@ class GraphDecoder(torch.nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
         film_params = self.film(z if z is not None else graph_emb) if self.use_film else None
+        # get_full_mask adds 1 internally for the hub token, so pass the original [B, N] mask
         x = self.graph_transformer(x, mask=mask, is_encoder=False, film_params=film_params)
         node_features, edge_features = self.read_out_message_matrix(x)
         return node_features, edge_features
@@ -584,8 +759,11 @@ class SimplePermuter(torch.nn.Module):
             # Shadow mode: run learned forward for perm_loss pre-training.
             # The oracle perm is returned for the decoder, but soft_probs flow
             # through perm_loss so the permuter learns diversity before the switch.
-            shadow_features = node_features + torch.randn_like(node_features) * min(self.break_symmetry_scale, 0.1)
-            shadow_features = self.spectral_embeddings(shadow_features)
+            # Noise must come AFTER spectral_embeddings — content_norm inside SE
+            # normalises x to unit scale, so noise added before is wiped out.
+            shadow_features = self.spectral_embeddings(node_features)
+            if self.break_symmetry_scale > 0:
+                shadow_features = shadow_features + torch.randn_like(shadow_features) * self.break_symmetry_scale
             cls_tokens = self.perm_node.expand(total_batch, -1, -1)
             shadow_features = torch.cat([cls_tokens, shadow_features], dim=1)
             shadow_features = self.graph_transformer(shadow_features, mask=mask, is_encoder=False)
@@ -593,16 +771,10 @@ class SimplePermuter(torch.nn.Module):
             _, soft_probs = sinkhorn_head(shadow_scores, tau, num_views=self.num_views)
             return perm, None, soft_probs, None
 
-        # Add noise to break symmetry
-        if self.break_symmetry_scale > 0.1:
-            import warnings
-            warnings.warn(
-                f"break_symmetry_scale={self.break_symmetry_scale} capped to 0.1"
-            )
-        noise_scale = min(self.break_symmetry_scale, 0.1)
-        node_features = node_features + torch.randn_like(node_features) * noise_scale
-
+        # Noise added AFTER spectral_embeddings so content_norm cannot cancel it.
         node_features = self.spectral_embeddings(node_features)
+        if self.break_symmetry_scale > 0:
+            node_features = node_features + torch.randn_like(node_features) * self.break_symmetry_scale
 
         cls_tokens = self.perm_node.expand(total_batch, -1, -1)
         node_features = torch.cat([cls_tokens, node_features], dim=1)
@@ -693,9 +865,12 @@ class BottleNeckDecoder(torch.nn.Module):
         self.d_in = hparams.emb_dim
         self.d_out = hparams.graph_decoder_hidden_dim
         self.w = nn.Linear(self.d_in, self.d_out)
+        # Normalise z after projection so it arrives at the decoder with std~1,
+        # preventing it from drowning out the positional embeddings when broadcast.
+        self.norm = nn.LayerNorm(self.d_out)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.w(x)
+        return self.norm(self.w(x))
 
 
 # def softmax_head(scores: torch.Tensor, tau: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

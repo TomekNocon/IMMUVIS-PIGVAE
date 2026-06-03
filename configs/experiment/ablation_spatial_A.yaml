@@ -1,0 +1,40 @@
+# @package _global_
+# Spatial ablation — Condition A: baseline (CLS + stats only, no spatial modules)
+# Run: python src/train.py experiment=ablation_spatial_A logger=wandb trainer=gpu paths=szary
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["spatial_ablation", "condition_A", "no_spatial"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+model:
+  graph_ae:
+    hparams:
+      dropout: 0.10
+      encoder:
+        use_hadamard: false
+        use_mlp_edges: false
+        use_spectrum: false
+        use_pma: false
+      permuter:
+        turn_off: true
+        curriculum_epoch: 100   # never switches — oracle throughout all 40 epochs
+  optimizer:
+    lr: 0.0003
+  scheduler:
+    max_lr: 0.0003
+
+logger:
+  wandb:
+    group: "spatial_ablation_v2"
+    tags: ${tags}
+    name: "A-no_spatial-normed"
