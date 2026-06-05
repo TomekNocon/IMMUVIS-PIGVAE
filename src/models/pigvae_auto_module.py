@@ -612,11 +612,10 @@ class PLGraphAE(L.LightningModule):
         # all components get a proportional share regardless of their relative magnitudes.
         ae = self.graph_ae
         component_max_norm = 5.0
-        for component in (
-            ae.encoder, ae.decoder,
-            ae.bottle_neck_encoder, ae.bottle_neck_decoder,
-            ae.permuter,
-        ):
+        components = [ae.encoder, ae.decoder, ae.node_bottleneck]
+        if hasattr(ae, "permuter"):
+            components.append(ae.permuter)
+        for component in components:
             torch.nn.utils.clip_grad_norm_(component.parameters(), max_norm=component_max_norm)
         self.clip_gradients(
             optimizer,

@@ -1,0 +1,39 @@
+# @package _global_
+# Per-node latent diagnostic: equivariant encoder → [B, 36, 32] z_nodes → decoder with PE + FiLM(CLS)
+# No permuter in forward pass — tests whether per-node latent alone breaks the val_mse ceiling.
+# Run: python src/train.py experiment=pernode_z_diagnostic logger=wandb trainer=gpu paths=szary
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["pernode_z", "diagnostic", "no_permuter"]
+
+seed: 42
+
+trainer:
+  max_epochs: 100
+  min_epochs: 1
+
+model:
+  graph_ae:
+    hparams:
+      node_z_dim: 16
+      dropout: 0.10
+      encoder:
+        use_hadamard: false
+        use_mlp_edges: false
+        use_spectrum: false
+        use_pma: false
+  optimizer:
+    lr: 0.0003
+  scheduler:
+    max_lr: 0.0003
+
+logger:
+  wandb:
+    group: "pernode_z"
+    tags: ${tags}
+    name: "pernode-z32-pe-film_cls"

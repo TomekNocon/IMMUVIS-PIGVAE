@@ -7,6 +7,7 @@ graph_ae:
     num_heads: 8
     num_layers: 4
     emb_dim: 256
+    node_z_dim: 32
     vae: false
     dropout: 0.05
     encoder:
@@ -21,40 +22,28 @@ graph_ae:
       grid_size: 6
       project: True
       use_hadamard: false   # Idea 6: h_i ⊙ h_j over grid edges — zero-param
-      use_mlp_edges: true  # Idea 3: MLP(concat(h_i, h_j)) — learned cross-dim
+      use_mlp_edges: false  # Idea 3: MLP(concat(h_i, h_j)) — learned cross-dim
       use_spectrum: false   # Idea 4: eigenvalues of content-weighted Laplacian
       n_spectral: 8         # number of eigenvalues to keep (only used if use_spectrum)
       use_pma: false        # Idea 2: replace CLS with K-seed cross-attention (PMA)
       pma_k: 4              # number of seeds (only used if use_pma)
+      qk_norm: true         # normalize Q and K to unit sphere before dot product (Gemma-style)
 
     decoder:
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
-      graph_decoder_pos_emb_dim: ${model.graph_ae.hparams.input_size}
       graph_decoder_num_heads: ${model.graph_ae.hparams.num_heads}
       graph_decoder_ppf_hidden_dim: ${multiply:${model.graph_ae.hparams.input_size},4}
       graph_decoder_num_layers: ${model.graph_ae.hparams.num_layers}
       dropout: ${model.graph_ae.hparams.dropout}
       head_dim: ${divide:${model.graph_ae.hparams.input_size},${model.graph_ae.hparams.num_heads}}
-      num_embeddings: 170 # not use if is_rope is True
       num_node_features: 128
       num_edge_features: 0
       project: True
-      grid_size: 6  # enables 2D positional encoding
+      node_z_dim: ${model.graph_ae.hparams.node_z_dim}
+      grid_size: 6
       use_film: true
-      emb_dim: ${model.graph_ae.hparams.emb_dim}
-      pos_scale: 1.0  # multiplier on positional embeddings before adding to z broadcast; increase to 4.0 if decoder std stays low
-
-    bottle_neck_encoder:
-      graph_encoder_hidden_dim: ${model.graph_ae.hparams.input_size}
-      emb_dim: ${model.graph_ae.hparams.emb_dim}
-      vae: ${model.graph_ae.hparams.vae}
-      activation: silu
-      num_permutations: ${data.hparams.num_aug_per_sample}
-
-    bottle_neck_decoder:
-      emb_dim: ${model.graph_ae.hparams.emb_dim}
-      graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}
-      num_nodes: 36  # grid_size^2 — decoder produces one unique vector per node
+      encoder_hidden_dim: ${model.graph_ae.hparams.input_size}  # CLS token dim for FiLM
+      qk_norm: true         # normalize Q and K to unit sphere before dot product (Gemma-style)
 
     property_predictor:
       emb_dim: ${model.graph_ae.hparams.emb_dim}
@@ -71,7 +60,7 @@ graph_ae:
       break_symmetry_scale: 0.3
       emb_dim: ${model.graph_ae.hparams.emb_dim}
       turn_off: True          # use oracle perms until curriculum_epoch
-      curriculum_epoch: 40   # switch to active permuter at epoch 40
+      curriculum_epoch: 100   # switch to active permuter at epoch 40
       freeze_epochs: 10      # freeze enc/dec for 10 epochs after switch so permuter can warm up
       use_ce: False
       use_context: False

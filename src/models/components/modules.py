@@ -150,57 +150,92 @@ class PMAReadout(nn.Module):
         return self.proj(pooled.flatten(1))                                          # [B, D]
 
 
+class NodeBottleneckEncoder(nn.Module):
+    """Per-node bottleneck: [B, N, D] → [B, N, node_z_dim].
+
+    Projects each node's encoder representation to a compact per-node latent.
+    No pooling — spatial arrangement is preserved across all N positions.
+
+    In VAE mode each node position gets its own mu/logvar. The same eps is
+    shared across all augmented views of the same underlying sample so that
+    the stochastic perturbation is consistent across D4 orientations.
+    """
+
+    def __init__(self, in_dim: int, node_z_dim: int, vae: bool = False, num_permutations: int = 8):
+        super().__init__()
+        self.vae = vae
+        self.num_permutations = num_permutations
+        self.proj = nn.Linear(in_dim, node_z_dim * 2 if vae else node_z_dim)
+        if not vae:
+            self.norm = nn.LayerNorm(node_z_dim)
+
+    def forward(
+        self, node_features: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+        out = self.proj(node_features)
+        if not self.vae:
+            return self.norm(out), None, None
+
+        mu, logvar = out.chunk(2, dim=-1)           # [B, N, node_z_dim] each
+        logvar = torch.clamp(logvar, -10, 10)
+        std = (0.5 * logvar).exp()
+
+        # Generate eps for base samples only, then tile across augmented views
+        # so every orientation of the same patch uses the same noise.
+        base_bs = node_features.shape[0] // self.num_permutations
+        eps_base = torch.randn_like(std[:base_bs])  # [B/K, N, node_z_dim]
+        eps = eps_base.unsqueeze(0).repeat(self.num_permutations, 1, 1, 1)
+        eps = eps.view(-1, *eps_base.shape[1:])     # [B, N, node_z_dim]
+
+        return mu + eps * std, mu, logvar
+
+
 class GraphAE(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.input_size = hparams.input_size
         self.vae = hparams.vae
         self.encoder = GraphEncoder(hparams.encoder)
-        self.bottle_neck_encoder = BottleNeckEncoder(hparams.bottle_neck_encoder)
-        self.bottle_neck_decoder = BottleNeckDecoder(hparams.bottle_neck_decoder)
+        self.node_bottleneck = NodeBottleneckEncoder(
+            hparams.encoder.graph_encoder_hidden_dim,
+            hparams.node_z_dim,
+            vae=hparams.vae,
+            num_permutations=hparams.permuter.num_permutations,
+        )
         self.permuter = SimplePermuter(hparams.permuter)
         self.decoder = GraphDecoder(hparams.decoder)
 
     def encode(
         self, graph: DenseGraphBatch
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        node_features = graph.node_features
-        edge_features = graph.edge_features
-        mask = graph.mask
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         graph_emb, node_features = self.encoder(
-            node_features=node_features,
-            edge_features=edge_features,
-            mask=mask,
+            node_features=graph.node_features,
+            edge_features=graph.edge_features,
+            mask=graph.mask,
         )
-        graph_emb, mu, logvar = self.bottle_neck_encoder(graph_emb)
-        return graph_emb, node_features, mu, logvar
+        z_nodes, mu, logvar = self.node_bottleneck(node_features)  # [B, N, node_z_dim]
+        z_global = F.layer_norm(graph_emb, graph_emb.shape[-1:])   # [B, D] — CLS for FiLM
+        return z_nodes, z_global, node_features, mu, logvar
 
     def decode(
         self,
-        graph_emb: torch.Tensor,
-        perm: torch.Tensor,
+        z_nodes: torch.Tensor,
+        z_global: torch.Tensor,
         mask: torch.Tensor | None = None,
     ) -> DenseGraphBatch:
-        z = F.layer_norm(graph_emb, graph_emb.shape[-1:])  # normalize z for FiLM
-        graph_emb = self.bottle_neck_decoder(graph_emb)
-        node_logits, edge_logits = self.decoder(graph_emb=graph_emb, perm=perm, mask=mask, z=z)
-        graph_pred = DenseGraphBatch(
+        node_logits, edge_logits = self.decoder(z_nodes, z_global, mask)
+        return DenseGraphBatch(
             node_features=node_logits,
             edge_features=edge_logits,
             mask=mask,
             properties=torch.tensor([]),
         )
-        return graph_pred
 
     def forward(self, graph: DenseGraphBatch, training: bool, tau: float = 1.0) -> tuple:
-        graph_emb, node_features, mu, logvar = self.encode(graph=graph)
-        perm, context, soft_probs, _ = self.permuter(
-            node_features, mask=graph.mask, hard=not training, tau=tau
-        )
-        if context is not None:
-            graph_emb += context
-        graph_pred = self.decode(graph_emb, perm, graph.mask)
-        return graph_emb, graph_pred, soft_probs, perm, mu, logvar
+        z_nodes, z_global, _, mu, logvar = self.encode(graph=graph)
+        graph_pred = self.decode(z_nodes, z_global, graph.mask)
+        graph_emb = z_nodes.mean(dim=1)  # [B, node_z_dim] — mean pool for logging
+        return graph_emb, graph_pred, None, None, mu, logvar
 
 
 class GraphEncoder(torch.nn.Module):
@@ -229,6 +264,7 @@ class GraphEncoder(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_encoder_ppf_hidden_dim,
             num_layers=hparams.graph_encoder_num_layers,
             dropout=hparams.dropout,
+            qk_norm=getattr(hparams, "qk_norm", False),
         )
         self.fc_in = nn.Linear(hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim)
         self.output_norm = nn.LayerNorm(hparams.graph_encoder_hidden_dim, elementwise_affine=False)
@@ -339,9 +375,9 @@ class FiLMConditioner(nn.Module):
 class GraphDecoder(torch.nn.Module):
     def __init__(self, hparams: DictConfig):
         super().__init__()
-        grid_size = getattr(hparams, "grid_size", 0)
+        grid_size = getattr(hparams, "grid_size", 6)
         self.positional_embedding = PositionalEncoding(
-            hparams.graph_decoder_pos_emb_dim, grid_size=grid_size
+            hparams.graph_decoder_hidden_dim, grid_size=grid_size
         )
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_decoder_hidden_dim,
@@ -351,74 +387,43 @@ class GraphDecoder(torch.nn.Module):
             dropout=hparams.dropout,
             output_init_std=0.1,
             rope=LLamaRotaryEmbedding(hparams.head_dim),
+            qk_norm=getattr(hparams, "qk_norm", False),
         )
-        self.pos_scale = float(getattr(hparams, "pos_scale", 1.0))
         self.use_film = getattr(hparams, "use_film", False)
         if self.use_film:
             self.film = FiLMConditioner(
-                z_dim=hparams.emb_dim,
+                z_dim=hparams.encoder_hidden_dim,  # CLS token dimension
                 hidden_dim=hparams.graph_decoder_hidden_dim,
                 num_layers=hparams.graph_decoder_num_layers,
             )
-        self.fc_in = nn.Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim)
+        mid_dim = hparams.node_z_dim * 4
+        self.fc_in = nn.Sequential(
+            nn.Linear(hparams.node_z_dim, mid_dim),
+            nn.SiLU(),
+            nn.Linear(mid_dim, hparams.graph_decoder_hidden_dim),
+        )
         if hparams.project:
             self.node_fc_out = nn.Linear(
                 hparams.graph_decoder_hidden_dim, hparams.num_node_features
             )
         self.project = hparams.project
         self.dropout = nn.Dropout(hparams.dropout)
-        # self.layer_norm = nn.LayerNorm(hparams.graph_decoder_hidden_dim)
-
-        # if not self.graph_transformer.is_rope:
-        #     # TODO: check what should be the dim
-        #     self.embedding = torch.nn.Embedding(
-        #         num_embeddings=hparams.num_embeddings,
-        #         embedding_dim=hparams.graph_decoder_hidden_dim,
-        #     )
-
-    def init_message_matrix(
-        self, graph_emb: torch.Tensor, perm: torch.Tensor, num_nodes: int
-    ) -> torch.Tensor:
-        batch_size = graph_emb.size(0)
-
-        # Get positional embeddings and permute them based on predicted permutation
-        pos_emb = self.positional_embedding(batch_size, num_nodes)
-        pos_emb = torch.matmul(perm, pos_emb)
-
-        # Broadcast graph_emb to every node position and add positional structure.
-        # Each node token carries both content (from graph_emb) and spatial location
-        # (from pos_emb), giving the decoder a much shorter credit-assignment path
-        # than routing content from a single CLS token through attention.
-        graph_emb_broadcast = graph_emb.unsqueeze(1).expand(-1, num_nodes, -1)
-        node_tokens = graph_emb_broadcast + self.pos_scale * pos_emb  # (B, num_nodes, D)
-
-        # Prepend the z token as a communication hub; read_out_message_matrix skips it.
-        x = torch.cat([graph_emb.unsqueeze(1), node_tokens], dim=1)  # (B, 1+num_nodes, D)
-        x = F.silu(self.fc_in(x))
-        x = self.dropout(x)
-
-        return x
-
-    def read_out_message_matrix(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        node_features = x[:, 1:]  # skip z token
-        if self.project:
-            node_features = self.node_fc_out(node_features)
-        edge_features = torch.empty(0, device=x.device)
-        return node_features, edge_features
 
     def forward(
         self,
-        graph_emb: torch.Tensor,
-        perm: torch.Tensor,
+        z_nodes: torch.Tensor,
+        z_global: torch.Tensor,
         mask: torch.Tensor,
-        z: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        x = self.init_message_matrix(graph_emb, perm, num_nodes=mask.size(1))
-        film_params = self.film(z if z is not None else graph_emb) if self.use_film else None
-        # get_full_mask adds 1 internally for the hub token, so pass the original [B, N] mask
+        B, N, _ = z_nodes.shape
+        x = self.dropout(self.fc_in(z_nodes))  # [B, N, hidden_dim]
+        x = x + self.positional_embedding(B, N)        # inject 2D grid coordinates
+        film_params = self.film(z_global) if self.use_film else None
+        # mask=None → neighborhood mask (6×6 grid adjacency) — local refinement with RoPE
         x = self.graph_transformer(x, mask=mask, is_encoder=False, film_params=film_params)
-        node_features, edge_features = self.read_out_message_matrix(x)
-        return node_features, edge_features
+        if self.project:
+            x = self.node_fc_out(x)
+        return x, torch.empty(0, device=x.device)
 
 
 # class Permuter(torch.nn.Module):

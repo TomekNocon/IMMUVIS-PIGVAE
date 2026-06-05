@@ -33,13 +33,14 @@ class Transformer(nn.Module):
         rope: BaseRotaryEmbedding | None = None,
         use_final_norm: bool = True,
         output_init_std: float | None = None,
+        qk_norm: bool = False,
     ):
         super().__init__()
         self.num_layers = num_layers
         self.ppf_hidden_dim = ppf_hidden_dim
         weight_init_std = output_init_std if output_init_std is not None else 0.02 / (2 * float(num_layers)) ** 0.5
         self.blocks = nn.ModuleList([
-            TransformerBlock(hidden_dim, num_heads, ppf_hidden_dim, dropout, weight_init_std, rope)
+            TransformerBlock(hidden_dim, num_heads, ppf_hidden_dim, dropout, weight_init_std, rope, qk_norm)
             for _ in range(num_layers)
         ])
 
@@ -99,9 +100,10 @@ class TransformerBlock(nn.Module):
         dropout: float,
         weight_init_std: float,
         rope: BaseRotaryEmbedding | None = None,
+        qk_norm: bool = False,
     ):
         super().__init__()
-        self.attention_layer = SelfAttention(n_head, hidden_dim, dropout, rope)
+        self.attention_layer = SelfAttention(n_head, hidden_dim, dropout, rope, qk_norm)
         self.feed_forward_layer = FeedForward(
             hidden_dim=hidden_dim,
             ffn_hidden_dim=ppf_hidden_dim,
@@ -199,6 +201,7 @@ class SelfAttention(torch.nn.Module):
         hidden_dim: int,
         dropout: float,
         rope: BaseRotaryEmbedding | None = None,
+        qk_norm: bool = False,
     ):
         super().__init__()
 
@@ -211,6 +214,7 @@ class SelfAttention(torch.nn.Module):
         self.output_projection = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
         self.rope = rope
+        self.qk_norm = qk_norm
 
     def forward(
         self,
@@ -228,6 +232,9 @@ class SelfAttention(torch.nn.Module):
         if self.rope:
             query = self.rope.rotate_queries_or_keys(query)
             key = self.rope.rotate_queries_or_keys(key)
+        if self.qk_norm:
+            query = F.normalize(query, dim=-1)
+            key = F.normalize(key, dim=-1)
 
         if mask is None:
             attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device)
@@ -296,18 +303,17 @@ def get_neighborhood_mask(num_nodes: int, is_encoder: bool, device: torch.device
 
 
 def get_full_mask(mask: torch.Tensor, is_encoder: bool, device: torch.device = None):
-    """Create full attention mask where all nodes can attend to all nodes."""
+    """Create full attention mask where all nodes can attend to all nodes.
+
+    The caller is responsible for padding the mask if a hub/CLS token was
+    prepended to the sequence — this function uses mask.size(1) as-is.
+    """
     if mask.dim() == 2:
         num_nodes = mask.size(1)
     elif mask.dim() == 3:
         num_nodes = mask.size(1)
     else:
         raise ValueError(f"Mask should be 2D or 3D, got shape {mask.shape}")
-
-    if is_encoder:
-        num_nodes = num_nodes + 1    
-    else:
-        num_nodes = num_nodes + 1
 
     attn_mask = torch.ones(num_nodes, num_nodes, dtype=torch.bool)
 
