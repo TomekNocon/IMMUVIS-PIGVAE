@@ -1,6 +1,7 @@
 # @package _global_
-# Per-node latent diagnostic: local encoder → [B, 36, 16] z_nodes → full-attention decoder
-# with 2D sinusoidal PE only. Attention uses RMSNorm-QK; RoPE and FiLM are OFF.
+# Per-node latent diagnostic: local encoder → [B, 36, 32] z_nodes → full-attention decoder
+# with 2D sinusoidal PE only. RMSNorm-QK; RoPE and FiLM OFF. No latent LayerNorm on z and
+# no encoder final_norm (let z keep per-node magnitude).
 # No permuter in forward pass — tests whether per-node latent alone breaks the val_mse ceiling.
 # Run: sbatch scripts/run_pernode_z.sh   (or: python src/train.py experiment=pernode_z_diagnostic logger=wandb trainer=gpu paths=szary)
 
@@ -10,12 +11,12 @@ defaults:
   - override /trainer: default
   - _self_
 
-tags: ["pernode_z", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope", "no_film", "z16"]
+tags: ["pernode_z", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope", "no_film", "no_latent_norm", "z32"]
 
 seed: 42
 
 trainer:
-  max_epochs: 200
+  max_epochs: 40
   min_epochs: 1
 
 model:
@@ -37,4 +38,4 @@ logger:
   wandb:
     group: "pernode_z"
     tags: ${tags}
-    name: "pernode-z16-pe-qknorm-norope-nofilm"
+    name: "pernode-z32-nolatentnorm-40ep"
