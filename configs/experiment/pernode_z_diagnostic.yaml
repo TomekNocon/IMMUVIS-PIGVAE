@@ -1,7 +1,8 @@
 # @package _global_
-# Per-node latent diagnostic: equivariant encoder → [B, 36, 32] z_nodes → decoder with PE + FiLM(CLS)
+# Per-node latent diagnostic: local encoder → [B, 36, 16] z_nodes → full-attention decoder
+# with 2D sinusoidal PE only. Attention uses RMSNorm-QK; RoPE and FiLM are OFF.
 # No permuter in forward pass — tests whether per-node latent alone breaks the val_mse ceiling.
-# Run: python src/train.py experiment=pernode_z_diagnostic logger=wandb trainer=gpu paths=szary
+# Run: sbatch scripts/run_pernode_z.sh   (or: python src/train.py experiment=pernode_z_diagnostic logger=wandb trainer=gpu paths=szary)
 
 defaults:
   - override /data: mnist
@@ -9,18 +10,18 @@ defaults:
   - override /trainer: default
   - _self_
 
-tags: ["pernode_z", "diagnostic", "no_permuter"]
+tags: ["pernode_z", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope", "no_film", "z16"]
 
 seed: 42
 
 trainer:
-  max_epochs: 100
+  max_epochs: 200
   min_epochs: 1
 
 model:
   graph_ae:
     hparams:
-      node_z_dim: 16
+      node_z_dim: 32
       dropout: 0.10
       encoder:
         use_hadamard: false
@@ -36,4 +37,4 @@ logger:
   wandb:
     group: "pernode_z"
     tags: ${tags}
-    name: "pernode-z32-pe-film_cls"
+    name: "pernode-z16-pe-qknorm-norope-nofilm"
