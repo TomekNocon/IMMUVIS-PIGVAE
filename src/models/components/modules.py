@@ -166,15 +166,16 @@ class NodeBottleneckEncoder(nn.Module):
         self.vae = vae
         self.num_permutations = num_permutations
         self.proj = nn.Linear(in_dim, node_z_dim * 2 if vae else node_z_dim)
-        if not vae:
-            self.norm = nn.LayerNorm(node_z_dim)
+        # No LayerNorm on the latent: normalising z per node removes per-node
+        # magnitude (intensity), which the decoder needs to reconstruct. Latent
+        # scale is handled by the decoder's first pre-norm anyway.
 
     def forward(
         self, node_features: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         out = self.proj(node_features)
         if not self.vae:
-            return self.norm(out), None, None
+            return out, None, None
 
         mu, logvar = out.chunk(2, dim=-1)           # [B, N, node_z_dim] each
         logvar = torch.clamp(logvar, -10, 10)
@@ -264,6 +265,9 @@ class GraphEncoder(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_encoder_ppf_hidden_dim,
             num_layers=hparams.graph_encoder_num_layers,
             dropout=hparams.dropout,
+            # Keep final_norm: output_norm re-normalizes the OUTPUT, but final_norm also
+            # bounds the internal pre-norm residual stream. Removing it blew up encoder
+            # max_abs to ~260 (run cuogzab1) with no mse benefit.
             qk_norm=getattr(hparams, "qk_norm", False),
         )
         self.fc_in = nn.Linear(hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim)
