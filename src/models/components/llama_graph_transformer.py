@@ -215,6 +215,10 @@ class SelfAttention(torch.nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.rope = rope
         self.qk_norm = qk_norm
+        if qk_norm:
+            head_dim = hidden_dim // n_head
+            self.q_norm = RMSNorm(head_dim, eps=1e-6)
+            self.k_norm = RMSNorm(head_dim, eps=1e-6)
 
     def forward(
         self,
@@ -229,12 +233,16 @@ class SelfAttention(torch.nn.Module):
         query = self.q_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         key = self.k_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
         value = self.v_proj(x).view(batch_size, num_nodes, self.n_head, -1).transpose(1, 2)
+        # QK-norm (Gemma2 / ViT-22B style): learnable RMSNorm over head_dim, applied
+        # BEFORE RoPE. Unlike L2 normalisation, RMSNorm does not force unit length, so
+        # it preserves dynamic range — SDPA's default 1/sqrt(head_dim) scale stays valid
+        # and attention logits are not crushed toward a uniform average.
+        if self.qk_norm:
+            query = self.q_norm(query)
+            key = self.k_norm(key)
         if self.rope:
             query = self.rope.rotate_queries_or_keys(query)
             key = self.rope.rotate_queries_or_keys(key)
-        if self.qk_norm:
-            query = F.normalize(query, dim=-1)
-            key = F.normalize(key, dim=-1)
 
         if mask is None:
             attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device)

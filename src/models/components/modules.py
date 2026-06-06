@@ -379,6 +379,7 @@ class GraphDecoder(torch.nn.Module):
         self.positional_embedding = PositionalEncoding(
             hparams.graph_decoder_hidden_dim, grid_size=grid_size
         )
+        use_rope = getattr(hparams, "use_rope", False)
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_decoder_hidden_dim,
             num_heads=hparams.graph_decoder_num_heads,
@@ -386,7 +387,9 @@ class GraphDecoder(torch.nn.Module):
             num_layers=hparams.graph_decoder_num_layers,
             dropout=hparams.dropout,
             output_init_std=0.1,
-            rope=LLamaRotaryEmbedding(hparams.head_dim),
+            # 1D RoPE over a flattened 2D grid is topologically inconsistent; position is
+            # already carried by the 2D sinusoidal PE. Off by default (configurable).
+            rope=LLamaRotaryEmbedding(hparams.head_dim) if use_rope else None,
             qk_norm=getattr(hparams, "qk_norm", False),
         )
         self.use_film = getattr(hparams, "use_film", False)

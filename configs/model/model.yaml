@@ -41,9 +41,10 @@ graph_ae:
       project: True
       node_z_dim: ${model.graph_ae.hparams.node_z_dim}
       grid_size: 6
-      use_film: true
+      use_film: false       # FiLM global conditioning off (decoder is full-attention, can route globally itself)
+      use_rope: false       # 1D RoPE over flattened 2D grid disabled; rely on 2D sinusoidal PE
       encoder_hidden_dim: ${model.graph_ae.hparams.input_size}  # CLS token dim for FiLM
-      qk_norm: true         # normalize Q and K to unit sphere before dot product (Gemma-style)
+      qk_norm: true         # RMSNorm-QK on Q,K (Gemma2/ViT-22B style) before attention
 
     property_predictor:
       emb_dim: ${model.graph_ae.hparams.emb_dim}
@@ -60,7 +61,7 @@ graph_ae:
       break_symmetry_scale: 0.3
       emb_dim: ${model.graph_ae.hparams.emb_dim}
       turn_off: True          # use oracle perms until curriculum_epoch
-      curriculum_epoch: 100   # switch to active permuter at epoch 40
+      curriculum_epoch: 200   # switch to active permuter at epoch 40
       freeze_epochs: 10      # freeze enc/dec for 10 epochs after switch so permuter can warm up
       use_ce: False
       use_context: False
