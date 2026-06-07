@@ -103,8 +103,9 @@ def run_diagnostics(model, batch, tau: float) -> dict:
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = model(
             graph=batch, training=False, tau=tau
         )
-        # node_features are not exposed through PLGraphAE.forward — call encode directly
-        _, node_features, _, _ = model.graph_ae.encode(batch)
+        # node_features are not exposed through PLGraphAE.forward — call encode directly.
+        # encode returns (z_nodes, z_global, node_features, mu, logvar).
+        _, _, node_features, _, _ = model.graph_ae.encode(batch)
 
     for h in hooks:
         h.remove()
