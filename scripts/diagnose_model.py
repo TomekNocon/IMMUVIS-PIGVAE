@@ -30,6 +30,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 # ── project root setup ──────────────────────────────────────────────────────
@@ -373,6 +374,94 @@ def print_report(results: dict, batch_idx: int):
                    results["node_inspection (image 0, r0_nf vs r0_f)"])
 
 
+# ── inspection orchestrator ──────────────────────────────────────────────────
+
+from src.models.components.llama_graph_transformer import (
+    SelfAttention,
+    TransformerBlock,
+    get_full_mask,
+    get_neighborhood_mask,
+)
+from src.utils.inspection import (
+    attention_entropy_from_input,
+    collect_activation_stats,
+    latent_diagnostics,
+    reconstruction_diagnostics,
+    weight_diagnostics,
+    write_report,
+)
+
+
+def inspect_model(model, batch, out_dir, meta: dict) -> dict:
+    """Orchestrate all inspection sections on a GraphAE + one batch.
+
+    model: GraphAE (pl_module.graph_ae)
+    batch: DenseGraphBatch already on the correct device
+    out_dir: path-like; artifacts are written here
+    meta: dict of run metadata (ckpt path, split, tau, …)
+    """
+    model.eval()
+    results: dict = {"meta": meta}
+
+    # A. Weights (no data needed)
+    results["weights"] = weight_diagnostics(model)
+
+    # B. Activations: hook transformer blocks + graph_transformers + key linear layers.
+    #    Run the FULL encode+decode path so decoder blocks are also captured.
+    def act_filter(name: str, m: nn.Module) -> bool:
+        return (
+            isinstance(m, TransformerBlock)
+            or name.endswith("graph_transformer")
+            or (isinstance(m, nn.Linear) and ("fc_out" in name or "projection_in" in name))
+        )
+
+    def _full_forward() -> None:
+        zn, zg, _nf, _mu, _lv = model.encode(batch)
+        model.decode(zn, zg, batch.mask)
+
+    results["activations"] = collect_activation_stats(model, _full_forward, act_filter)
+
+    # C. Attention entropy — capture each SelfAttention input via pre-hook,
+    #    then recompute weights with the correct mask (encoder=neighborhood, decoder=full).
+    captured: dict = {}
+    pre_handles = []
+    for _name, _mod in model.named_modules():
+        if isinstance(_mod, SelfAttention):
+            def _pre_hook(_m, args, _n=_name):
+                captured[_n] = args[0].detach()
+            pre_handles.append(_mod.register_forward_pre_hook(_pre_hook))
+    with torch.no_grad():
+        z_nodes, z_global, _node_features, _mu, _logvar = model.encode(batch)
+        graph_pred = model.decode(z_nodes, z_global, batch.mask)
+    for h in pre_handles:
+        h.remove()
+
+    attn: dict = {}
+    for name, mod in model.named_modules():
+        if isinstance(mod, SelfAttention) and name in captured:
+            x = captured[name]
+            n_seq = x.shape[1]
+            is_enc = name.startswith("encoder")
+            if is_enc:
+                mask = get_neighborhood_mask(n_seq, is_enc, x.device)
+            else:
+                mask = get_full_mask(batch.mask, False, x.device)
+            attn[name] = attention_entropy_from_input(mod, x, mask)
+    results["attention"] = attn
+
+    # D. Latent bottleneck health
+    results["latent"] = latent_diagnostics(z_nodes)
+
+    # E. Reconstruction quality
+    num_views = getattr(model.permuter, "num_permutations", 8)
+    results["reconstruction"] = reconstruction_diagnostics(
+        graph_pred.node_features, batch.node_features, num_views
+    )
+
+    write_report(results, out_dir)
+    return results
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def load_model_and_data(ckpt_path: str, data_dir: str | None, split: str, paths_name: str = "szary"):
@@ -455,6 +544,16 @@ def main():
     parser.add_argument("--num-batches", type=int, default=3)
     parser.add_argument("--batch-idx", type=int, default=None)
     parser.add_argument("--tau", type=float, default=None)
+    parser.add_argument(
+        "--inspect",
+        action="store_true",
+        help="Run full weight/activation/attention/latent/reconstruction inspection",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="Output dir for inspection artifacts (default: logs/diagnostics/<ckpt-stem>)",
+    )
     args = parser.parse_args()
 
     model, dataloader, tau = load_model_and_data(args.ckpt, args.data_dir, args.split, args.paths)
@@ -464,6 +563,19 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
+
+    if args.inspect:
+        out_dir = args.out_dir or f"logs/diagnostics/{Path(args.ckpt).stem}"
+        meta = {
+            "ckpt": args.ckpt,
+            "split": args.split,
+            "tau": tau,
+            "run": Path(args.ckpt).parent.name,
+        }
+        inspect_batch = next(iter(dataloader)).to(device)
+        graph_ae = model.graph_ae if hasattr(model, "graph_ae") else model
+        inspect_model(graph_ae, inspect_batch, out_dir, meta)
+        print(f"[inspect] wrote artifacts to {out_dir}")
 
     n_run = 0
     for batch_i, batch in enumerate(dataloader):
