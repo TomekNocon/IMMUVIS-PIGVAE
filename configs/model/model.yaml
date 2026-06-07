@@ -29,6 +29,7 @@ graph_ae:
       pma_k: 4              # number of seeds (only used if use_pma)
       qk_norm: true         # normalize Q and K to unit sphere before dot product (Gemma-style)
       use_final_norm: true  # bounds the internal pre-norm residual stream (encoder). OFF only to load pre-final_norm ckpts (e.g. cuogzab1)
+      neighborhood_radius: 1  # dilated local attention: nodes attend within Manhattan distance <= r (1 = 4-neighbours). Sweep 1,2,3 for more context.
 
     decoder:
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}

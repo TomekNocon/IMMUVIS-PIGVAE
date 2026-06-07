@@ -1,7 +1,6 @@
 import math
 from functools import lru_cache
 
-import networkx as nx
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,7 +13,7 @@ try:
 except ImportError:
     SDPA_AVAILABLE = False
 
-from src.models.components.custom_pytorch_functions import RMSNorm  # noqa: F401 – kept for reference
+from src.models.components.custom_pytorch_functions import RMSNorm
 from src.models.components.rotary_embedding import BaseRotaryEmbedding
 
 """
@@ -34,13 +33,17 @@ class Transformer(nn.Module):
         use_final_norm: bool = True,
         output_init_std: float | None = None,
         qk_norm: bool = False,
+        neighborhood_radius: int = 1,
     ):
         super().__init__()
         self.num_layers = num_layers
         self.ppf_hidden_dim = ppf_hidden_dim
         weight_init_std = output_init_std if output_init_std is not None else 0.02 / (2 * float(num_layers)) ** 0.5
         self.blocks = nn.ModuleList([
-            TransformerBlock(hidden_dim, num_heads, ppf_hidden_dim, dropout, weight_init_std, rope, qk_norm)
+            TransformerBlock(
+                hidden_dim, num_heads, ppf_hidden_dim, dropout, weight_init_std,
+                rope, qk_norm, neighborhood_radius,
+            )
             for _ in range(num_layers)
         ])
 
@@ -101,9 +104,12 @@ class TransformerBlock(nn.Module):
         weight_init_std: float,
         rope: BaseRotaryEmbedding | None = None,
         qk_norm: bool = False,
+        neighborhood_radius: int = 1,
     ):
         super().__init__()
-        self.attention_layer = SelfAttention(n_head, hidden_dim, dropout, rope, qk_norm)
+        self.attention_layer = SelfAttention(
+            n_head, hidden_dim, dropout, rope, qk_norm, neighborhood_radius
+        )
         self.feed_forward_layer = FeedForward(
             hidden_dim=hidden_dim,
             ffn_hidden_dim=ppf_hidden_dim,
@@ -202,11 +208,13 @@ class SelfAttention(torch.nn.Module):
         dropout: float,
         rope: BaseRotaryEmbedding | None = None,
         qk_norm: bool = False,
+        neighborhood_radius: int = 1,
     ):
         super().__init__()
 
         self.n_head = n_head
         self.hidden_dim = hidden_dim
+        self.neighborhood_radius = neighborhood_radius
 
         self.q_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.k_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
@@ -245,7 +253,7 @@ class SelfAttention(torch.nn.Module):
             key = self.rope.rotate_queries_or_keys(key)
 
         if mask is None:
-            attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device)
+            attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device, self.neighborhood_radius)
         else:
             attn_mask = get_full_mask(mask, is_encoder, device)
         try:
@@ -282,17 +290,21 @@ class SelfAttention(torch.nn.Module):
         nn.init.trunc_normal_(self.output_projection.weight, mean=0.0, std=init_std)
 
 
-@lru_cache(maxsize=32)
-def _create_neighborhood_mask(num_nodes: int, is_encoder: bool, device: str):
-    """Create neighborhood mask and cache it per device."""
-    if is_encoder:
-        n = num_nodes - 1
-    else:
-        n = num_nodes
-    n = int(math.sqrt(n))
-    graph = nx.grid_2d_graph(n, n)
-    adjacency_matrix = torch.tensor(nx.to_numpy_array(graph), dtype=torch.bool)
-    mask = adjacency_matrix | torch.eye(adjacency_matrix.shape[0], dtype=torch.bool)
+@lru_cache(maxsize=64)
+def _create_neighborhood_mask(num_nodes: int, is_encoder: bool, device: str, radius: int = 1):
+    """Create a dilated grid-neighborhood mask, cached per (size, role, device, radius).
+
+    A content node attends to every node within Manhattan grid distance <= radius
+    (radius=1 reproduces the original 4-neighbour + self mask). The Manhattan ball is
+    invariant under the grid's D4 automorphisms, so the encoder stays D4-equivariant
+    at any radius.
+    """
+    n_content = num_nodes - 1 if is_encoder else num_nodes
+    n = int(math.sqrt(n_content))
+    rows = torch.arange(n_content) // n
+    cols = torch.arange(n_content) % n
+    dist = (rows[:, None] - rows[None, :]).abs() + (cols[:, None] - cols[None, :]).abs()
+    mask = dist <= radius
     if is_encoder:
         # CLS is at position 0.
         # Col 0 (CLS as key)  = False: content nodes cannot attend to CLS.
@@ -304,10 +316,12 @@ def _create_neighborhood_mask(num_nodes: int, is_encoder: bool, device: str):
     return mask.to(device)
 
 
-def get_neighborhood_mask(num_nodes: int, is_encoder: bool, device: torch.device = None):
-    """Get neighborhood mask, cached per device."""
+def get_neighborhood_mask(
+    num_nodes: int, is_encoder: bool, device: torch.device = None, radius: int = 1
+):
+    """Get dilated neighborhood mask, cached per device."""
     device_str = str(device) if device is not None else "cpu"
-    return _create_neighborhood_mask(num_nodes, is_encoder, device_str)
+    return _create_neighborhood_mask(num_nodes, is_encoder, device_str, radius)
 
 
 def get_full_mask(mask: torch.Tensor, is_encoder: bool, device: torch.device = None):
