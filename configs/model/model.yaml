@@ -28,6 +28,7 @@ graph_ae:
       use_pma: false        # Idea 2: replace CLS with K-seed cross-attention (PMA)
       pma_k: 4              # number of seeds (only used if use_pma)
       qk_norm: true         # normalize Q and K to unit sphere before dot product (Gemma-style)
+      use_final_norm: true  # bounds the internal pre-norm residual stream (encoder). OFF only to load pre-final_norm ckpts (e.g. cuogzab1)
 
     decoder:
       graph_decoder_hidden_dim: ${model.graph_ae.hparams.input_size}

@@ -265,9 +265,10 @@ class GraphEncoder(torch.nn.Module):
             ppf_hidden_dim=hparams.graph_encoder_ppf_hidden_dim,
             num_layers=hparams.graph_encoder_num_layers,
             dropout=hparams.dropout,
-            # Keep final_norm: output_norm re-normalizes the OUTPUT, but final_norm also
-            # bounds the internal pre-norm residual stream. Removing it blew up encoder
-            # max_abs to ~260 (run cuogzab1) with no mse benefit.
+            # final_norm bounds the internal pre-norm residual stream (removing it blew up
+            # encoder max_abs to ~260 in run cuogzab1). Configurable so checkpoints trained
+            # without it can be loaded faithfully. Default on.
+            use_final_norm=getattr(hparams, "use_final_norm", True),
             qk_norm=getattr(hparams, "qk_norm", False),
         )
         self.fc_in = nn.Linear(hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim)
