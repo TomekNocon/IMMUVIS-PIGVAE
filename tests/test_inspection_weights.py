@@ -1,6 +1,6 @@
 # tests/test_inspection_weights.py
-import torch
 import torch.nn as nn
+
 from src.utils.inspection.weights import weight_diagnostics
 
 

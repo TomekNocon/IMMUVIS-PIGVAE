@@ -1,5 +1,6 @@
 # tests/test_inspection_report.py
 import json
+
 from src.utils.inspection.report import build_flags, write_report
 
 
@@ -11,7 +12,6 @@ def test_build_flags_detects_anomalies():
         "reconstruction": {"per_channel_r2": [0.9, 0.1, 0.8], "worst_channels": [1]},
     }
     flags = build_flags(results)
-    text = " ".join(flags)
     assert any("max_abs" in f for f in flags)
     assert any("gain" in f.lower() for f in flags)
     assert any("rank" in f.lower() or "active" in f.lower() for f in flags)

@@ -1,6 +1,7 @@
 # tests/test_inspection_activations.py
 import torch
 import torch.nn as nn
+
 from src.utils.inspection.activations import collect_activation_stats
 
 

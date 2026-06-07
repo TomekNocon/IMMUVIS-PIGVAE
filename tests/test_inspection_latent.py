@@ -1,5 +1,6 @@
 # tests/test_inspection_latent.py
 import torch
+
 from src.utils.inspection.latent import latent_diagnostics
 
 

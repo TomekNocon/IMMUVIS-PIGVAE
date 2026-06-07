@@ -1,6 +1,7 @@
 # tests/test_inspection_attention.py
 import torch
-from src.models.components.llama_graph_transformer import Transformer, SelfAttention
+
+from src.models.components.llama_graph_transformer import SelfAttention, Transformer
 from src.utils.inspection.attention import attention_entropy_from_input
 
 

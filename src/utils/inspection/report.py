@@ -4,9 +4,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
+
+plt.switch_backend("Agg")
 
 # Flag thresholds (tune here).
 MAX_ABS_FLAG = 50.0

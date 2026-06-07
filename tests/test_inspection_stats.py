@@ -1,7 +1,7 @@
 # tests/test_inspection_stats.py
-import math
 import torch
-from src.utils.inspection.stats import tensor_stats, participation_ratio, linear_spectral
+
+from src.utils.inspection.stats import linear_spectral, participation_ratio, tensor_stats
 
 
 def test_tensor_stats_basic():
@@ -26,8 +26,8 @@ def test_participation_ratio_uniform_vs_spiked():
 
 
 def test_linear_spectral_identity():
-    W = torch.eye(8)
-    out = linear_spectral(W)
+    w = torch.eye(8)
+    out = linear_spectral(w)
     assert abs(out["spectral_norm"] - 1.0) < 1e-4
     assert abs(out["effective_rank"] - 8.0) < 1e-3
     assert abs(out["rank_ratio"] - 1.0) < 1e-3
