@@ -1,7 +1,12 @@
 # tests/test_inspection_stats.py
 import torch
 
-from src.utils.inspection.stats import linear_spectral, participation_ratio, tensor_stats
+from src.utils.inspection.stats import (
+    energy_rank,
+    linear_spectral,
+    participation_ratio,
+    tensor_stats,
+)
 
 
 def test_tensor_stats_basic():
@@ -31,3 +36,20 @@ def test_linear_spectral_identity():
     assert abs(out["spectral_norm"] - 1.0) < 1e-4
     assert abs(out["effective_rank"] - 8.0) < 1e-3
     assert abs(out["rank_ratio"] - 1.0) < 1e-3
+    # uniform spectrum -> need all 8 directions for 90% and 99% energy
+    assert out["rank90"] == 8
+    assert out["rank99"] == 8
+
+
+def test_energy_rank_concentrated():
+    # singular values 10, 5 -> energy 100, 25 (total 125); cum: 0.8, 1.0
+    sv = torch.tensor([10.0, 5.0, 0.0, 0.0])
+    out = energy_rank(sv)
+    assert out["rank90"] == 2   # 0.8 < 0.9 at k=1, reaches at k=2
+    assert out["rank99"] == 2
+
+
+def test_energy_rank_single_direction():
+    sv = torch.tensor([10.0, 0.01, 0.01])
+    out = energy_rank(sv)
+    assert out["rank90"] == 1   # one direction holds ~100% of energy

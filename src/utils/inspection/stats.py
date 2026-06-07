@@ -40,8 +40,30 @@ def participation_ratio(values: torch.Tensor) -> float:
     return (s * s / (v * v).sum()).item()
 
 
+def energy_rank(singular_values: torch.Tensor, fractions=(0.9, 0.99)) -> dict:
+    """Smallest number of singular values capturing each energy fraction of Σσ².
+
+    This is the practical "how narrow can I go" measure: rank90=k means the top k
+    singular directions hold 90% of the weight's Frobenius energy. Unlike the
+    participation ratio it is not skewed by the squared-spectrum tail.
+    """
+    sv = singular_values.detach().float().clamp_min(0)
+    energy = torch.sort(sv, descending=True).values ** 2
+    total = energy.sum()
+    out: dict = {}
+    if total <= 0:
+        for f in fractions:
+            out[f"rank{round(f * 100)}"] = 0
+        return out
+    cum = torch.cumsum(energy, dim=0) / total
+    for f in fractions:
+        k = int((cum >= f).to(torch.int).argmax().item()) + 1  # first index reaching f, 1-indexed
+        out[f"rank{round(f * 100)}"] = k
+    return out
+
+
 def linear_spectral(weight: torch.Tensor) -> dict:
-    """Spectral norm and effective rank (PR over singular values²) of a 2D weight."""
+    """Spectral norm, effective rank (PR over σ²), and 90/99%-energy rank of a 2D weight."""
     w = weight.detach().float()
     if w.ndim > 2:
         w = w.flatten(1)
@@ -49,8 +71,14 @@ def linear_spectral(weight: torch.Tensor) -> dict:
         w = w.unsqueeze(0)
     sv = torch.linalg.svdvals(w)
     pr = participation_ratio(sv ** 2)
+    dim = min(w.shape)
+    er = energy_rank(sv)
     return {
         "spectral_norm": sv.max().item(),
         "effective_rank": pr,
-        "rank_ratio": pr / min(w.shape),
+        "rank_ratio": pr / dim,
+        "rank90": er["rank90"],
+        "rank99": er["rank99"],
+        "rank90_ratio": er["rank90"] / dim,
+        "rank99_ratio": er["rank99"] / dim,
     }
