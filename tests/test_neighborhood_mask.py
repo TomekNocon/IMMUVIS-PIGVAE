@@ -9,11 +9,13 @@ def _content_mask(num_nodes: int, radius: int) -> torch.Tensor:
     return m[1:, 1:]
 
 
-def test_radius1_reproduces_4_neighbours():
+def test_radius1_is_grid_clipped_von_neumann():
+    """radius=1 = orthogonal neighbours clipped to the grid: count depends on position."""
     m = _content_mask(37, radius=1)  # 6x6 grid + CLS
-    assert m[14, 14]               # interior node (2,2) attends to self
-    assert int(m[14].sum()) == 5   # self + 4 orthogonal neighbours
-    # node 0 = (0,0): right (idx 1) and down (idx 6) only
+    assert int(m[14].sum()) == 5   # interior (2,2): self + 4
+    assert int(m[1].sum()) == 4    # top edge (0,1): self + left + right + down
+    assert int(m[0].sum()) == 3    # corner (0,0): self + right + down
+    # corner connectivity, Manhattan: right (idx1) and down (idx6); no diagonal / distance-2
     assert m[0, 1] and m[0, 6]
     assert not m[0, 7]             # (1,1) diagonal excluded (Manhattan)
     assert not m[0, 2]             # (0,2) distance 2 excluded at radius 1

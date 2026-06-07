@@ -270,8 +270,9 @@ class GraphEncoder(torch.nn.Module):
             # without it can be loaded faithfully. Default on.
             use_final_norm=getattr(hparams, "use_final_norm", True),
             qk_norm=getattr(hparams, "qk_norm", False),
-            # dilated local attention: each node sees Manhattan-distance <= radius neighbours
-            # (radius=1 = the original 4-neighbour mask). D4-equivariant at any radius.
+            # dilated local attention: each node sees Manhattan-distance <= radius neighbours,
+            # clipped to the grid (radius=1: interior 4 / edge 3 / corner 2, + self).
+            # D4-equivariant at any radius.
             neighborhood_radius=getattr(hparams, "neighborhood_radius", 1),
         )
         self.fc_in = nn.Linear(hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim)

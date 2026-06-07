@@ -309,10 +309,11 @@ class SelfAttention(torch.nn.Module):
 def _create_neighborhood_mask(num_nodes: int, is_encoder: bool, device: str, radius: int = 1):
     """Create a dilated grid-neighborhood mask, cached per (size, role, device, radius).
 
-    A content node attends to every node within Manhattan grid distance <= radius
-    (radius=1 reproduces the original 4-neighbour + self mask). The Manhattan ball is
-    invariant under the grid's D4 automorphisms, so the encoder stays D4-equivariant
-    at any radius.
+    A content node attends to every node within Manhattan grid distance <= radius,
+    clipped to the grid — so the neighbour count is position-dependent (radius=1:
+    interior 4, edge 3, corner 2, plus self; this reproduces the original nx mask).
+    The Manhattan ball is invariant under the grid's D4 automorphisms, so the encoder
+    stays D4-equivariant at any radius.
     """
     n_content = num_nodes - 1 if is_encoder else num_nodes
     n = int(math.sqrt(n_content))
