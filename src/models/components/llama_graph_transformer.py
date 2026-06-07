@@ -34,6 +34,8 @@ class Transformer(nn.Module):
         output_init_std: float | None = None,
         qk_norm: bool = False,
         neighborhood_radius: int = 1,
+        pos_bias: str = "none",
+        grid_size: int = 0,
     ):
         super().__init__()
         self.num_layers = num_layers
@@ -43,6 +45,11 @@ class Transformer(nn.Module):
             TransformerBlock(
                 hidden_dim, num_heads, ppf_hidden_dim, dropout, weight_init_std,
                 rope, qk_norm, neighborhood_radius,
+                # per-layer 2D relative-position bias (Swin tables are per-layer)
+                pos_bias=(
+                    RelativePositionBias2D(pos_bias, grid_size, num_heads)
+                    if pos_bias != "none" else None
+                ),
             )
             for _ in range(num_layers)
         ])
@@ -105,10 +112,11 @@ class TransformerBlock(nn.Module):
         rope: BaseRotaryEmbedding | None = None,
         qk_norm: bool = False,
         neighborhood_radius: int = 1,
+        pos_bias: nn.Module | None = None,
     ):
         super().__init__()
         self.attention_layer = SelfAttention(
-            n_head, hidden_dim, dropout, rope, qk_norm, neighborhood_radius
+            n_head, hidden_dim, dropout, rope, qk_norm, neighborhood_radius, pos_bias
         )
         self.feed_forward_layer = FeedForward(
             hidden_dim=hidden_dim,
@@ -209,12 +217,14 @@ class SelfAttention(torch.nn.Module):
         rope: BaseRotaryEmbedding | None = None,
         qk_norm: bool = False,
         neighborhood_radius: int = 1,
+        pos_bias: nn.Module | None = None,
     ):
         super().__init__()
 
         self.n_head = n_head
         self.hidden_dim = hidden_dim
         self.neighborhood_radius = neighborhood_radius
+        self.pos_bias = pos_bias
 
         self.q_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.k_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
@@ -256,6 +266,11 @@ class SelfAttention(torch.nn.Module):
             attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device, self.neighborhood_radius)
         else:
             attn_mask = get_full_mask(mask, is_encoder, device)
+        if self.pos_bias is not None:
+            # Add a per-head 2D relative-position bias to the logits (soft locality).
+            # Bool attn_mask → float: keep the bias, set masked pairs to -inf.
+            bias = self.pos_bias().to(query.dtype)  # [H, N, N]
+            attn_mask = bias.masked_fill(~attn_mask, float("-inf"))
         try:
             with torch.nn.attention.sdpa_kernel([
                 SDPBackend.FLASH_ATTENTION,
@@ -343,3 +358,44 @@ def get_full_mask(mask: torch.Tensor, is_encoder: bool, device: torch.device = N
         attn_mask = attn_mask.to(device)
 
     return attn_mask
+
+
+class RelativePositionBias2D(nn.Module):
+    """Additive per-head attention bias from 2D grid relative position.
+
+    Soft locality that keeps global reach (no hard mask). Returns `[n_head, N, N]` to add
+    to the attention logits, where `N = grid_size²` (decoder grid has no CLS token).
+
+    - ``mode="alibi"``: parameter-free. `bias = -slope_h · Manhattan_distance(i, j)`, with
+      geometric per-head slopes (closer nodes biased up, far nodes down but not masked out).
+    - ``mode="swin"``: a learned bias table indexed by the relative offset `(Δrow, Δcol)`,
+      one table per head (Swin-Transformer style).
+    """
+
+    def __init__(self, mode: str, grid_size: int, n_head: int):
+        super().__init__()
+        self.mode = mode
+        self.n_head = n_head
+        g = grid_size
+        n = g * g
+        rows = torch.arange(n) // g
+        cols = torch.arange(n) % g
+        drow = rows[:, None] - rows[None, :]  # [N, N]
+        dcol = cols[:, None] - cols[None, :]
+        if mode == "alibi":
+            dist = (drow.abs() + dcol.abs()).float()  # Manhattan distance
+            self.register_buffer("dist", dist)
+            slopes = 2.0 ** (-8.0 * torch.arange(1, n_head + 1) / n_head)
+            self.register_buffer("slopes", slopes.float())
+        elif mode == "swin":
+            rel_index = (drow + (g - 1)) * (2 * g - 1) + (dcol + (g - 1))  # [N, N] -> table idx
+            self.register_buffer("rel_index", rel_index.long())
+            self.table = nn.Parameter(torch.zeros(n_head, (2 * g - 1) * (2 * g - 1)))
+            nn.init.trunc_normal_(self.table, std=0.02)
+        else:
+            raise ValueError(f"unknown pos_bias mode: {mode!r} (expected 'alibi' or 'swin')")
+
+    def forward(self) -> torch.Tensor:
+        if self.mode == "alibi":
+            return -self.slopes[:, None, None] * self.dist[None, :, :]  # [H, N, N]
+        return self.table[:, self.rel_index]  # [H, N, N]

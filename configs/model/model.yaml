@@ -45,6 +45,7 @@ graph_ae:
       grid_size: 6
       use_film: false       # FiLM global conditioning off (decoder is full-attention, can route globally itself)
       use_rope: false       # 1D RoPE over flattened 2D grid disabled; rely on 2D sinusoidal PE
+      pos_bias: none        # 2D relative-position bias: none|alibi|swin. When set, absolute PE is dropped.
       encoder_hidden_dim: ${model.graph_ae.hparams.input_size}  # CLS token dim for FiLM
       qk_norm: true         # RMSNorm-QK on Q,K (Gemma2/ViT-22B style) before attention
 

@@ -388,6 +388,10 @@ class GraphDecoder(torch.nn.Module):
             hparams.graph_decoder_hidden_dim, grid_size=grid_size
         )
         use_rope = getattr(hparams, "use_rope", False)
+        # 2D relative-position bias (none|alibi|swin). When active it carries position, so
+        # the absolute 2D sinusoidal PE is dropped (don't stack positional signals).
+        pos_bias = getattr(hparams, "pos_bias", "none")
+        self.use_pos_emb = pos_bias == "none"
         self.graph_transformer = Transformer(
             hidden_dim=hparams.graph_decoder_hidden_dim,
             num_heads=hparams.graph_decoder_num_heads,
@@ -399,6 +403,8 @@ class GraphDecoder(torch.nn.Module):
             # already carried by the 2D sinusoidal PE. Off by default (configurable).
             rope=LLamaRotaryEmbedding(hparams.head_dim) if use_rope else None,
             qk_norm=getattr(hparams, "qk_norm", False),
+            pos_bias=pos_bias,
+            grid_size=grid_size,
         )
         self.use_film = getattr(hparams, "use_film", False)
         if self.use_film:
@@ -428,9 +434,10 @@ class GraphDecoder(torch.nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         B, N, _ = z_nodes.shape
         x = self.dropout(self.fc_in(z_nodes))  # [B, N, hidden_dim]
-        x = x + self.positional_embedding(B, N)        # inject 2D grid coordinates
+        if self.use_pos_emb:  # absolute 2D PE — skipped when a relative-position bias is used
+            x = x + self.positional_embedding(B, N)
         film_params = self.film(z_global) if self.use_film else None
-        # mask=None → neighborhood mask (6×6 grid adjacency) — local refinement with RoPE
+        # Full attention over the 36 nodes; positional signal from PE or the per-head pos_bias.
         x = self.graph_transformer(x, mask=mask, is_encoder=False, film_params=film_params)
         if self.project:
             x = self.node_fc_out(x)
