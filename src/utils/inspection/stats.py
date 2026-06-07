@@ -12,7 +12,7 @@ def tensor_stats(t: torch.Tensor) -> dict:
     n = int(t.numel())
     if n == 0:
         return {"count": 0}
-    tq = t if n <= _MAX_QUANTILE_ELEMS else t[torch.randperm(n)[:_MAX_QUANTILE_ELEMS]]
+    tq = t if n <= _MAX_QUANTILE_ELEMS else t[torch.randperm(n, device=t.device)[:_MAX_QUANTILE_ELEMS]]
     q = torch.tensor([0.001, 0.01, 0.5, 0.99, 0.999], device=t.device)
     pcts = torch.quantile(tq, q).tolist()
     mean = t.mean()

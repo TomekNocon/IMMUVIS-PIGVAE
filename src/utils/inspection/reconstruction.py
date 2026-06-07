@@ -28,7 +28,9 @@ def reconstruction_diagnostics(
 
     node_mag = true.norm(dim=-1).reshape(-1)                 # [B*N]
     node_err = se.mean(dim=-1).reshape(-1)
-    edges = torch.quantile(node_mag, torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0]))
+    edges = torch.quantile(
+        node_mag, torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0], device=node_mag.device)
+    )
     bins = []
     for i in range(4):
         lo, hi = edges[i], edges[i + 1]
