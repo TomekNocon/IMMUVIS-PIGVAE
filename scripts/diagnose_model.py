@@ -465,7 +465,13 @@ def inspect_model(model, batch, out_dir, meta: dict) -> dict:
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
-def load_model_and_data(ckpt_path: str, data_dir: str | None, split: str, paths_name: str = "szary"):
+def load_model_and_data(
+    ckpt_path: str,
+    data_dir: str | None,
+    split: str,
+    paths_name: str = "szary",
+    experiment: str | None = None,
+):
     configs = project_root / "configs"
 
     model_cfg = OmegaConf.load(configs / "model" / "model.yaml")
@@ -484,6 +490,17 @@ def load_model_and_data(ckpt_path: str, data_dir: str | None, split: str, paths_
 
     trainer_stub = OmegaConf.create({"max_epochs": 200, "min_epochs": 1})
     data_stub    = OmegaConf.create({"hparams": {"num_aug_per_sample": 8, "batch_size": 16}})
+
+    # Overlay an experiment's `model` (and `trainer`) overrides so architecture-varying
+    # checkpoints (different input_size / neighborhood_radius / pos_bias / ...) build the
+    # matching model and load cleanly.
+    if experiment:
+        exp_cfg = OmegaConf.load(configs / "experiment" / f"{experiment}.yaml")
+        if "model" in exp_cfg:
+            model_cfg = OmegaConf.merge(model_cfg, exp_cfg.model)
+        if "trainer" in exp_cfg:
+            trainer_stub = OmegaConf.merge(trainer_stub, exp_cfg.trainer)
+        print(f"[info] applied model overrides from experiment={experiment}")
 
     ctx = OmegaConf.create({
         "model":   model_cfg,
@@ -541,6 +558,12 @@ def main():
     parser.add_argument("--ckpt", required=True, help="Path to .ckpt file")
     parser.add_argument("--data-dir", default=None, help="Override data_dir")
     parser.add_argument("--paths", default="szary", help="Paths config name")
+    parser.add_argument(
+        "--experiment",
+        default=None,
+        help="Experiment config name (configs/experiment/<name>.yaml) whose `model` overrides "
+             "are applied so an architecture-varying checkpoint builds the matching model.",
+    )
     parser.add_argument("--split", choices=["val", "test"], default="val")
     parser.add_argument("--num-batches", type=int, default=3)
     parser.add_argument("--batch-idx", type=int, default=None)
@@ -557,7 +580,9 @@ def main():
     )
     args = parser.parse_args()
 
-    model, dataloader, tau = load_model_and_data(args.ckpt, args.data_dir, args.split, args.paths)
+    model, dataloader, tau = load_model_and_data(
+        args.ckpt, args.data_dir, args.split, args.paths, args.experiment
+    )
     if args.tau is not None:
         tau = args.tau
         print(f"[info] tau overridden to {tau}")
