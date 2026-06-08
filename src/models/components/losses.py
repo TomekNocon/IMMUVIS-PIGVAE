@@ -357,8 +357,10 @@ class CosineSimilarityLoss(BaseReconstructionLoss):
         self.return_as_loss = return_as_loss
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        # Use the mask to identify valid nodes
-        similarity = self.node_loss(pred.flatten(1), target.flatten(1)).mean()
+        # Per-node cosine: match the direction of each node's [D] feature vector (dim=-1),
+        # averaged over batch and nodes. (Previously `.flatten(1)` collapsed it to a single
+        # global cosine per sample, dominated by the high-magnitude nodes.)
+        similarity = self.node_loss(pred, target).mean()
 
         if self.return_as_loss:
             # Convert to loss: 1 - similarity, so 0 = perfect, 2 = worst
