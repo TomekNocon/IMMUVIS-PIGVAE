@@ -1,0 +1,51 @@
+# @package _global_
+# Variant of context_swin_huber: add the (now per-node) cosine term at weight 0.3.
+#   loss = Huber(β=2) + 0.3·per-node-cosine(1-cos over dim=-1); gradient term off.
+#   kept: decoder Swin bias, encoder dilated mask radius 2, hidden 384, final_norm on, z=32.
+#   NOTE: cosine ignores magnitude, so expect val_mse to be flat/slightly worse — its payoff is
+#   representational (direction) and is only judgeable via downstream transfer (not yet wired).
+# Run: sbatch --export=ALL,EXPERIMENT=context_swin_cosine scripts/ablation_slurm.sh
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["pernode_z", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope", "no_film",
+       "no_latent_norm", "z32", "radius2", "swin", "h384", "cosine_pernode_0.3"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+model:
+  graph_ae:
+    hparams:
+      input_size: 384
+      node_z_dim: 32
+      dropout: 0.10
+      encoder:
+        neighborhood_radius: 2
+        use_hadamard: false
+        use_mlp_edges: false
+        use_spectrum: false
+        use_pma: false
+      decoder:
+        pos_bias: swin
+  critic:
+    hparams:
+      beta_scale: 0.3   # per-node cosine weight
+      gamma_scale: 0.0  # gradient term off
+  optimizer:
+    lr: 0.0003
+  scheduler:
+    max_lr: 0.0003
+
+logger:
+  wandb:
+    group: "context_decoder_bias"
+    tags: ${tags}
+    name: "ctx-radius2-swin-cos03"
