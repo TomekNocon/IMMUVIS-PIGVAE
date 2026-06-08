@@ -586,14 +586,22 @@ def dense_graph_collate_fn(data_list: list[tuple]) -> DenseGraphBatch:
 
 
 class PCADenseGraphCollator:
-    """Apply PCA to batched node features during collation."""
+    """Apply PCA to batched node features during collation.
 
-    def __init__(self, pca_layer: PCALayer):
+    If `keep_input` is set, the raw pre-PCA node features are stashed on the batch as
+    `input_features` (for offline inverse-PCA-vs-input diagnostics). Off by default so
+    training is unaffected.
+    """
+
+    def __init__(self, pca_layer: PCALayer, keep_input: bool = False):
         self.pca_layer = pca_layer
+        self.keep_input = keep_input
 
     def __call__(self, data_list: list[tuple]) -> DenseGraphBatch:
         batch = DenseGraphBatch.from_sparse_graph_list(data_list)
         with torch.no_grad():
+            if self.keep_input:
+                batch.input_features = batch.node_features  # raw, pre-PCA (D_orig)
             batch.node_features = self.pca_layer(batch.node_features)
         return batch
 

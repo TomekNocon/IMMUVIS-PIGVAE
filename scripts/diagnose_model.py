@@ -460,9 +460,11 @@ def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
         graph_pred.node_features, batch.node_features, num_views
     )
     # E2. Image-space (inverse-PCA) reconstruction — the metric the real pipeline cares about.
+    # input_features (raw pre-PCA x), if kept by the collator, also gives error vs the input.
     if pca_layer is not None:
         results["reconstruction"]["image_space"] = image_space_reconstruction(
-            graph_pred.node_features, batch.node_features, pca_layer
+            graph_pred.node_features, batch.node_features, pca_layer,
+            input_x=getattr(batch, "input_features", None),
         )
 
     write_report(results, out_dir)
@@ -523,6 +525,11 @@ def load_model_and_data(
     dm = instantiate(data_cfg_resolved)
     dm.setup(stage="fit" if split == "val" else "test")
     dataloader = dm.val_dataloader() if split == "val" else dm.test_dataloader()
+    # Keep the raw pre-PCA input on inspection batches so we can measure error vs the input x.
+    # Set before iterating so it propagates to dataloader workers. Training is unaffected.
+    collate_fn = getattr(dataloader, "collate_fn", None)
+    if collate_fn is not None and hasattr(collate_fn, "keep_input"):
+        collate_fn.keep_input = True
 
     graph_ae      = instantiate(ctx.model.graph_ae)
     critic        = instantiate(ctx.model.critic)

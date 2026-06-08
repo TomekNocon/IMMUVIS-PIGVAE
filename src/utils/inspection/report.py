@@ -80,9 +80,15 @@ def _render_md(results: dict, flags: list[str]) -> str:
         if im:
             lines += ["", "## Reconstruction (image space, inverse-PCA)",
                       f"- n_orig_channels: {im['n_orig_channels']}",
-                      f"- image_mse: {im['image_mse']:.5f}  image_mae: {im['image_mae']:.5f}",
-                      f"- image_r2: mean={im['image_r2_mean']:.3f} median={im['image_r2_median']:.3f} "
-                      f"min={im['image_r2_min']:.3f}"]
+                      f"- vs inverse(target) [model error]: mse={im['image_mse']:.5f} "
+                      f"mae={im['image_mae']:.5f} R²_mean={im['image_r2_mean']:.3f}"]
+            vi = im.get("vs_input")
+            if vi:
+                lines += [f"- **vs INPUT x [full pipeline]**: mse={vi['image_mse_vs_input']:.5f} "
+                          f"mae={vi['image_mae_vs_input']:.5f} R²_mean={vi['image_r2_vs_input_mean']:.3f}",
+                          f"- PCA-128(+clip) floor (inverse(target) vs x): mse={vi['pca_floor_mse']:.5f} "
+                          f"R²_mean={vi['pca_floor_r2_mean']:.3f}",
+                          f"- model adds over the floor: {vi['model_added_mse']:.5f}"]
     return "\n".join(lines) + "\n"
 
 

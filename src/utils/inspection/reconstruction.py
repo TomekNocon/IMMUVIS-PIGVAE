@@ -53,7 +53,9 @@ def reconstruction_diagnostics(
 
 
 @torch.no_grad()
-def image_space_reconstruction(pred: torch.Tensor, target: torch.Tensor, pca_layer) -> dict:
+def image_space_reconstruction(
+    pred: torch.Tensor, target: torch.Tensor, pca_layer, input_x: torch.Tensor | None = None
+) -> dict:
     """Reconstruction error in the ORIGINAL feature space (after inverse-PCA).
 
     Both `pred` and `target` are the model's PCA-coefficient space `[B, N, n_pca]`. We
@@ -73,7 +75,7 @@ def image_space_reconstruction(pred: torch.Tensor, target: torch.Tensor, pca_lay
     se = (img_pred - img_true).pow(2)
     var_ch = img_true.var(dim=(0, 1), unbiased=False).clamp_min(1e-12)
     r2_ch = 1.0 - se.mean(dim=(0, 1)) / var_ch
-    return {
+    out = {
         "n_orig_channels": int(img_true.shape[-1]),
         "image_mse": se.mean().item(),
         "image_mae": (img_pred - img_true).abs().mean().item(),
@@ -81,3 +83,19 @@ def image_space_reconstruction(pred: torch.Tensor, target: torch.Tensor, pca_lay
         "image_r2_median": r2_ch.median().item(),
         "image_r2_min": r2_ch.min().item(),
     }
+    # vs the ORIGINAL input x (before PCA): total pipeline error = model + PCA-truncation(+clip).
+    # `pca_floor_*` = inverse(target) vs x = what PCA-128(+clip) loses regardless of the model.
+    if input_x is not None:
+        x = input_x.detach().float().to(img_pred.device)
+        var_x = x.var(dim=(0, 1), unbiased=False).clamp_min(1e-12)
+        se_total = (img_pred - x).pow(2)
+        se_floor = (img_true - x).pow(2)
+        out["vs_input"] = {
+            "image_mse_vs_input": se_total.mean().item(),
+            "image_mae_vs_input": (img_pred - x).abs().mean().item(),
+            "image_r2_vs_input_mean": (1.0 - se_total.mean(dim=(0, 1)) / var_x).mean().item(),
+            "pca_floor_mse": se_floor.mean().item(),
+            "pca_floor_r2_mean": (1.0 - se_floor.mean(dim=(0, 1)) / var_x).mean().item(),
+            "model_added_mse": se_total.mean().item() - se_floor.mean().item(),
+        }
+    return out

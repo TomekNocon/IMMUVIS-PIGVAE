@@ -34,3 +34,17 @@ def test_image_space_error_is_positive_and_projected():
     assert out["image_mse"] > 0
     assert out["n_orig_channels"] == 16
     assert "image_r2_mean" in out and "image_r2_min" in out
+    assert "vs_input" not in out  # only present when input_x is given
+
+
+def test_image_space_vs_input_decomposition():
+    pca = _StubPCA(k=4, d=16)
+    target = torch.randn(3, 6, 4)
+    pred = target + 0.1 * torch.randn_like(target)
+    # input x == exact inverse(target) -> PCA floor is zero, so vs-input == model error
+    x = pca.inverse(target)
+    out = image_space_reconstruction(pred, target, pca, input_x=x)
+    vi = out["vs_input"]
+    assert vi["pca_floor_mse"] < 1e-10
+    assert abs(vi["image_mse_vs_input"] - out["image_mse"]) < 1e-6
+    assert abs(vi["model_added_mse"] - out["image_mse"]) < 1e-6
