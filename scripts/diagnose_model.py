@@ -386,6 +386,7 @@ from src.models.components.llama_graph_transformer import (
 from src.utils.inspection import (
     attention_entropy_from_input,
     collect_activation_stats,
+    image_space_reconstruction,
     latent_diagnostics,
     reconstruction_diagnostics,
     weight_diagnostics,
@@ -393,7 +394,7 @@ from src.utils.inspection import (
 )
 
 
-def inspect_model(model, batch, out_dir, meta: dict) -> dict:
+def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
     """Orchestrate all inspection sections on a GraphAE + one batch.
 
     model: GraphAE (pl_module.graph_ae)
@@ -453,11 +454,16 @@ def inspect_model(model, batch, out_dir, meta: dict) -> dict:
     # D. Latent bottleneck health
     results["latent"] = latent_diagnostics(z_nodes)
 
-    # E. Reconstruction quality
+    # E. Reconstruction quality (PCA-coefficient space)
     num_views = getattr(model.permuter, "num_permutations", 8)
     results["reconstruction"] = reconstruction_diagnostics(
         graph_pred.node_features, batch.node_features, num_views
     )
+    # E2. Image-space (inverse-PCA) reconstruction — the metric the real pipeline cares about.
+    if pca_layer is not None:
+        results["reconstruction"]["image_space"] = image_space_reconstruction(
+            graph_pred.node_features, batch.node_features, pca_layer
+        )
 
     write_report(results, out_dir)
     return results
@@ -550,7 +556,8 @@ def load_model_and_data(
     print(f"[info] Loaded checkpoint — epoch {epoch}, tau={tau:.4f}")
 
     model.eval()
-    return model, dataloader, tau
+    # pca_layer (built by the collator during val_dataloader) enables image-space inverse-PCA metrics
+    return model, dataloader, tau, getattr(dm, "pca_layer", None)
 
 
 def main():
@@ -580,7 +587,7 @@ def main():
     )
     args = parser.parse_args()
 
-    model, dataloader, tau = load_model_and_data(
+    model, dataloader, tau, pca_layer = load_model_and_data(
         args.ckpt, args.data_dir, args.split, args.paths, args.experiment
     )
     if args.tau is not None:
@@ -600,7 +607,7 @@ def main():
         }
         inspect_batch = next(iter(dataloader)).to(device)
         graph_ae = model.graph_ae if hasattr(model, "graph_ae") else model
-        inspect_model(graph_ae, inspect_batch, out_dir, meta)
+        inspect_model(graph_ae, inspect_batch, out_dir, meta, pca_layer)
         print(f"[inspect] wrote artifacts to {out_dir}")
 
     n_run = 0

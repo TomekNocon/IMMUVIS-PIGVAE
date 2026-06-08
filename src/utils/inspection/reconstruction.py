@@ -50,3 +50,34 @@ def reconstruction_diagnostics(
         "per_view_mse": per_view,
         "error_by_magnitude": bins,
     }
+
+
+@torch.no_grad()
+def image_space_reconstruction(pred: torch.Tensor, target: torch.Tensor, pca_layer) -> dict:
+    """Reconstruction error in the ORIGINAL feature space (after inverse-PCA).
+
+    Both `pred` and `target` are the model's PCA-coefficient space `[B, N, n_pca]`. We
+    inverse-transform each through `pca_layer.inverse` (which undoes z-scoring if it was
+    applied and projects back through the PCA basis) to the original `[B, N, D_orig]`
+    space, and measure error there. This is the metric that matters for the real pipeline
+    (reconstruct -> inverse PCA -> image): errors are weighted by each component's actual
+    contribution to the image, unlike the whitened coefficient MSE which over-weights the
+    low-variance tail. The PCA truncation/clip loss is shared by both, so this isolates the
+    model's error.
+    """
+    pred = pred.detach().float()
+    target = target.detach().float()
+    pca_layer = pca_layer.to(pred.device)
+    img_pred = pca_layer.inverse(pred)      # [B, N, D_orig]
+    img_true = pca_layer.inverse(target)
+    se = (img_pred - img_true).pow(2)
+    var_ch = img_true.var(dim=(0, 1), unbiased=False).clamp_min(1e-12)
+    r2_ch = 1.0 - se.mean(dim=(0, 1)) / var_ch
+    return {
+        "n_orig_channels": int(img_true.shape[-1]),
+        "image_mse": se.mean().item(),
+        "image_mae": (img_pred - img_true).abs().mean().item(),
+        "image_r2_mean": r2_ch.mean().item(),
+        "image_r2_median": r2_ch.median().item(),
+        "image_r2_min": r2_ch.min().item(),
+    }

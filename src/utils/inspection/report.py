@@ -73,9 +73,16 @@ def _render_md(results: dict, flags: list[str]) -> str:
                   f"- effective rank_ratio: {lat.get('rank_ratio'):.3f}"]
     rec = results.get("reconstruction", {})
     if rec:
-        lines += ["", "## Reconstruction",
+        lines += ["", "## Reconstruction (PCA-coefficient space)",
                   f"- overall_mse: {rec.get('overall_mse')}",
                   f"- worst channels: {rec.get('worst_channels')}"]
+        im = rec.get("image_space")
+        if im:
+            lines += ["", "## Reconstruction (image space, inverse-PCA)",
+                      f"- n_orig_channels: {im['n_orig_channels']}",
+                      f"- image_mse: {im['image_mse']:.5f}  image_mae: {im['image_mae']:.5f}",
+                      f"- image_r2: mean={im['image_r2_mean']:.3f} median={im['image_r2_median']:.3f} "
+                      f"min={im['image_r2_min']:.3f}"]
     return "\n".join(lines) + "\n"
 
 
