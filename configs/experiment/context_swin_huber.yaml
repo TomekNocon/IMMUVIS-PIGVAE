@@ -1,0 +1,49 @@
+# @package _global_
+# Variant of context_alibi: decoder Swin learned relative-position bias + Huber-ONLY loss.
+#   vs context_alibi this changes TWO things: pos_bias alibi->swin, and loss (cosine β=0, gradient γ=0).
+#   kept: encoder dilated mask radius 2, hidden 384, final_norm on, z=32, RoPE/FiLM off, permuter dormant.
+# Run: sbatch --export=ALL,EXPERIMENT=context_swin_huber scripts/ablation_slurm.sh
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["pernode_z", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope", "no_film",
+       "no_latent_norm", "z32", "radius2", "swin", "h384", "huber_only"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+model:
+  graph_ae:
+    hparams:
+      input_size: 384
+      node_z_dim: 32
+      dropout: 0.10
+      encoder:
+        neighborhood_radius: 2
+        use_hadamard: false
+        use_mlp_edges: false
+        use_spectrum: false
+        use_pma: false
+      decoder:
+        pos_bias: swin
+  critic:
+    hparams:
+      beta_scale: 0.0   # cosine term off  -> Huber-only
+      gamma_scale: 0.0  # gradient term off -> Huber-only
+  optimizer:
+    lr: 0.0003
+  scheduler:
+    max_lr: 0.0003
+
+logger:
+  wandb:
+    group: "context_decoder_bias"
+    tags: ${tags}
+    name: "ctx-radius2-swin-huber"
