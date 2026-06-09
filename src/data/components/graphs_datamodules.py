@@ -30,7 +30,7 @@ class PCALayer(nn.Module):
         self,
         pca_path,
         statistics_path,
-        clip_range: float = 0.0,
+        clip_range: float | None = 0.0,
         zscore: bool = True,
     ):
         super().__init__()
@@ -52,7 +52,7 @@ class PCALayer(nn.Module):
         x = torch.matmul(x, self.components.t())
         if self.zscore:
             x = (x - self.mean) / (self.std + 1e-8)
-        if self.clip_range > 0:
+        if self.clip_range and self.clip_range > 0:
             x = x.clamp(-self.clip_range, self.clip_range)
         return x
 
