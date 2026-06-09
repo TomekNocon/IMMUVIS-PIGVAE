@@ -90,12 +90,21 @@ def image_space_reconstruction(
         var_x = x.var(dim=(0, 1), unbiased=False).clamp_min(1e-12)
         se_total = (img_pred - x).pow(2)
         se_floor = (img_true - x).pow(2)
+        # Global (variance-weighted) R² = 1 - ΣSSE / ΣSS, pooled over all channels. This is
+        # the same average as sklearn's PCA explained_variance_ratio_ (high-variance channels
+        # dominate), so the floor's global R² should ≈ the PCA "explains X% of variance" figure.
+        # The *_mean variants weight every channel equally and read lower (low-variance channels,
+        # which PCA reconstructs worst, get a full vote). The two are different averages, not a
+        # discrepancy — printing both makes that explicit.
+        ss_total = (x - x.mean(dim=(0, 1), keepdim=True)).pow(2).sum().clamp_min(1e-12)
         out["vs_input"] = {
             "image_mse_vs_input": se_total.mean().item(),
             "image_mae_vs_input": (img_pred - x).abs().mean().item(),
             "image_r2_vs_input_mean": (1.0 - se_total.mean(dim=(0, 1)) / var_x).mean().item(),
+            "image_r2_vs_input_global": (1.0 - se_total.sum() / ss_total).item(),
             "pca_floor_mse": se_floor.mean().item(),
             "pca_floor_r2_mean": (1.0 - se_floor.mean(dim=(0, 1)) / var_x).mean().item(),
+            "pca_floor_r2_global": (1.0 - se_floor.sum() / ss_total).item(),
             "model_added_mse": se_total.mean().item() - se_floor.mean().item(),
         }
     return out

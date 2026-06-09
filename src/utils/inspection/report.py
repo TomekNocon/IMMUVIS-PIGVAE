@@ -85,9 +85,14 @@ def _render_md(results: dict, flags: list[str]) -> str:
             vi = im.get("vs_input")
             if vi:
                 lines += [f"- **vs INPUT x [full pipeline]**: mse={vi['image_mse_vs_input']:.5f} "
-                          f"mae={vi['image_mae_vs_input']:.5f} R²_mean={vi['image_r2_vs_input_mean']:.3f}",
+                          f"mae={vi['image_mae_vs_input']:.5f} "
+                          f"R²_global={vi.get('image_r2_vs_input_global', float('nan')):.3f} "
+                          f"R²_mean={vi['image_r2_vs_input_mean']:.3f}",
                           f"- PCA-128(+clip) floor (inverse(target) vs x): mse={vi['pca_floor_mse']:.5f} "
+                          f"R²_global={vi.get('pca_floor_r2_global', float('nan')):.3f} "
                           f"R²_mean={vi['pca_floor_r2_mean']:.3f}",
+                          "  (R²_global = variance-weighted ≈ PCA explained-variance; "
+                          "R²_mean = per-channel unweighted, reads lower)",
                           f"- model adds over the floor: {vi['model_added_mse']:.5f}"]
     return "\n".join(lines) + "\n"
 

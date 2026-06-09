@@ -48,3 +48,7 @@ def test_image_space_vs_input_decomposition():
     assert vi["pca_floor_mse"] < 1e-10
     assert abs(vi["image_mse_vs_input"] - out["image_mse"]) < 1e-6
     assert abs(vi["model_added_mse"] - out["image_mse"]) < 1e-6
+    # floor is exactly zero here -> both averages of the floor R² are 1.0
+    assert abs(vi["pca_floor_r2_global"] - 1.0) < 1e-6
+    assert abs(vi["pca_floor_r2_mean"] - 1.0) < 1e-6
+    assert "image_r2_vs_input_global" in vi
