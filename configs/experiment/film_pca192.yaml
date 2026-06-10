@@ -1,0 +1,48 @@
+# @package _global_
+# FiLM + larger PCA experiment (built on the pernode_z diagnostic AE):
+#   - decoder FiLM ON: conditioned on the invariant CLS embedding (γ,β per layer,
+#     zero-init = identity at start, D4-safe). Adds global conditioning to the decoder.
+#   - PCA 128 -> 192 components: lowers the inverse-PCA truncation floor (128 = 87.8% EVR).
+#     First run auto-fits pca_model_192_center_crop_6.pkl + statistics (rank 0, one-time).
+#   - everything else = current baseline: zscore=False, clip=null, z=32, qk-RMSNorm,
+#     RoPE off, final_norm on, neighborhood_radius 1, permuter dormant (per-view AE).
+# NOTE: two changes bundled (FiLM + PCA192); FiLM is zero-init so early training ≈ pure PCA-192.
+# Run: sbatch --export=ALL,EXPERIMENT=film_pca192 scripts/ablation_slurm.sh   — or:
+#   python src/train.py experiment=film_pca192 logger=wandb trainer=gpu paths=szary
+# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment film_pca192
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["pernode_z", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope",
+       "no_latent_norm", "z32", "film", "pca192"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    num_pca_components: 192
+    num_node_features: 192
+
+model:
+  graph_ae:
+    hparams:
+      node_z_dim: 32
+      encoder:
+        num_node_features: 192
+      decoder:
+        num_node_features: 192
+        use_film: true
+
+logger:
+  wandb:
+    group: "film_pca"
+    tags: ${tags}
+    name: "film-pca192-z32"

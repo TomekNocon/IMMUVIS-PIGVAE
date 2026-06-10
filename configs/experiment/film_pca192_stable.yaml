@@ -1,0 +1,51 @@
+# @package _global_
+# FiLM + PCA-192, with the decoder/FiLM stabilisers (fixes the activation blow-up
+# seen in film_pca192, run 2026-06-09_21-33-40 where decoder max_abs hit ~271).
+# Three stabilisers vs film_pca192:
+#   1. film_bound: true        -> tanh-bound γ,β so the modulation stays bounded (the real fix)
+#   2. use_final_norm: true    -> decoder final_norm explicit (already on by default; now ablatable)
+#   3. film_weight_decay: 0.05 -> FiLM projections in a dedicated heavier-decay optimizer group
+# Everything else identical to film_pca192: PCA 192, z=32, zscore=False, clip=null,
+# qk-RMSNorm, RoPE off, neighborhood_radius 1, permuter dormant (per-view AE).
+# Run: sbatch --export=ALL,EXPERIMENT=film_pca192_stable scripts/ablation_slurm.sh   — or:
+#   python src/train.py experiment=film_pca192_stable logger=wandb trainer=gpu paths=szary
+# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment film_pca192_stable
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["pernode_z", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope",
+       "no_latent_norm", "z32", "film", "film_bound", "pca192"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    num_pca_components: 192
+    num_node_features: 192
+
+model:
+  graph_ae:
+    hparams:
+      node_z_dim: 32
+      encoder:
+        num_node_features: 192
+      decoder:
+        num_node_features: 192
+        use_film: true
+        film_bound: true
+        film_weight_decay: 0.05
+        use_final_norm: true
+
+logger:
+  wandb:
+    group: "film_pca"
+    tags: ${tags}
+    name: "film-pca192-z32-stable"
