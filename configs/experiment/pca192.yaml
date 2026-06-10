@@ -1,0 +1,47 @@
+# @package _global_
+# PCA-192, FiLM OFF — the isolation run for the film_pca192* experiments.
+# Purpose: attribute the difference. If this matches film_pca192_stable on model
+# error and activations, FiLM is neutral (drop it for now, until the permuter is on).
+# Also runs 100 epochs (vs 40) since film_pca192_stable was still descending at 40.
+# Everything else = current baseline: PCA 192, z=32, zscore=False, clip=null,
+# qk-RMSNorm, RoPE off, neighborhood_radius 1, permuter dormant (per-view AE).
+# Run (100 ep ~ 6h+, override the 6h walltime):
+#   sbatch --time=10:00:00 --export=ALL,EXPERIMENT=pca192 scripts/ablation_slurm.sh
+# or: python src/train.py experiment=pca192 logger=wandb trainer=gpu paths=szary
+# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment pca192
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["pernode_z", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope",
+       "no_latent_norm", "z32", "no_film", "pca192"]
+
+seed: 42
+
+trainer:
+  max_epochs: 100
+  min_epochs: 1
+
+data:
+  hparams:
+    num_pca_components: 192
+    num_node_features: 192
+
+model:
+  graph_ae:
+    hparams:
+      node_z_dim: 32
+      encoder:
+        num_node_features: 192
+      decoder:
+        num_node_features: 192
+        use_film: false
+
+logger:
+  wandb:
+    group: "film_pca"
+    tags: ${tags}
+    name: "pca192-z32-nofilm-100ep"
