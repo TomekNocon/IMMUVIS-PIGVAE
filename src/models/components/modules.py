@@ -356,9 +356,15 @@ class FiLMConditioner(nn.Module):
     Uses a small shared bottleneck to keep parameter count manageable.
     Output projections are zero-initialized so FiLM is identity at the
     start of training — no change to initial optimization landscape.
+
+    When ``bound`` is set, gamma and beta are squashed through ``tanh`` so the
+    modulation ``(1 + gamma) * norm(x) + beta`` stays in ``[-1, 3]·norm(x)``
+    instead of being an unbounded linear output. This prevents the modulation
+    from overriding the pre-norm and inflating the (un-renormalised) residual
+    stream layer-over-layer. tanh(0)=0 keeps the zero-init identity intact.
     """
 
-    def __init__(self, z_dim: int, hidden_dim: int, num_layers: int):
+    def __init__(self, z_dim: int, hidden_dim: int, num_layers: int, bound: bool = False):
         super().__init__()
         mid = hidden_dim // 4
         self.encode = nn.Sequential(nn.Linear(z_dim, mid), nn.SiLU())
@@ -370,6 +376,7 @@ class FiLMConditioner(nn.Module):
             nn.init.zeros_(proj.bias)
         self.num_layers = num_layers
         self.hidden_dim = hidden_dim
+        self.bound = bound
 
     def forward(self, z: torch.Tensor) -> list[tuple[torch.Tensor, torch.Tensor]]:
         h = self.encode(z)  # [B, mid]
@@ -377,6 +384,8 @@ class FiLMConditioner(nn.Module):
         for proj in self.layer_projs:
             out = proj(h)  # [B, 2*hidden_dim]
             gamma, beta = out.chunk(2, dim=-1)  # [B, hidden_dim] each
+            if self.bound:
+                gamma, beta = torch.tanh(gamma), torch.tanh(beta)
             params.append((gamma, beta))
         return params
 
@@ -404,15 +413,21 @@ class GraphDecoder(torch.nn.Module):
             # already carried by the 2D sinusoidal PE. Off by default (configurable).
             rope=LLamaRotaryEmbedding(hparams.head_dim) if use_rope else None,
             qk_norm=getattr(hparams, "qk_norm", False),
+            # Bounds the final decoder residual stream (was an implicit default; now explicit).
+            use_final_norm=getattr(hparams, "use_final_norm", True),
             pos_bias=pos_bias,
             grid_size=grid_size,
         )
         self.use_film = getattr(hparams, "use_film", False)
+        # When set, FiLM params get this (typically larger) weight decay via a dedicated
+        # optimizer group; keeps gamma/beta projections small. Read in configure_optimizers.
+        self.film_weight_decay = getattr(hparams, "film_weight_decay", None)
         if self.use_film:
             self.film = FiLMConditioner(
                 z_dim=hparams.encoder_hidden_dim,  # CLS token dimension
                 hidden_dim=hparams.graph_decoder_hidden_dim,
                 num_layers=hparams.graph_decoder_num_layers,
+                bound=getattr(hparams, "film_bound", False),  # tanh-bound the modulation
             )
         mid_dim = hparams.node_z_dim * 4
         self.fc_in = nn.Sequential(

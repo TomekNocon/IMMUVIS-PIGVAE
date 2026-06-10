@@ -44,6 +44,9 @@ graph_ae:
       node_z_dim: ${model.graph_ae.hparams.node_z_dim}
       grid_size: 6
       use_film: false       # FiLM global conditioning off (decoder is full-attention, can route globally itself)
+      film_bound: false     # tanh-bound FiLM γ,β so (1+γ)·norm(x)+β can't inflate the residual stream (use with use_film)
+      film_weight_decay: null  # if set, FiLM projections get this (heavier) weight decay in a dedicated optimizer group
+      use_final_norm: true  # bound the final decoder residual stream (was an implicit default; now explicit/ablatable)
       use_rope: false       # 1D RoPE over flattened 2D grid disabled; rely on 2D sinusoidal PE
       pos_bias: none        # 2D relative-position bias: none|alibi|swin. When set, absolute PE is dropped.
       encoder_hidden_dim: ${model.graph_ae.hparams.input_size}  # CLS token dim for FiLM

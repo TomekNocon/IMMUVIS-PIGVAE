@@ -485,19 +485,27 @@ class PLGraphAE(L.LightningModule):
         """
         # Standard transformer split: decay 2-D weight matrices; never decay
         # 1-D parameters (norm gains / biases) or small-init output projections.
+        # Optionally route FiLM projections to a dedicated, heavier-decay group so the
+        # gamma/beta generators can't grow large (stabilises the modulation).
+        film_wd = getattr(getattr(self.graph_ae, "decoder", None), "film_weight_decay", None)
         no_decay_names = {"bias", "summary_node", "perm_node"}
-        decay_params, no_decay_params = [], []
+        decay_params, no_decay_params, film_params = [], [], []
         for name, param in self.named_parameters():
             if not param.requires_grad:
                 continue
-            if param.ndim == 1 or any(nd in name for nd in no_decay_names):
+            if film_wd is not None and "decoder.film" in name and param.ndim > 1:
+                film_params.append(param)
+            elif param.ndim == 1 or any(nd in name for nd in no_decay_names):
                 no_decay_params.append(param)
             else:
                 decay_params.append(param)
-        optimizer = self.hparams.optimizer(params=[
+        param_groups = [
             {"params": decay_params},
             {"params": no_decay_params, "weight_decay": 0.0},
-        ])
+        ]
+        if film_params:
+            param_groups.append({"params": film_params, "weight_decay": float(film_wd)})
+        optimizer = self.hparams.optimizer(params=param_groups)
         # Calculate total optimizer steps accounting for dynamic grad accumulation
         # Lightning's estimated_stepping_batches assumes fixed accumulation; here we
         # integrate the configured GradientAccumulationScheduler schedule to avoid
