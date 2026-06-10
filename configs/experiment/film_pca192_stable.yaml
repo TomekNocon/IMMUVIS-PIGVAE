@@ -7,7 +7,8 @@
 #   3. film_weight_decay: 0.05 -> FiLM projections in a dedicated heavier-decay optimizer group
 # Everything else identical to film_pca192: PCA 192, z=32, zscore=False, clip=null,
 # qk-RMSNorm, RoPE off, neighborhood_radius 1, permuter dormant (per-view AE).
-# Run: sbatch --export=ALL,EXPERIMENT=film_pca192_stable scripts/ablation_slurm.sh   — or:
+# Run (100 ep ~ 6h+, override the 6h walltime):
+#   sbatch --time=10:00:00 --export=ALL,EXPERIMENT=film_pca192_stable scripts/ablation_slurm.sh   — or:
 #   python src/train.py experiment=film_pca192_stable logger=wandb trainer=gpu paths=szary
 # Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment film_pca192_stable
 
@@ -23,7 +24,7 @@ tags: ["pernode_z", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope",
 seed: 42
 
 trainer:
-  max_epochs: 40
+  max_epochs: 100   # was 40; the 40-ep run was still descending (under-trained)
   min_epochs: 1
 
 data:
@@ -48,4 +49,4 @@ logger:
   wandb:
     group: "film_pca"
     tags: ${tags}
-    name: "film-pca192-z32-stable"
+    name: "film-pca192-z32-stable-100ep"
