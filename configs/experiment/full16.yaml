@@ -1,0 +1,51 @@
+# @package _global_
+# Full native resolution: 16x16 grid (256 nodes) — the original IMC embedding size,
+# vs the 6x6 / 36-node centre-crop used so far. First full-size training run.
+#   grid_size = size = center_crop_size = 16 (16 == native, so the crop is a no-op).
+#   encoder/decoder/permuter grid_size = 16 (drives PE, neighborhood mask, 2D rel-pos bias).
+#   PCA refits at center_crop_16 -> pca_model_128_center_crop_16.pkl on first run.
+# Baseline otherwise: PCA 128, z=32, zscore=False, clip=null, FiLM off, qk-RMSNorm,
+# RoPE off, neighborhood_radius 1, permuter dormant (per-view AE). Even grid -> D4 still holds.
+# Memory: 256 nodes + full-attention decoder (256x256) is ~7x the 6x6 work, so batch_size 16->8.
+# Run (PCA refit over 256-node samples + bigger graphs = slower; give it walltime):
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=full16 scripts/ablation_slurm.sh
+#   (if it OOMs, drop data.hparams.batch_size to 4)
+# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment full16
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["full_res", "grid16", "no_permuter", "qk_rmsnorm", "no_rope", "no_film", "z32", "pca128"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    grid_size: 16
+    size: 16
+    center_crop_size: 16
+    batch_size: 8
+
+model:
+  graph_ae:
+    hparams:
+      node_z_dim: 32
+      encoder:
+        grid_size: 16
+      decoder:
+        grid_size: 16
+      permuter:
+        grid_size: 16
+
+logger:
+  wandb:
+    group: "full_res"
+    tags: ${tags}
+    name: "full16-z32-pca128-40ep"
