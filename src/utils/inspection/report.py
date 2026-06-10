@@ -24,11 +24,18 @@ def build_flags(results: dict) -> list[str]:
             flags.append(f"[weights] {name}: low rank_ratio={w['rank_ratio']:.2f}")
     for name, a in results.get("activations", {}).items():
         if a.get("max_abs", 0) > MAX_ABS_FLAG:
-            flags.append(f"[activations] {name}: max_abs={a['max_abs']:.1f} > {MAX_ABS_FLAG}")
+            # Per-block hooks capture the PRE-final-norm residual stream, which is large by
+            # design (output_init_std) and bounded at the module output by final_norm — check
+            # the `...graph_transformer` (post-norm) entry before treating this as instability.
+            note = " (pre-norm residual; see post-norm graph_transformer entry)" if ".blocks." in name else ""
+            flags.append(f"[activations] {name}: max_abs={a['max_abs']:.1f} > {MAX_ABS_FLAG}{note}")
     lat = results.get("latent", {})
     if lat:
-        if lat.get("rank_ratio", 1.0) < RANK_RATIO_FLAG:
-            flags.append(f"[latent] effective rank_ratio={lat['rank_ratio']:.2f} (bottleneck under-used)")
+        # Flag on the honest energy-rank (90% of latent variance), not the participation
+        # ratio (which over-concentrates and under-reports usable rank).
+        if lat.get("energy_rank90_ratio", 1.0) < RANK_RATIO_FLAG:
+            flags.append(f"[latent] energy_rank90={lat.get('energy_rank90')}/{lat.get('z_dim')} "
+                         f"holds 90% of variance (bottleneck under-used)")
         if lat.get("active_dims", lat.get("z_dim", 0)) < 0.5 * lat.get("z_dim", 1):
             flags.append(f"[latent] only {lat['active_dims']}/{lat['z_dim']} active dims")
     rec = results.get("reconstruction", {})
@@ -70,7 +77,17 @@ def _render_md(results: dict, flags: list[str]) -> str:
     if lat:
         lines += ["", "## Latent",
                   f"- active_dims: {lat.get('active_dims')}/{lat.get('z_dim')}",
-                  f"- effective rank_ratio: {lat.get('rank_ratio'):.3f}"]
+                  f"- **energy rank** (honest): {lat.get('energy_rank90')}/{lat.get('z_dim')} hold 90%, "
+                  f"{lat.get('energy_rank99')}/{lat.get('z_dim')} hold 99% of latent variance",
+                  f"- participation ratio (over-concentrates): {lat.get('effective_rank'):.1f}"
+                  f"/{lat.get('z_dim')}"]
+    film = results.get("film", {})
+    if film:
+        lines += ["", "## FiLM conditioning (decoder)",
+                  f"- bound (tanh): {film.get('bound')}",
+                  f"- |gamma| max: {film.get('gamma_absmax_overall'):.3f}  "
+                  f"|beta| max: {film.get('beta_absmax_overall'):.3f}",
+                  "  (bound=True should keep both <= 1.0; >1 means the tanh bound did NOT fire)"]
     rec = results.get("reconstruction", {})
     if rec:
         lines += ["", "## Reconstruction (PCA-coefficient space)",

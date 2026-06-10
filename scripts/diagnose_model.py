@@ -386,6 +386,7 @@ from src.models.components.llama_graph_transformer import (
 from src.utils.inspection import (
     attention_entropy_from_input,
     collect_activation_stats,
+    film_diagnostics,
     image_space_reconstruction,
     latent_diagnostics,
     reconstruction_diagnostics,
@@ -454,6 +455,11 @@ def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
     # D. Latent bottleneck health
     results["latent"] = latent_diagnostics(z_nodes)
 
+    # D2. FiLM conditioning magnitudes (confirms tanh-bounding fired; |gamma|<=1 if bound)
+    film_stats = film_diagnostics(model.decoder, z_global)
+    if film_stats:
+        results["film"] = film_stats
+
     # E. Reconstruction quality (PCA-coefficient space)
     num_views = getattr(model.permuter, "num_permutations", 8)
     results["reconstruction"] = reconstruction_diagnostics(
@@ -499,16 +505,19 @@ def load_model_and_data(
     trainer_stub = OmegaConf.create({"max_epochs": 200, "min_epochs": 1})
     data_stub    = OmegaConf.create({"hparams": {"num_aug_per_sample": 8, "batch_size": 16}})
 
-    # Overlay an experiment's `model` (and `trainer`) overrides so architecture-varying
-    # checkpoints (different input_size / neighborhood_radius / pos_bias / ...) build the
-    # matching model and load cleanly.
+    # Overlay an experiment's `model` (and `trainer`/`data`) overrides so architecture-varying
+    # checkpoints (different input_size / neighborhood_radius / pos_bias / num_node_features / ...)
+    # build the matching model and load cleanly, and the dataloader emits matching features.
+    exp_data = None
     if experiment:
         exp_cfg = OmegaConf.load(configs / "experiment" / f"{experiment}.yaml")
         if "model" in exp_cfg:
             model_cfg = OmegaConf.merge(model_cfg, exp_cfg.model)
         if "trainer" in exp_cfg:
             trainer_stub = OmegaConf.merge(trainer_stub, exp_cfg.trainer)
-        print(f"[info] applied model overrides from experiment={experiment}")
+        if "data" in exp_cfg:
+            exp_data = exp_cfg.data  # e.g. num_pca_components/num_node_features=192
+        print(f"[info] applied overrides from experiment={experiment}")
 
     ctx = OmegaConf.create({
         "model":   model_cfg,
@@ -519,7 +528,7 @@ def load_model_and_data(
     OmegaConf.set_struct(ctx, False)
     ctx.model = model_cfg
 
-    data_cfg_resolved = OmegaConf.merge(data_cfg, {})
+    data_cfg_resolved = OmegaConf.merge(data_cfg, exp_data) if exp_data is not None else OmegaConf.merge(data_cfg, {})
     OmegaConf.update(data_cfg_resolved, "hparams.data_dir", OmegaConf.select(ctx, "paths.data_dir"))
 
     dm = instantiate(data_cfg_resolved)
