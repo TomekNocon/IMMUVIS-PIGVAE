@@ -1,0 +1,57 @@
+# @package _global_
+# VAE 6x6, follow-up to vae6 — dial back the over-strong KL.
+# vae6 (scale 0.05, alpha->1, free_bits 0) over-regularised: val_mse climbed
+# monotonically with the KL ramp from 0.041 (alpha=0, AE-like) to 0.167 (alpha=1),
+# a ~4x reconstruction loss. Latent was over-regularised, not collapsed:
+# std_mean 0.84 (~prior 1.0), mu_std 0.49 (low SNR), active_dims 542/1152,
+# kld_per_dim_median 0.075 (KL spread thin/shallow across all 1152 node-dims).
+# Architecture was perfectly stable (decoder max_abs 2.7, no nan/inf/alerts).
+#
+# Two changes vs vae6, both reducing KL pressure:
+#   1. kld_free_bits 0.5  -> per-dim KL below 0.5 nats is not penalised (dead zone),
+#      so the KL stops squeezing already-quiet dims toward the prior and only
+#      regularises the informative ones. Well suited to the 1152-dim per-node latent.
+#   2. kld_loss_scale 0.01 (was 0.05) -> ~5x lower effective weight; recon stayed
+#      near the floor below effective weight ~0.025 in vae6.
+# Everything else identical to vae6: 6x6, PCA 128, z=32, FiLM off, permuter dormant,
+# alpha 0->1 linear over max_epochs/3.
+#
+# Target: val_mse back near ~0.025-0.04 while keeping a smooth, sampleable latent.
+# Watch: val_mse_loss vs alpha (should NOT blow up this time), latent/std_mean
+# (want it to drop below ~0.84 — encoder using the latent), active_dims, val_kld_loss.
+#
+# Run:
+#   sbatch --time=10:00:00 --export=ALL,EXPERIMENT=vae6_lowkl scripts/ablation_slurm.sh
+#   or: python src/train.py experiment=vae6_lowkl logger=wandb trainer=gpu paths=szary
+# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment vae6_lowkl
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["pernode_z", "vae", "low_kl", "free_bits", "diagnostic", "no_permuter",
+       "qk_rmsnorm", "no_rope", "no_film", "z32", "pca128", "grid6"]
+
+seed: 42
+
+trainer:
+  max_epochs: 60
+  min_epochs: 1
+
+model:
+  graph_ae:
+    hparams:
+      vae: true
+      node_z_dim: 32
+  critic:
+    hparams:
+      kld_loss_scale: 0.01   # was 0.05 — ~5x lower effective KL weight
+      kld_free_bits: 0.5     # was 0.0 — don't penalise per-dim KL below 0.5 nats
+
+logger:
+  wandb:
+    group: "vae"
+    tags: ${tags}
+    name: "vae6-lowkl-fb0.5-s0.01-60ep"

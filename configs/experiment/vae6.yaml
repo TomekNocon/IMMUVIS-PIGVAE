@@ -1,0 +1,53 @@
+# @package _global_
+# First VAE run: per-node latent VAE on the 6x6 / 36-node centre-crop.
+# Flips the single switch graph_ae.hparams.vae -> true; everything else is the
+# established 6x6 baseline (PCA 128, z=32, zscore=False, clip=null, qk-RMSNorm,
+# RoPE off, neighborhood_radius 1, FiLM off, permuter dormant / per-view AE).
+#
+# What "vae: true" turns on (already implemented, see NodeBottleneckEncoder):
+#   - per-node mu/logvar: the bottleneck projects to node_z_dim*2 and splits.
+#   - reparameterisation z = mu + eps*sigma, with eps shared across the 8 D4
+#     augmented views of each image (rows i, i+B, ... use the same noise).
+#   - z = mu (deterministic) at eval/inference; sampling only during training.
+#   - KLD term in the Critic, gated by Critic.vae.
+#
+# KLD = gentle warmup (the model.yaml defaults): kld_loss_scale 0.05,
+#   kld_alpha 0 -> 1 linear over max_epochs/3 (~20 ep here), free_bits 0.
+#   The 1152-dim per-node latent (36 nodes x 32 dims) means a lot of KL terms;
+#   the warmup lets reconstruction settle before the prior pressure ramps.
+#
+# Watch: val_kld_loss, latent/active_dims (per-dim KL>0.1 count — collapse alarm),
+#   val_mse_loss vs the AE baseline, and that the PCA floor stays intact.
+# 60 ep: the AE overfit past ~40, but KL regularises and alpha isn't full until ~20.
+#
+# Run:
+#   sbatch --time=10:00:00 --export=ALL,EXPERIMENT=vae6 scripts/ablation_slurm.sh
+#   or: python src/train.py experiment=vae6 logger=wandb trainer=gpu paths=szary
+# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment vae6
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["pernode_z", "vae", "diagnostic", "no_permuter", "qk_rmsnorm", "no_rope",
+       "no_film", "z32", "pca128", "grid6"]
+
+seed: 42
+
+trainer:
+  max_epochs: 60
+  min_epochs: 1
+
+model:
+  graph_ae:
+    hparams:
+      vae: true
+      node_z_dim: 32
+
+logger:
+  wandb:
+    group: "vae"
+    tags: ${tags}
+    name: "vae6-z32-pca128-60ep"

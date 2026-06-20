@@ -171,7 +171,7 @@ class NodeBottleneckEncoder(nn.Module):
         # scale is handled by the decoder's first pre-norm anyway.
 
     def forward(
-        self, node_features: torch.Tensor
+        self, node_features: torch.Tensor, sample: bool = False
     ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         out = self.proj(node_features)
         if not self.vae:
@@ -179,6 +179,13 @@ class NodeBottleneckEncoder(nn.Module):
 
         mu, logvar = out.chunk(2, dim=-1)           # [B, N, node_z_dim] each
         logvar = torch.clamp(logvar, -10, 10)
+
+        # Deterministic at eval/inference: z = mu (lower-variance metrics). Only
+        # draw the reparameterisation noise when sampling (training). mu/logvar are
+        # still returned in both cases so the KLD term can be computed in validation.
+        if not sample:
+            return mu, mu, logvar
+
         std = (0.5 * logvar).exp()
 
         # Generate eps for base samples only, then tile across augmented views
@@ -207,14 +214,14 @@ class GraphAE(torch.nn.Module):
         self.decoder = GraphDecoder(hparams.decoder)
 
     def encode(
-        self, graph: DenseGraphBatch
+        self, graph: DenseGraphBatch, sample: bool = False
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         graph_emb, node_features = self.encoder(
             node_features=graph.node_features,
             edge_features=graph.edge_features,
             mask=graph.mask,
         )
-        z_nodes, mu, logvar = self.node_bottleneck(node_features)  # [B, N, node_z_dim]
+        z_nodes, mu, logvar = self.node_bottleneck(node_features, sample=sample)  # [B, N, node_z_dim]
         z_global = F.layer_norm(graph_emb, graph_emb.shape[-1:])   # [B, D] — CLS for FiLM
         return z_nodes, z_global, node_features, mu, logvar
 
@@ -233,7 +240,8 @@ class GraphAE(torch.nn.Module):
         )
 
     def forward(self, graph: DenseGraphBatch, training: bool, tau: float = 1.0) -> tuple:
-        z_nodes, z_global, _, mu, logvar = self.encode(graph=graph)
+        # Sample the latent only during training; eval/inference is deterministic (z = mu).
+        z_nodes, z_global, _, mu, logvar = self.encode(graph=graph, sample=training)
         graph_pred = self.decode(z_nodes, z_global, graph.mask)
         graph_emb = z_nodes.mean(dim=1)  # [B, node_z_dim] — mean pool for logging
         return graph_emb, graph_pred, None, None, mu, logvar

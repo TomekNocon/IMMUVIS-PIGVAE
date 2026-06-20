@@ -255,38 +255,42 @@ def run_diagnostics(model, batch, tau: float) -> dict:
         decoder_std_diag = {"pred_shape": list(pred.shape), "note": "unexpected shape"}
 
     # ── 6. Equivariance proof ─────────────────────────────────────────────
-    grid = 6
-    flip_perm = [row * grid + (grid - 1 - col)
-                 for row in range(grid) for col in range(grid)]
+    # Derive the grid side from the node count (36->6, 256->16) instead of hardcoding.
+    grid = round(N ** 0.5)
+    if grid * grid != N:
+        equivariance_diag = {"note": f"skipped: N={N} is not a square grid"}
+    else:
+        flip_perm = [row * grid + (grid - 1 - col)
+                     for row in range(grid) for col in range(grid)]
 
-    h_identity = node_features[B].cpu()
-    h_flip     = node_features[0].cpu()
-    h_identity_permuted = h_identity[flip_perm, :]
+        h_identity = node_features[B].cpu()
+        h_flip     = node_features[0].cpu()
+        h_identity_permuted = h_identity[flip_perm, :]
 
-    raw_diff  = (h_flip - h_identity).abs()
-    perm_diff = (h_flip - h_identity_permuted).abs()
+        raw_diff  = (h_flip - h_identity).abs()
+        perm_diff = (h_flip - h_identity_permuted).abs()
 
-    cos_before = F.cosine_similarity(h_flip, h_identity, dim=-1).mean().item()
-    cos_after  = F.cosine_similarity(h_flip, h_identity_permuted, dim=-1).mean().item()
+        cos_before = F.cosine_similarity(h_flip, h_identity, dim=-1).mean().item()
+        cos_after  = F.cosine_similarity(h_flip, h_identity_permuted, dim=-1).mean().item()
 
-    equivariance_diag = {
-        "claim": "encoder(flip(x)) == flip(encoder(x)) iff encoder is permutation-equivariant",
-        "diff WITHOUT permutation": {
-            "max":    round(raw_diff.max().item(), 6),
-            "mean":   round(raw_diff.mean().item(), 6),
-            "cos_sim": round(cos_before, 6),
-        },
-        "diff AFTER applying flip_perm to identity": {
-            "max":    round(perm_diff.max().item(), 6),
-            "mean":   round(perm_diff.mean().item(), 6),
-            "cos_sim": round(cos_after, 6),
-        },
-        "verdict": (
-            "EQUIVARIANT (diff<1e-3 after perm)"
-            if perm_diff.max().item() < 1e-3
-            else "NOT perfectly equivariant or content collapsed"
-        ),
-    }
+        equivariance_diag = {
+            "claim": "encoder(flip(x)) == flip(encoder(x)) iff encoder is permutation-equivariant",
+            "diff WITHOUT permutation": {
+                "max":    round(raw_diff.max().item(), 6),
+                "mean":   round(raw_diff.mean().item(), 6),
+                "cos_sim": round(cos_before, 6),
+            },
+            "diff AFTER applying flip_perm to identity": {
+                "max":    round(perm_diff.max().item(), 6),
+                "mean":   round(perm_diff.mean().item(), 6),
+                "cos_sim": round(cos_after, 6),
+            },
+            "verdict": (
+                "EQUIVARIANT (diff<1e-3 after perm)"
+                if perm_diff.max().item() < 1e-3
+                else "NOT perfectly equivariant or content collapsed"
+            ),
+        }
 
     # ── 7. Within-augmentation inter-node similarity ──────────────────────
     h_id_all  = node_features[B].cpu()

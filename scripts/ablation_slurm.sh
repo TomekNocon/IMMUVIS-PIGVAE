@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=6
 #SBATCH --mem=20G
-#SBATCH --time=6:00:00
+#SBATCH --time=10:00:00
 #SBATCH --job-name=pigvae_ablation
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
