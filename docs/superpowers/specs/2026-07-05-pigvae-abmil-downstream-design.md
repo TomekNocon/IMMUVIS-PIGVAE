@@ -129,11 +129,15 @@ New package `src/downstream/`, two Hydra entry-point scripts.
 
 ## 8. Open questions / risks
 
-- **Verify the input crop-array format first (blocking, step 1 of the plan).** The design assumes the
-  arrays the current meta CSVs reference are **raw 768-channel IMC crops** (16×16×768), so PIGVAE's
-  fitted 768→128 PCA applies directly. If they are already PCA-128 grids, PCA is skipped; if they are
-  some *other* model's features, the encode input source must change (read the PIGVAE-ready grids
-  instead). Confirm by inspecting one real array's shape/channel count before building encode.
+- **Input crop-array format — RESOLVED (verified on szary 2026-07-05).** Encode reads the raw cords
+  IMC patches at `/raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords/{train,test}.h5`, NOT the
+  ImmuVis-UN-361 embeddings folder. HDF5 layout: `embeddings` (N, 768, 16, 16) float32, `paths` (N,)
+  → img_path, `positions` (N, 4) → coords, `metadata` (N, 8, 3). PCA artifact
+  `pca_model_128_center_crop_16.pkl` (sklearn PCA, 768→128) + `imc_statistics_128_center_crop_16.pt`
+  (mean/std over PCA-128) apply directly. test.h5 = 10197, train.h5 = 40843 — these are PIGVAE's own
+  train/val split (so the §5 pretraining-overlap caveat is live: ABMIL-val patches from train.h5 were
+  seen self-supervised by the encoder). Encode transform: patch (768,16,16) → 256 nodes × 768 →
+  PCA→128 → normalize(mean,std) → DenseGraphBatch → encode(sample=False) → z_global.
 - z_global width is read from the data at ABMIL time (`embedding_dim = bags[0].shape[1]`), so no
   hardcoding; confirm it is the intended CLS (`layer_norm(graph_emb)`, ~512-d) and not `z_nodes`.
 - Encode throughput at 6M crops: needs GPU batching + streaming memmap; sharding by (dataset, split)
