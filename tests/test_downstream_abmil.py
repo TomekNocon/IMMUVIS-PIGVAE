@@ -90,3 +90,15 @@ def test_abmil_lit_overfits_toy():
         b, mk, y = mil_collate([ds[i] for i in range(len(ds))])
         pred = (torch.sigmoid(m.model(b, mk)[0]).squeeze(1) > 0.5).long()
     assert (pred == y).float().mean() > 0.9
+
+
+def test_run_cv_separable(tmp_path):
+    import numpy as np, torch
+    from src.downstream.abmil.cv import run_cv
+    from types import SimpleNamespace
+    bags = [np.ones((3,8),"float32") for _ in range(10)] + [(-np.ones((3,8),"float32")) for _ in range(10)]
+    labels = torch.tensor([1]*10 + [0]*10)
+    cfg = SimpleNamespace(num_folds=2, hidden_dim=8, num_heads=1, num_epochs=15, patience=5,
+                          lr=1e-2, batch_size=4, zscore="cv_train", results_dir=str(tmp_path))
+    out = run_cv(bags, labels, num_classes=2, cfg=cfg)
+    assert np.mean(out["fold_accuracy"]) > 0.8

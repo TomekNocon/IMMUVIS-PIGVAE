@@ -1,0 +1,17 @@
+# @package _global_
+# configs/downstream/abmil.yaml
+defaults:
+  - _self_
+meta_dir: ???        # dir with cords_{train,test}_metadata.csv joined to clinical labels
+datasets: [cords]
+features: [Grade, Relapse, DX.name, ERStatus, ERBB2_pos, PAM50]
+num_folds: 10
+hidden_dim: 256
+num_heads: 8
+num_epochs: 100
+patience: 20
+lr: 1.0e-4
+batch_size: 16
+zscore: cv_train
+results_dir: ${hydra:runtime.output_dir}/abmil
+min_class_freq: 0.05
