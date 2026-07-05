@@ -1,0 +1,14 @@
+# @package _global_
+# configs/downstream/encode.yaml
+defaults:
+  - /paths: szary
+  - _self_
+ckpt_path: ???            # PIGVAE checkpoint (last.ckpt)
+experiment: vae16_fb0p0   # architecture the ckpt was trained with
+data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords
+pca_pkl: ${data_root}/pca_model_128_center_crop_16.pkl
+pca_stats: ${data_root}/imc_statistics_128_center_crop_16.pt
+out_dir: ${paths.output_dir}/mil_embeddings
+device: cuda
+batch_size: 64
+splits: [train, test]
