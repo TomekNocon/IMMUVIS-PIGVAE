@@ -4,7 +4,10 @@ defaults:
   - /paths: szary
   - _self_
 ckpt_path: ???            # PIGVAE checkpoint (last.ckpt)
-experiment: vae16_fb0p0   # architecture the ckpt was trained with
+# NOTE: keyed `model_experiment`, NOT `experiment` — a plain `experiment` key collides
+# with the `configs/experiment/` group name and becomes un-overridable from the CLI
+# (Hydra rejects `experiment=`, `+experiment=`, and `++experiment=`).
+model_experiment: vae16_fb0p0   # architecture config the ckpt was trained with
 data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords
 pca_pkl: ${data_root}/pca_model_128_center_crop_16.pkl
 pca_stats: ${data_root}/imc_statistics_128_center_crop_16.pt

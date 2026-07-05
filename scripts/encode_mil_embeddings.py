@@ -15,7 +15,7 @@ from src.downstream.encode import load_frozen_pigvae, build_pca_layer, encode_h5
 @hydra.main(version_base=None, config_path="../configs", config_name="downstream/encode")
 def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.out_dir, exist_ok=True)
-    gae = load_frozen_pigvae(cfg.ckpt_path, cfg.experiment)
+    gae = load_frozen_pigvae(cfg.ckpt_path, cfg.model_experiment)
     pca = build_pca_layer(cfg.pca_pkl, cfg.pca_stats)
     for split in cfg.splits:
         emb = f"{cfg.out_dir}/cords_{split}_embeddings.npy"
