@@ -71,9 +71,10 @@ def _auc(y_true, logits, num_classes):
 @torch.no_grad()
 def _predict(lit_module, dl, num_classes):
     lit_module.eval()
+    device = next(lit_module.model.parameters()).device
     all_logits, all_y = [], []
     for bags, mask, y in dl:
-        logits, _ = lit_module.model(bags, mask)
+        logits, _ = lit_module.model(bags.to(device), mask.to(device))
         all_logits.append(logits.cpu())
         all_y.append(y.cpu())
     logits = torch.cat(all_logits).numpy()
@@ -112,6 +113,7 @@ def run_cv(bags, labels, num_classes, cfg):
 
     zscore = getattr(cfg, "zscore", "none")
     if zscore == "global":
+        # Leakage-prone: fits mean/std on ALL bags (train+val pooled) -- prefer 'cv_train'.
         g_mu, g_std = zscore_stats_from_bags(bags)
         bags_for_split = apply_zscore_to_bags(bags, g_mu, g_std)
     elif zscore in ("cv_train", "none"):
