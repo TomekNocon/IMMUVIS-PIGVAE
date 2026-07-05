@@ -57,8 +57,12 @@ def load_frozen_pigvae(ckpt_path: str, experiment: str, paths_name: str = "szary
     parameters. Never train/finetune this module downstream.
     """
     pl = _build_pl_module(experiment, paths_name)
-    state = torch.load(ckpt_path, map_location="cpu")
-    pl.load_state_dict(state.get("state_dict", state), strict=False)
+    state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    missing, unexpected = pl.load_state_dict(state.get("state_dict", state), strict=False)
+    if missing:
+        print(f"[WARN] Missing keys: {missing[:5]}{'...' if len(missing) > 5 else ''}")
+    if unexpected:
+        print(f"[WARN] Unexpected keys: {unexpected[:5]}{'...' if len(unexpected) > 5 else ''}")
     pl.eval()
     gae = pl.graph_ae
     gae.eval()
