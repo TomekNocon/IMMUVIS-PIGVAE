@@ -27,3 +27,13 @@ def test_gated_abmil_shapes_and_masking():
 
         assert torch.allclose(pooled1, pooled2, atol=1e-5)
         assert torch.allclose(logits1, logits2, atol=1e-5)
+
+
+def test_mil_collate_pads_and_masks():
+    import numpy as np, torch
+    from src.downstream.abmil.data import MILDataset, mil_collate
+    ds = MILDataset([np.ones((2,4),"float32"), np.ones((5,4),"float32")], torch.tensor([0,1]))
+    bags, masks, labels = mil_collate([ds[0], ds[1]])
+    assert bags.shape == (2,5,4) and masks.shape == (2,5)
+    assert masks[0,2] and not masks[0,1] and not masks[1,4]
+    assert list(labels) == [0,1]
