@@ -70,3 +70,23 @@ def test_build_image_bags_drops_unmapped_and_stays_aligned(tmp_path):
     assert bags[0].shape == (3, 4)
     assert np.array_equal(bags[0], np.arange(3*4, dtype="float32").reshape(3,4))
     assert list(labels) == [1]
+
+
+def test_abmil_lit_overfits_toy():
+    import torch, numpy as np
+    from torch.utils.data import DataLoader
+    import pytorch_lightning as pl
+    from src.downstream.abmil.lit import AbmilLitModule
+    from src.downstream.abmil.data import MILDataset, mil_collate
+    g = torch.Generator().manual_seed(0)
+    pos = [np.ones((3,8),"float32") for _ in range(8)]; neg = [(-np.ones((3,8),"float32")) for _ in range(8)]
+    ds = MILDataset(pos+neg, torch.tensor([1]*8+[0]*8))
+    dl = DataLoader(ds, batch_size=4, shuffle=True, collate_fn=mil_collate)
+    m = AbmilLitModule(emb_dim=8, hidden_dim=8, num_heads=1, num_classes=2, lr=1e-2)
+    tr = pl.Trainer(max_epochs=30, enable_progress_bar=False, logger=False, enable_checkpointing=False, accelerator="cpu")
+    tr.fit(m, dl)
+    # after fit, predictions on the training bags are (near) perfect
+    with torch.no_grad():
+        b, mk, y = mil_collate([ds[i] for i in range(len(ds))])
+        pred = (torch.sigmoid(m.model(b, mk)[0]).squeeze(1) > 0.5).long()
+    assert (pred == y).float().mean() > 0.9
