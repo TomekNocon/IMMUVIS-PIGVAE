@@ -74,3 +74,14 @@ def test_encode_patches_deterministic_and_batch_agnostic(tmp_path):
     assert np.allclose(z1, z2)                       # deterministic (sample=False)
     z_one = encode_patches(gae, StubPCA(), patches[:1], device="cpu")
     assert np.allclose(z_one[0], z1[0], atol=1e-5)   # batch-size independent
+
+def test_memmap_writer_roundtrip(tmp_path):
+    import numpy as np
+    from src.downstream.memmap_writer import MemmapWriter
+    p = str(tmp_path / "emb.npy")
+    w = MemmapWriter(p, n_rows=10, dim=4)
+    w.write(0, np.ones((3, 4), "float32"))
+    w.write(3, np.full((7, 4), 2.0, "float32"))
+    w.close()
+    a = np.load(p, mmap_mode="r")
+    assert a.shape == (10, 4) and a[0, 0] == 1.0 and a[9, 0] == 2.0
