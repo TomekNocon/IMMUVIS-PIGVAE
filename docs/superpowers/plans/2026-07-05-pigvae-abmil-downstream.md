@@ -56,8 +56,9 @@ def test_load_frozen_pigvae_returns_eval_graph_ae(tmp_path):
     from src.downstream.encode import load_frozen_pigvae
     ckpt = _build_tiny_graph_ae(tmp_path)
     gae = load_frozen_pigvae(ckpt, experiment="vae16_fb0p0")
-    assert not gae.training                      # eval mode
-    assert all(not p.requires_grad for p in gae.parameters()) is False or True  # weights present
+    assert not gae.training                                        # eval mode
+    assert all(not p.requires_grad for p in gae.parameters())      # weights frozen
+    assert any(p.numel() > 0 for p in gae.parameters())            # weights present
     # encode runs: 2 graphs, 256 nodes, 128 pca dims -> z_global [2, D]
     nf = torch.randn(2, 256, 128)
     from src.data.components.graphs_datamodules import DenseGraphBatch
