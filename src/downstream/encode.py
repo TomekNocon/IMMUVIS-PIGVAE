@@ -7,6 +7,7 @@ loads checkpoint weights, and hands back the frozen `graph_ae` submodule.
 
 from pathlib import Path
 
+import numpy as np
 import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
@@ -69,3 +70,32 @@ def load_frozen_pigvae(ckpt_path: str, experiment: str, paths_name: str = "szary
     for p in gae.parameters():
         p.requires_grad_(False)
     return gae
+
+
+def build_pca_layer(pca_path: str, stats_path: str):
+    """Construct the frozen, fitted PCALayer used by cords training.
+
+    `zscore=False, clip_range=0.0` matches cords training's data hparams
+    (see `configs/experiment/vae16_*.yaml`); never refit PCA downstream.
+    """
+    from src.data.components.graphs_datamodules import PCALayer
+
+    return PCALayer(pca_path, stats_path, clip_range=0.0, zscore=False)
+
+
+def patch_to_nodes(patch: np.ndarray) -> torch.Tensor:
+    """Flatten a raw IMC patch `(C, H, W)` into training-order nodes `(H*W, C)`.
+
+    Row-major over the grid: node `n` is grid cell `(row=n // W, col=n % W)`,
+    holding all `C` channels of that cell. This matches
+    `IMCBaseDictTransform.forward`'s `embedding.reshape(c, -1).T`
+    (`src/data/components/graphs_datamodules.py:290`), which is the exact
+    reshape training-time node features are built from before PCA/collation.
+    """
+    c, h, w = patch.shape
+    return torch.from_numpy(patch.reshape(c, h * w).T.copy()).float()
+
+
+def pca_transform(nodes: torch.Tensor, pca) -> torch.Tensor:
+    """Apply the frozen, fitted PCA: `[B, 256, 768] -> [B, 256, 128]`."""
+    return pca(nodes)

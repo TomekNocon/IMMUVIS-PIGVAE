@@ -46,3 +46,14 @@ def test_load_frozen_pigvae_returns_eval_graph_ae(tmp_path):
     with torch.no_grad():
         z_nodes, z_global, *_ = gae.encode(batch, sample=False)
     assert z_global.shape[0] == 2 and z_global.dim() == 2
+
+
+def test_patch_to_nodes_order_and_pca_shape():
+    import numpy as np, torch
+    from src.downstream.encode import patch_to_nodes
+    patch = np.arange(768 * 16 * 16, dtype=np.float32).reshape(768, 16, 16)
+    nodes = patch_to_nodes(patch)                 # (256, 768)
+    assert nodes.shape == (256, 768)
+    # node n = grid cell (row=n//16, col=n%16), all 768 channels of that cell
+    assert torch.allclose(nodes[0], torch.from_numpy(patch[:, 0, 0]))
+    assert torch.allclose(nodes[17], torch.from_numpy(patch[:, 1, 1]))
