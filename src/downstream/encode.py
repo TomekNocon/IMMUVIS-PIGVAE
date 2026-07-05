@@ -115,10 +115,13 @@ def encode_patches(gae, pca, patches: np.ndarray, device: str) -> np.ndarray:
     """
     from src.data.components.graphs_datamodules import DenseGraphBatch
 
+    gae = gae.to(device)
+    if isinstance(pca, torch.nn.Module):
+        pca = pca.to(device)
+
     nodes = torch.stack([patch_to_nodes(p) for p in patches], dim=0).to(device)  # [B,256,768]
     nodes = pca(nodes)                                                           # [B,256,128]
     mask = torch.ones(nodes.shape[0], nodes.shape[1], dtype=torch.bool, device=device)
     batch = DenseGraphBatch(node_features=nodes, edge_features=torch.empty(0), mask=mask)
-    gae = gae.to(device)
     _z_nodes, z_global, *_ = gae.encode(batch, sample=False)
     return z_global.detach().cpu().float().numpy()
