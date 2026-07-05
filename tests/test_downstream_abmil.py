@@ -50,3 +50,23 @@ def test_build_image_bags_groups_and_labels(tmp_path):
     bags, labels = build_image_bags(df, {"neg":0,"pos":1})
     assert len(bags) == 2 and bags[0].shape == (3,4)
     assert list(labels) == [1,0]
+
+
+def test_build_image_bags_drops_unmapped_and_stays_aligned(tmp_path):
+    import numpy as np, pandas as pd
+    from src.downstream.abmil.data import build_image_bags
+    emb = str(tmp_path/"e.npy"); np.save(emb, np.arange(7*4, dtype="float32").reshape(7,4))
+    df = pd.DataFrame({
+        "img_path": ["valid","valid","valid","nanlabel","nanlabel","unmapped","unmapped"],
+        "embeddings_file": [emb]*7,
+        "embedding_idx": [0,1,2,3,4,5,6],
+        "feature_value": ["pos","pos","pos",np.nan,np.nan,"unknown_class","unknown_class"]})
+
+    bags, labels = build_image_bags(df, {"neg":0,"pos":1})
+
+    # Both the NaN-labelled image and the unmapped-label image must be
+    # dropped from BOTH outputs, keeping bags and labels aligned 1:1.
+    assert len(bags) == 1 and len(labels) == 1
+    assert bags[0].shape == (3, 4)
+    assert np.array_equal(bags[0], np.arange(3*4, dtype="float32").reshape(3,4))
+    assert list(labels) == [1]
