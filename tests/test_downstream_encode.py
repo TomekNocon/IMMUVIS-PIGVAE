@@ -57,3 +57,20 @@ def test_patch_to_nodes_order_and_pca_shape():
     # node n = grid cell (row=n//16, col=n%16), all 768 channels of that cell
     assert torch.allclose(nodes[0], torch.from_numpy(patch[:, 0, 0]))
     assert torch.allclose(nodes[17], torch.from_numpy(patch[:, 1, 1]))
+
+
+def test_encode_patches_deterministic_and_batch_agnostic(tmp_path):
+    import numpy as np, torch
+    from src.downstream.encode import load_frozen_pigvae, build_pca_layer, encode_patches, _build_pl_module
+    # reuse the tiny ckpt + a stub PCALayer that just linearly maps 768->128
+    class StubPCA:
+        def __call__(self, x): return x[..., :128]
+    pl = _build_pl_module("vae16_fb0p0"); ckpt = tmp_path/"c.ckpt"; torch.save({"state_dict": pl.state_dict()}, ckpt)
+    gae = load_frozen_pigvae(str(ckpt), "vae16_fb0p0")
+    patches = np.random.randn(5, 768, 16, 16).astype("float32")
+    z1 = encode_patches(gae, StubPCA(), patches, device="cpu")
+    z2 = encode_patches(gae, StubPCA(), patches, device="cpu")
+    assert z1.shape[0] == 5
+    assert np.allclose(z1, z2)                       # deterministic (sample=False)
+    z_one = encode_patches(gae, StubPCA(), patches[:1], device="cpu")
+    assert np.allclose(z_one[0], z1[0], atol=1e-5)   # batch-size independent

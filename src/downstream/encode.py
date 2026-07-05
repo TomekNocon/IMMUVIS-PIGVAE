@@ -99,3 +99,26 @@ def patch_to_nodes(patch: np.ndarray) -> torch.Tensor:
 def pca_transform(nodes: torch.Tensor, pca) -> torch.Tensor:
     """Apply the frozen, fitted PCA: `[B, 256, 768] -> [B, 256, 128]`."""
     return pca(nodes)
+
+
+@torch.no_grad()
+def encode_patches(gae, pca, patches: np.ndarray, device: str) -> np.ndarray:
+    """Encode a batch of raw IMC patches `(B, 768, 16, 16)` to `z_global (B, D)`.
+
+    Deterministic (`sample=False`) and batch-size-agnostic: builds per-patch
+    training-order nodes, applies the frozen fitted PCA, then runs the frozen
+    encoder with an all-True `[B, 256]` mask (a full 16x16 grid has no
+    padding). The encoder's operative attention mask is its INTERNAL neighbor
+    mask (built from grid_size/neighborhood_radius, see modules.py:281-284);
+    `DenseGraphBatch.mask` is discarded by the transformer but must be
+    non-None so the CLS `F.pad(mask, (1, 0))` doesn't crash.
+    """
+    from src.data.components.graphs_datamodules import DenseGraphBatch
+
+    nodes = torch.stack([patch_to_nodes(p) for p in patches], dim=0).to(device)  # [B,256,768]
+    nodes = pca(nodes)                                                           # [B,256,128]
+    mask = torch.ones(nodes.shape[0], nodes.shape[1], dtype=torch.bool, device=device)
+    batch = DenseGraphBatch(node_features=nodes, edge_features=torch.empty(0), mask=mask)
+    gae = gae.to(device)
+    _z_nodes, z_global, *_ = gae.encode(batch, sample=False)
+    return z_global.detach().cpu().float().numpy()
