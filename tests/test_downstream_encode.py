@@ -85,3 +85,24 @@ def test_memmap_writer_roundtrip(tmp_path):
     w.close()
     a = np.load(p, mmap_mode="r")
     assert a.shape == (10, 4) and a[0, 0] == 1.0 and a[9, 0] == 2.0
+
+
+def test_encode_h5_alignment(tmp_path):
+    import h5py, numpy as np, pandas as pd, torch
+    from src.downstream.encode import encode_h5, load_frozen_pigvae, _build_pl_module
+    class StubPCA:
+        def __call__(self, x): return x[..., :128]
+    h5 = tmp_path / "mini.h5"
+    N = 7
+    with h5py.File(h5, "w") as f:
+        f["embeddings"] = np.random.randn(N, 768, 16, 16).astype("float32")
+        f["paths"] = np.array([f"img{i//3}.tiff" for i in range(N)], dtype=object)
+        f["positions"] = np.random.rand(N, 4).astype("float32")
+    pl = _build_pl_module("vae16_fb0p0"); ck = tmp_path/"c.ckpt"; torch.save({"state_dict": pl.state_dict()}, ck)
+    gae = load_frozen_pigvae(str(ck), "vae16_fb0p0")
+    emb, meta = str(tmp_path/"out_embeddings.npy"), str(tmp_path/"out_metadata.csv")
+    encode_h5(str(h5), gae, StubPCA(), emb, meta, device="cpu", batch_size=3)
+    a = np.load(emb, mmap_mode="r"); df = pd.read_csv(meta)
+    assert a.shape[0] == N and len(df) == N
+    assert list(df["embedding_idx"]) == list(range(N))
+    assert df["img_path"].iloc[0] == "img0.tiff" and df["img_path"].iloc[6] == "img2.tiff"

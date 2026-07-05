@@ -7,10 +7,14 @@ loads checkpoint weights, and hands back the frozen `graph_ae` submodule.
 
 from pathlib import Path
 
+import h5py
 import numpy as np
+import pandas as pd
 import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
+
+from src.downstream.memmap_writer import MemmapWriter
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -125,3 +129,34 @@ def encode_patches(gae, pca, patches: np.ndarray, device: str) -> np.ndarray:
     batch = DenseGraphBatch(node_features=nodes, edge_features=torch.empty(0), mask=mask)
     _z_nodes, z_global, *_ = gae.encode(batch, sample=False)
     return z_global.detach().cpu().float().numpy()
+
+
+def encode_h5(h5_path, gae, pca, out_emb, out_meta, device, batch_size: int = 64) -> None:
+    """Encode an h5 of raw IMC patches to a streaming memmap + aligned metadata CSV.
+
+    Reads `embeddings (N,768,16,16)`, `paths (N,)`, `positions (N,4)` from
+    `h5_path`, encodes in batches of `batch_size` via `encode_patches`, and
+    streams the resulting `(N, D)` embeddings to `out_emb` (a `MemmapWriter`
+    memmap `.npy`). `D` is probed from one encoded patch, never hardcoded.
+    Writes `out_meta` with columns `img_path, coords0, coords1,
+    embeddings_file, embedding_idx`, where `embedding_idx == row index`
+    (0..N-1), 1:1 aligned to the memmap rows, and `embeddings_file == out_emb`.
+    Label join with `img_path` happens later, in Phase B.
+    """
+    with h5py.File(h5_path, "r") as f:
+        n = f["embeddings"].shape[0]
+        paths = [p.decode() if isinstance(p, bytes) else str(p) for p in f["paths"][:]]
+        pos = f["positions"][:]
+        # probe dim with one patch
+        d = encode_patches(gae, pca, f["embeddings"][0:1], device).shape[1]
+        writer = MemmapWriter(out_emb, n_rows=n, dim=d)
+        for s in range(0, n, batch_size):
+            e = min(s + batch_size, n)
+            writer.write(s, encode_patches(gae, pca, f["embeddings"][s:e], device))
+        writer.close()
+    pd.DataFrame({
+        "img_path": paths,
+        "coords0": pos[:, 0], "coords1": pos[:, 1],
+        "embeddings_file": out_emb,
+        "embedding_idx": range(n),
+    }).to_csv(out_meta, index=False)
