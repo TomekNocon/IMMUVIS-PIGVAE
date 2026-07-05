@@ -37,3 +37,16 @@ def test_mil_collate_pads_and_masks():
     assert bags.shape == (2,5,4) and masks.shape == (2,5)
     assert masks[0,2] and not masks[0,1] and not masks[1,4]
     assert list(labels) == [0,1]
+
+
+def test_build_image_bags_groups_and_labels(tmp_path):
+    import numpy as np, pandas as pd
+    from src.downstream.abmil.data import build_image_bags
+    emb = str(tmp_path/"e.npy"); np.save(emb, np.arange(6*4, dtype="float32").reshape(6,4))
+    df = pd.DataFrame({
+        "img_path": ["a","a","a","b","b","b"],
+        "embeddings_file": [emb]*6, "embedding_idx": [0,1,2,3,4,5],
+        "feature_value": ["pos","pos","pos","neg","neg","neg"]})
+    bags, labels = build_image_bags(df, {"neg":0,"pos":1})
+    assert len(bags) == 2 and bags[0].shape == (3,4)
+    assert list(labels) == [1,0]
