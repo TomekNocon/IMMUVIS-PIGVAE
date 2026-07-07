@@ -13,5 +13,6 @@ patience: 20
 lr: 1.0e-4
 batch_size: 16
 zscore: cv_train
+seed: 42            # per-fold seed_everything(seed+fold) -> reproducible transfer metrics
 results_dir: ${hydra:runtime.output_dir}/abmil
 min_class_freq: 0.05

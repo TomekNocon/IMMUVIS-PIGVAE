@@ -14,7 +14,7 @@ import os
 
 import numpy as np
 import torch
-from pytorch_lightning import Trainer
+from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
@@ -129,9 +129,14 @@ def run_cv(bags, labels, num_classes, cfg):
     oof_logits = np.full((n_bags, logits_dim), np.nan, dtype=np.float32)
 
     results_dir = getattr(cfg, "results_dir", ".")
+    seed = int(getattr(cfg, "seed", 42))
     emb_dim = bags[0].shape[1]
 
     for fold, (train_idx, val_idx) in enumerate(splitter.split(np.zeros(n_bags), labels_np)):
+        # Seed per fold so the deciding transfer metrics are reproducible: model init,
+        # Adam, and DataLoader shuffling are otherwise unseeded. Offset by `fold` so
+        # folds don't share an identical init/shuffle stream.
+        seed_everything(seed + fold, workers=True)
         if zscore == "cv_train":
             # Leakage guardrail: fit mean/std on the TRAIN fold only, apply to both splits.
             mu, std = zscore_stats_from_bags(bags, indices=train_idx)
