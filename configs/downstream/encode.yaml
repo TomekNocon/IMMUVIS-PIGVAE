@@ -11,7 +11,10 @@ model_experiment: vae16_fb0p0   # architecture config the ckpt was trained with
 data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords
 pca_pkl: ${data_root}/pca_model_128_center_crop_16.pkl
 pca_stats: ${data_root}/imc_statistics_128_center_crop_16.pt
-out_dir: ${paths.output_dir}/mil_embeddings
+# Land z_global encode output in this checkpoint's raid downstream bundle (skip-resumable).
+downstream_root: /raid_encrypted/immucan/embeddings/tnocon/downstream
+run_tag: vae16_s0p001_2026-06-28
+out_dir: ${downstream_root}/${run_tag}/mil_embeddings
 device: cuda
 batch_size: 64
 splits: [train, test]

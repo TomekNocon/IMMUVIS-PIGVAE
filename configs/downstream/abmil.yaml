@@ -2,9 +2,17 @@
 # configs/downstream/abmil.yaml
 defaults:
   - _self_
-meta_dir: ???        # dir with cords_{train,test}_metadata.csv joined to clinical labels
+# One PIGVAE checkpoint's transfer eval lives under downstream/<run_tag>/ on raid:
+# meta_tables/ (label-joined, from build_abmil_meta.py) and results/ (this run's CV CSVs).
+downstream_root: /raid_encrypted/immucan/embeddings/tnocon/downstream
+run_tag: vae16_s0p001_2026-06-28
+meta_dir: ${downstream_root}/${run_tag}/meta_tables
+results_dir: ${downstream_root}/${run_tag}/results
 datasets: [cords]
-features: [Grade, Relapse, DX.name, ERStatus, ERBB2_pos, PAM50]
+# cords-appropriate classification targets (ERStatus/ERBB2_pos/PAM50 are danenberg/breast;
+# OS/DFS are continuous survival -> not classification). Any feature absent from the table
+# is auto-skipped.
+features: [Grade, Relapse, DX.name, Stage]
 num_folds: 10
 hidden_dim: 256
 num_heads: 8
@@ -14,5 +22,4 @@ lr: 1.0e-4
 batch_size: 16
 zscore: cv_train
 seed: 42            # per-fold seed_everything(seed+fold) -> reproducible transfer metrics
-results_dir: ${hydra:runtime.output_dir}/abmil
 min_class_freq: 0.05
