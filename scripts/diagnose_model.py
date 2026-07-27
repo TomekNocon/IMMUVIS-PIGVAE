@@ -121,6 +121,14 @@ def run_diagnostics(model, batch, tau: float) -> dict:
         kld_per_dim = -0.5 * (1 + logvar - mu.pow(2) - std.pow(2))
         kld_per_dim_mean = kld_per_dim.mean(dim=0)
         active = (kld_per_dim_mean > 0.1).sum().item()
+        # AE<->VAE spectrum position (law-of-total-variance overlap; full breakdown in
+        # the offline `--inspect` `latent.spectrum` block — see ae_vae_spectrum()).
+        mu_flat = mu.reshape(-1, mu.shape[-1])
+        std_flat = std.reshape(-1, std.shape[-1])
+        mu_var = mu_flat.var(dim=0, unbiased=False).mean()
+        sigma_sq = std_flat.pow(2).mean(dim=0).mean()
+        overlap_ratio = (sigma_sq.sqrt() / mu_var.clamp_min(1e-12).sqrt()).item()
+        noise_fraction = (sigma_sq / (mu_var + sigma_sq).clamp_min(1e-12)).item()
         latent_diag = {
             "vae":                "enabled",
             "mu_mean":            round(mu.mean().item(), 5),
@@ -134,6 +142,9 @@ def run_diagnostics(model, batch, tau: float) -> dict:
             "kld_per_dim_p95":    round(kld_per_dim_mean.quantile(0.95).item(), 5),
             "kld_per_dim_max":    round(kld_per_dim_mean.max().item(), 5),
             "total_kld_mean":     round(kld_per_dim.mean().item(), 5),
+            "overlap_ratio":      round(overlap_ratio, 4),
+            "noise_fraction":     round(noise_fraction, 4),
+            "aggregate_var_mean": round((mu_var + sigma_sq).item(), 4),
         }
     else:
         # Deterministic AE (vae=false) — report graph_emb stats instead
@@ -456,8 +467,8 @@ def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
             attn[name] = attention_entropy_from_input(mod, x, mask)
     results["attention"] = attn
 
-    # D. Latent bottleneck health
-    results["latent"] = latent_diagnostics(z_nodes)
+    # D. Latent bottleneck health (+ AE<->VAE spectrum when mu/logvar are available)
+    results["latent"] = latent_diagnostics(z_nodes, mu=_mu, logvar=_logvar)
 
     # D2. FiLM conditioning magnitudes (confirms tanh-bounding fired; |gamma|<=1 if bound)
     film_stats = film_diagnostics(model.decoder, z_global)
