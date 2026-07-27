@@ -15,7 +15,7 @@
 - **PCALayer config must match the checkpoint's training:** cords training used `zscore=False`, `clip_range=null` (per `configs/experiment/vae16_*.yaml` data hparams). Construct `PCALayer(pca_path, statistics_path, clip_range=0.0, zscore=False)`.
 - **Data (verified 2026-07-05, szary-only):** `.../IMC/cords/{train,test}.h5`, datasets `embeddings (N,768,16,16) f32`, `paths (N,) object`, `positions (N,4) f32`, `metadata (N,8,3) f32`. train N=40843, test N=10197 (= PIGVAE's own train/val split).
 - **Node ordering:** patch `(768,16,16)` → nodes `(256,768)` must match training exactly: `x.reshape(768, 256).T` (channels-last flatten of the 16×16 grid, row-major). Verify against `GridGraphDataset.__getitem__` before relying on it (Task A2 step 1).
-- **DenseGraphBatch:** `DenseGraphBatch(node_features=[B,256,128], edge_features=torch.empty(0), mask=None)`. A full grid has no padding → `mask=None`.
+- **DenseGraphBatch:** `DenseGraphBatch(node_features=[B,256,128], edge_features=torch.empty(0), mask=<all-True [B,256] bool>)`. The encoder's CLS mode does `F.pad(mask,(1,0),value=1)`, so `mask=None` **crashes** — a full grid has no padding, so mask is all-True (PIGVAE convention: **True=valid node**, `False`=padding — this is the *opposite* of the ABMIL collate mask in Task B2, where True=padding). Build it as `torch.ones(B, 256, dtype=torch.bool, device=device)`.
 - **Runs on szary only** (raid data + GPU): all smoke/integration runs via `srun --qos=tnocon --partition=common`. Unit tests use synthetic tensors and run anywhere with `uv run pytest`.
 - **z_global width** is read from data downstream (`bags[0].shape[1]`); do not hardcode. It is the CLS `layer_norm(graph_emb)`.
 - **Leakage guardrails:** normalization fit on train fold only (`zscore='cv_train'`); all crops of an `img_path` stay in one split (group at image level); document that train.h5 patches were seen self-supervised by the encoder.
@@ -244,10 +244,18 @@ from src.data.components.graphs_datamodules import DenseGraphBatch
 
 @torch.no_grad()
 def encode_patches(gae, pca, patches: np.ndarray, device: str) -> np.ndarray:
+    gae = gae.to(device)
+    if isinstance(pca, torch.nn.Module):   # real PCALayer has buffers to relocate; StubPCA doesn't
+        pca = pca.to(device)
     nodes = torch.stack([patch_to_nodes(p) for p in patches], dim=0).to(device)  # [B,256,768]
     nodes = pca(nodes)                                                           # [B,256,128]
-    batch = DenseGraphBatch(node_features=nodes, edge_features=torch.empty(0), mask=None)
-    gae = gae.to(device)
+    # The operative attention mask is the encoder's INTERNAL neighbor mask, built from
+    # grid_size/neighborhood_radius (modules.py:281-284) — it needs node_features in
+    # row-major grid order (Task A2), not positions and not this mask. graph.mask is
+    # discarded by the transformer; in CLS mode it must be non-None only so the CLS
+    # F.pad(mask,(1,0)) works. Full grid → all-True.
+    mask = torch.ones(nodes.shape[0], nodes.shape[1], dtype=torch.bool, device=device)
+    batch = DenseGraphBatch(node_features=nodes, edge_features=torch.empty(0), mask=mask)
     _z_nodes, z_global, *_ = gae.encode(batch, sample=False)
     return z_global.detach().cpu().float().numpy()
 ```

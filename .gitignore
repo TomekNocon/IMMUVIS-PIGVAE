@@ -167,3 +167,7 @@ PIGVAE/
 run0/
 # Ignore wandb folder
 wandb/
+# Ignore outputs folder
+outputs/
+# Claude Code machine-local settings (personal permission allowlist)
+.claude/settings.local.json
