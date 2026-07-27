@@ -1,0 +1,69 @@
+# @package _global_
+# kld_loss_scale sweep @ 16x16, on the fb0.0 substrate — point HIGH: scale 0.03 (3x more KL pressure).
+#
+# IDENTICAL to vae16_fb0p0 (iaktnnux, the best substrate so far) EXCEPT kld_loss_scale.
+# Single-knob scale bracket around the current 0.01:  s0.001 <- [s0.01 = iaktnnux] -> [this] s0.03.
+# free_bits stays 0.0 (no dead zone) so scale multiplies the FULL KL -> a clean prior-pressure axis.
+#
+# Rationale: iaktnnux (s0.01, fb0.0) already reconstructs at the AE floor (val 0.032 vs ~0.022) with a
+# healthy, overlapping latent (sigma 0.53 / spacing 0.83 -> overlap 0.64, kld/dim 0.64, active 8192/8192).
+# This run asks the *other* direction the synthesis open question poses: does MORE prior pressure help,
+# or does it over-correct? 0.03 is the strong end.
+#
+# Watch (over-regularisation signature — the vae6 s0.05 failure mode): val_mse rising UNIFORMLY above
+# the floor, std_mean drifting toward ~1.0 (the prior), mu_std shrinking, active_dims dropping << 8192,
+# kld_per_dim_median crashing toward 0. If val holds near 0.03 with overlap >= 0.64 and dims stay active,
+# the extra pressure is free; if recon degrades smoothly, 0.01 was already the sweet spot for this axis.
+# Note: the deciding metric is downstream TRANSFER, not recon — a slightly worse recon here may still
+# transfer better. See research-ml [[kl-regularization]] and [[exp-2026-06-24-vae16-overfit-mechanism]].
+#
+# Run (or via scripts/run_scale_sweep.sh):
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_s0p03 scripts/ablation_slurm.sh
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["full_res", "grid16", "pernode_z", "vae", "low_kl", "free_bits", "scale_sweep", "vanilla_vae",
+       "kl_anneal", "no_permuter", "qk_rmsnorm", "no_rope", "no_film", "z32", "pca128"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    grid_size: 16
+    size: 16
+    center_crop_size: 16
+    batch_size: 8
+
+model:
+  graph_ae:
+    hparams:
+      vae: true
+      node_z_dim: 32
+      encoder:
+        grid_size: 16
+      decoder:
+        grid_size: 16
+      permuter:
+        grid_size: 16
+  critic:
+    hparams:
+      kld_loss_scale: 0.03   # was 0.01 (iaktnnux) — the only knob that varies across the scale sweep
+      kld_free_bits: 0.0     # fixed at the best substrate (vanilla VAE, no dead zone)
+  kld_alpha_scheduler:
+    hparams:
+      start_epoch: 5                              # v2 timing (no onset spike)
+      num_epochs: ${divide:${trainer.max_epochs},2}
+
+logger:
+  wandb:
+    group: "full_res"
+    tags: ${tags}
+    name: "vae16-fb0.0-s0.03-start5-40ep"

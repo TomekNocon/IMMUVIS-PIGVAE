@@ -1,0 +1,81 @@
+# @package _global_
+# VAE 16x16, follow-up to vae16_lowkl — attack the back-half overfitting / memorization.
+#
+# vae16_lowkl (z32, scale 0.01) reached an excellent val_mse 0.026 at ep12, then
+# MEMORISED the train set: val_mse climbed 0.026 -> 0.071 by ep39 (2.7x) while train
+# mse stayed flat ~0.033. Diagnosis (wandb jtscgh92): overfitting, NOT over-regularisation
+# (val kept rising at constant alpha=1 / flat val_kld 0.374), driven by a capacity-vs-
+# regularisation mismatch that only appears at full resolution:
+#   - latent capacity 7x larger than 6x6: 256 nodes x 32 = 8192 dims, all active;
+#   - decoder full-attention 256x256; half the batch diversity (8 vs 16 distinct imgs/step);
+#   - the VAE's own noise regularisation FADES as KL anneals sigma down (std_mean 1.0->0.41),
+#     so the big latent starts memorising once the noise ball shrinks.
+# The KL scale 0.01 (tuned to not over-regularise the 1152-dim 6x6 latent) is too weak to
+# restrain the 8192-dim 16x16 latent.
+#
+# Two changes vs vae16_lowkl, both shrinking the memorisation surface / strengthening reg:
+#   1. node_z_dim 32 -> 16   : latent 8192 -> 4096 dims. 256 nodes almost certainly don't
+#      need 32/node; cuts the memorisation surface in half.
+#   2. kld_loss_scale 0.01 -> 0.02 : ~2x stronger prior pressure — a native VAE regulariser
+#      to push the val optimum later and flatten the overfit collapse.
+# Everything else identical to vae16_lowkl: grid 16, PCA 128, free_bits 0.5, FiLM/RoPE off,
+# permuter dormant, KL anneal start_epoch 5 + num_epochs max_epochs/2 (the v2 timing that
+# removed the onset spike), batch 8, 40 epochs.
+#
+# Watch: does the val_mse minimum (~ep12, ~0.026) now HOLD instead of collapsing to 0.071?
+#   i.e. train/val gap stays small through ep39. Latent should stay healthy (active a large
+#   fraction of 4096, std_mean < ~0.85, kld/dim above fb 0.5) — if std_mean -> ~1.0 or
+#   active << 4096, we over-corrected (scale too high / z too small) -> back off to 0.015 / z24.
+#
+# Run:
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_z16_kl02 scripts/ablation_slurm.sh
+#   or: python src/train.py experiment=vae16_z16_kl02 logger=wandb trainer=gpu paths=szary
+# Inspect: python scripts/diagnose_model.py --ckpt <ckpt> --inspect --experiment vae16_z16_kl02
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["full_res", "grid16", "pernode_z", "vae", "low_kl", "free_bits", "kl_anneal",
+       "anti_overfit", "no_permuter", "qk_rmsnorm", "no_rope", "no_film", "z16", "pca128"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    grid_size: 16
+    size: 16
+    center_crop_size: 16
+    batch_size: 8
+
+model:
+  graph_ae:
+    hparams:
+      vae: true
+      node_z_dim: 16         # was 32 — halve the latent (8192 -> 4096 dims)
+      encoder:
+        grid_size: 16
+      decoder:
+        grid_size: 16
+      permuter:
+        grid_size: 16
+  critic:
+    hparams:
+      kld_loss_scale: 0.02   # was 0.01 — ~2x stronger regulariser for the 16x16 latent
+      kld_free_bits: 0.5     # unchanged
+  kld_alpha_scheduler:
+    hparams:
+      start_epoch: 5                              # v2 timing (no onset spike)
+      num_epochs: ${divide:${trainer.max_epochs},2}
+
+logger:
+  wandb:
+    group: "full_res"
+    tags: ${tags}
+    name: "vae16-z16-kl0.02-fb0.5-start5-40ep"

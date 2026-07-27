@@ -1,0 +1,74 @@
+# @package _global_
+# VAE at full native resolution: 16x16 grid (256 nodes). Combines the full16 resolution
+# setup with the tuned per-node VAE from the 6x6 line (vae6_lowkl -> vae6_lowkl_v2).
+#
+# Latent is now 256 nodes x 32 = 8192 dims (vs 1152 at 6x6). KLDLoss is per-dim mean
+# (normalize_by_latent_dim) + free_bits, so scale/free_bits transfer across resolutions.
+#
+# Carries the lessons already learned, so we don't re-run a known-bad setting at 16x16:
+#   - vae6_lowkl: scale 0.01 + free_bits 0.5 -> near-AE recon + fully-used latent (vs the
+#     over-regularised scale 0.05/fb 0 default that pushed val_mse 0.041 -> 0.167).
+#   - vae6_lowkl_v2: KL onset delayed past the LR-warmup peak (start_epoch 5) + gentler
+#     ramp (num_epochs = max_epochs/2) -> removes the ep3 alpha/LR collision overshoot.
+# Resolution overrides match full16 (grid 16 on data + encoder/decoder/permuter; batch 8).
+# Otherwise the established baseline: PCA 128, z=32, zscore=False, clip=null, FiLM off,
+# qk-RMSNorm, RoPE off, neighborhood_radius 1, permuter dormant (per-view VAE).
+#
+# Memory: 256 nodes + full-attention decoder (256x256) ~7x the 6x6 work; batch_size 8
+# (drop to 4 if it OOMs). PCA refits at center_crop_16 on first run; give it walltime.
+#
+# Run:
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_lowkl scripts/ablation_slurm.sh
+#   or: python src/train.py experiment=vae16_lowkl logger=wandb trainer=gpu paths=szary
+# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment vae16_lowkl
+#
+# Watch: val_mse near the 16x16 AE floor (full16), smooth ep3-7 (no spike), latent health
+#   std_mean < ~0.85 / active_dims a large fraction of 8192 / kld_per_dim_median above fb 0.5.
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["full_res", "grid16", "pernode_z", "vae", "low_kl", "free_bits", "kl_anneal",
+       "no_permuter", "qk_rmsnorm", "no_rope", "no_film", "z32", "pca128"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    grid_size: 16
+    size: 16
+    center_crop_size: 16
+    batch_size: 8
+
+model:
+  graph_ae:
+    hparams:
+      vae: true
+      node_z_dim: 32
+      encoder:
+        grid_size: 16
+      decoder:
+        grid_size: 16
+      permuter:
+        grid_size: 16
+  critic:
+    hparams:
+      kld_loss_scale: 0.01   # from vae6_lowkl
+      kld_free_bits: 0.5     # from vae6_lowkl
+  kld_alpha_scheduler:
+    hparams:
+      start_epoch: 5                              # from vae6_lowkl_v2: delay past LR-warmup peak
+      num_epochs: ${divide:${trainer.max_epochs},2}  # gentler ramp
+
+logger:
+  wandb:
+    group: "full_res"
+    tags: ${tags}
+    name: "vae16-lowkl-fb0.5-s0.01-start5-40ep"

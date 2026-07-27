@@ -1,0 +1,64 @@
+# @package _global_
+# free_bits sweep @ 16x16, point 1/3: free_bits 0.2 (gentle increase in prior pressure).
+#
+# IDENTICAL to vae16_lowkl (jtscgh92) EXCEPT kld_free_bits. Single-knob A/B/C:
+#   jtscgh92 fb 0.5 (overfit, anchor) -> [this] fb 0.2 -> fb 0.1 -> fb 0.0 (vanilla VAE).
+# Rationale (see research-ml [[exp-2026-06-24-vae16-overfit-mechanism]]): jtscgh92 memorised
+# because the bottleneck was too loose -- fb 0.5 x 8192 dims = 4096 free, unpenalised nats, and
+# sigma (0.41) was too small vs code spacing mu_std (0.82) so the training "clouds" didn't overlap.
+# Lowering free_bits raises sigma + pulls mu_std down -> clouds overlap -> decoder forced to
+# interpolate instead of memorise. This is the gentlest step (lowest collapse risk).
+#
+# Watch: val_mse minimum should HOLD to ep39 (not climb to 0.07); sigma up / mu_std down.
+# Collapse guardrail: active_dims stays a large fraction of 8192, kld_per_dim_median not -> ~0.
+#
+# Run (or via scripts/run_fb_sweep.sh):
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_fb0p2 scripts/ablation_slurm.sh
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["full_res", "grid16", "pernode_z", "vae", "low_kl", "free_bits", "fb_sweep", "kl_anneal",
+       "no_permuter", "qk_rmsnorm", "no_rope", "no_film", "z32", "pca128"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    grid_size: 16
+    size: 16
+    center_crop_size: 16
+    batch_size: 8
+
+model:
+  graph_ae:
+    hparams:
+      vae: true
+      node_z_dim: 32
+      encoder:
+        grid_size: 16
+      decoder:
+        grid_size: 16
+      permuter:
+        grid_size: 16
+  critic:
+    hparams:
+      kld_loss_scale: 0.01   # unchanged from jtscgh92
+      kld_free_bits: 0.2     # was 0.5 — the only knob that varies across the sweep
+  kld_alpha_scheduler:
+    hparams:
+      start_epoch: 5                              # v2 timing (no onset spike)
+      num_epochs: ${divide:${trainer.max_epochs},2}
+
+logger:
+  wandb:
+    group: "full_res"
+    tags: ${tags}
+    name: "vae16-fb0.2-s0.01-start5-40ep"
