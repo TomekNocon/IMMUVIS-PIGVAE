@@ -11,10 +11,18 @@ model_experiment: vae16_fb0p0   # architecture config the ckpt was trained with
 data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords
 pca_pkl: ${data_root}/pca_model_128_center_crop_16.pkl
 pca_stats: ${data_root}/imc_statistics_128_center_crop_16.pt
-# Land z_global encode output in this checkpoint's raid downstream bundle (skip-resumable).
+# Land the encode output in this checkpoint's raid downstream bundle (skip-resumable).
+# Each per-crop feature nests under mil_embeddings/<source_tag>/ so raw/zglobal/node_*
+# are compared under an identical bag/CV protocol (see encode.py::source_subdir).
 downstream_root: /raid_encrypted/immucan/embeddings/tnocon/downstream
 run_tag: vae16_s0p001_2026-06-28
-out_dir: ${downstream_root}/${run_tag}/mil_embeddings
+# Which frozen per-crop feature to write:
+#   feature_source: raw | zglobal | node   (node_agg: mean | flatten, node only)
+#   source_tag must equal source_subdir(feature_source, node_agg); the script asserts it.
+feature_source: zglobal
+node_agg: mean
+source_tag: zglobal
+out_dir: ${downstream_root}/${run_tag}/mil_embeddings/${source_tag}
 device: cuda
 batch_size: 64
 splits: [train, test]

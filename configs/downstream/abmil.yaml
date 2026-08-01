@@ -3,11 +3,14 @@
 defaults:
   - _self_
 # One PIGVAE checkpoint's transfer eval lives under downstream/<run_tag>/ on raid:
-# meta_tables/ (label-joined, from build_abmil_meta.py) and results/ (this run's CV CSVs).
+# meta_tables/<source_tag>/ (label-joined, from build_abmil_meta.py) and
+# results/<source_tag>/ (this run's CV CSVs). source_tag selects which per-crop
+# feature bundle to probe: raw | zglobal | node_mean | node_flatten (see encode.py).
 downstream_root: /raid_encrypted/immucan/embeddings/tnocon/downstream
 run_tag: vae16_s0p001_2026-06-28
-meta_dir: ${downstream_root}/${run_tag}/meta_tables
-results_dir: ${downstream_root}/${run_tag}/results
+source_tag: zglobal
+meta_dir: ${downstream_root}/${run_tag}/meta_tables/${source_tag}
+results_dir: ${downstream_root}/${run_tag}/results/${source_tag}
 datasets: [cords]
 # cords-appropriate classification targets (ERStatus/ERBB2_pos/PAM50 are danenberg/breast;
 # OS/DFS are continuous survival -> not classification). Any feature absent from the table

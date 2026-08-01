@@ -87,6 +87,29 @@ def build_pca_layer(pca_path: str, stats_path: str):
     return PCALayer(pca_path, stats_path, clip_range=0.0, zscore=False)
 
 
+def source_subdir(feature_source: str, node_agg: str = "mean") -> str:
+    """Canonical per-crop-feature subdir name for the downstream bundle.
+
+    One frozen encoder can expose several per-crop features; each lands in its
+    own `mil_embeddings/<subdir>/` (and matching meta_tables/results) so the
+    four are compared under an identical bag/CV protocol:
+      - `raw`          : spatial mean-pool of the raw 768-d IMC patch (baseline,
+                         reproduces the old gated-ABMIL input; no encoder).
+      - `zglobal`      : the 512-d CLS graph embedding (the trained-encoder byproduct).
+      - `node_mean`    : per-node latent mean-pooled over the 256 nodes (node_z_dim).
+      - `node_flatten` : per-node latent flattened (256 * node_z_dim).
+    """
+    if feature_source == "raw":
+        return "raw"
+    if feature_source == "zglobal":
+        return "zglobal"
+    if feature_source == "node":
+        if node_agg not in ("mean", "flatten"):
+            raise ValueError(f"node_agg must be 'mean' or 'flatten', got {node_agg!r}")
+        return f"node_{node_agg}"
+    raise ValueError(f"feature_source must be 'raw', 'zglobal', or 'node', got {feature_source!r}")
+
+
 def patch_to_nodes(patch: np.ndarray) -> torch.Tensor:
     """Flatten a raw IMC patch `(C, H, W)` into training-order nodes `(H*W, C)`.
 
@@ -106,17 +129,38 @@ def pca_transform(nodes: torch.Tensor, pca) -> torch.Tensor:
 
 
 @torch.no_grad()
-def encode_patches(gae, pca, patches: np.ndarray, device: str) -> np.ndarray:
-    """Encode a batch of raw IMC patches `(B, 768, 16, 16)` to `z_global (B, D)`.
+def encode_patches(
+    gae,
+    pca,
+    patches: np.ndarray,
+    device: str,
+    feature_source: str = "zglobal",
+    node_agg: str = "mean",
+) -> np.ndarray:
+    """Encode a batch of raw IMC patches `(B, 768, 16, 16)` to a per-crop feature `(B, D)`.
 
-    Deterministic (`sample=False`) and batch-size-agnostic: builds per-patch
-    training-order nodes, applies the frozen fitted PCA, then runs the frozen
-    encoder with an all-True `[B, 256]` mask (a full 16x16 grid has no
-    padding). The encoder's operative attention mask is its INTERNAL neighbor
-    mask (built from grid_size/neighborhood_radius, see modules.py:281-284);
-    `DenseGraphBatch.mask` is discarded by the transformer but must be
-    non-None so the CLS `F.pad(mask, (1, 0))` doesn't crash.
+    `feature_source` selects which frozen representation each crop contributes to
+    the downstream MIL bag (all deterministic, `sample=False`, batch-size-agnostic):
+
+      - ``"raw"``      : spatial mean-pool of the raw patch -> `(B, 768)`. Baseline;
+                         the encoder/PCA are NOT used (``gae``/``pca`` may be None).
+      - ``"zglobal"``  : the 512-d CLS graph embedding `z_global` -> `(B, 512)`.
+      - ``"node"``     : the per-node latent `z_nodes` `(B, 256, node_z_dim)`, aggregated
+                         by ``node_agg``: ``"mean"`` -> `(B, node_z_dim)` (the pool
+                         `forward` uses for logging), ``"flatten"`` -> `(B, 256*node_z_dim)`.
+
+    For the encoder path: builds per-patch training-order nodes, applies the frozen
+    fitted PCA, then runs the frozen encoder with an all-True `[B, 256]` mask (a full
+    16x16 grid has no padding). The encoder's operative attention mask is its INTERNAL
+    neighbor mask (modules.py:281-284); `DenseGraphBatch.mask` is discarded by the
+    transformer but must be non-None so the CLS `F.pad(mask, (1, 0))` doesn't crash.
     """
+    if feature_source == "raw":
+        # Baseline: mean-pool the raw (B, C, H, W) patch over the H*W grid -> (B, C).
+        # Reproduces the old gated-ABMIL input (768-d ImmuVis embedding, no encoder).
+        p = np.asarray(patches, dtype=np.float32)
+        return p.reshape(p.shape[0], p.shape[1], -1).mean(axis=2)
+
     from src.data.components.graphs_datamodules import DenseGraphBatch
 
     gae = gae.to(device)
@@ -127,11 +171,33 @@ def encode_patches(gae, pca, patches: np.ndarray, device: str) -> np.ndarray:
     nodes = pca(nodes)                                                           # [B,256,128]
     mask = torch.ones(nodes.shape[0], nodes.shape[1], dtype=torch.bool, device=device)
     batch = DenseGraphBatch(node_features=nodes, edge_features=torch.empty(0), mask=mask)
-    _z_nodes, z_global, *_ = gae.encode(batch, sample=False)
-    return z_global.detach().cpu().float().numpy()
+    z_nodes, z_global, *_ = gae.encode(batch, sample=False)  # z_nodes [B,256,node_z_dim]
+
+    if feature_source == "zglobal":
+        out = z_global
+    elif feature_source == "node":
+        if node_agg == "mean":
+            out = z_nodes.mean(dim=1)                     # [B, node_z_dim]
+        elif node_agg == "flatten":
+            out = z_nodes.reshape(z_nodes.shape[0], -1)   # [B, 256*node_z_dim]
+        else:
+            raise ValueError(f"node_agg must be 'mean' or 'flatten', got {node_agg!r}")
+    else:
+        raise ValueError(f"feature_source must be 'raw', 'zglobal', or 'node', got {feature_source!r}")
+    return out.detach().cpu().float().numpy()
 
 
-def encode_h5(h5_path, gae, pca, out_emb, out_meta, device, batch_size: int = 64) -> None:
+def encode_h5(
+    h5_path,
+    gae,
+    pca,
+    out_emb,
+    out_meta,
+    device,
+    batch_size: int = 64,
+    feature_source: str = "zglobal",
+    node_agg: str = "mean",
+) -> None:
     """Encode an h5 of raw IMC patches to a streaming memmap + aligned metadata CSV.
 
     Reads `embeddings (N,768,16,16)`, `paths (N,)`, `positions (N,4)` from
@@ -147,12 +213,12 @@ def encode_h5(h5_path, gae, pca, out_emb, out_meta, device, batch_size: int = 64
         n = f["embeddings"].shape[0]
         paths = [p.decode() if isinstance(p, bytes) else str(p) for p in f["paths"][:]]
         pos = f["positions"][:]
-        # probe dim with one patch
-        d = encode_patches(gae, pca, f["embeddings"][0:1], device).shape[1]
+        # probe dim with one patch (D depends on feature_source/node_agg, never hardcoded)
+        d = encode_patches(gae, pca, f["embeddings"][0:1], device, feature_source, node_agg).shape[1]
         writer = MemmapWriter(out_emb, n_rows=n, dim=d)
         for s in range(0, n, batch_size):
             e = min(s + batch_size, n)
-            writer.write(s, encode_patches(gae, pca, f["embeddings"][s:e], device))
+            writer.write(s, encode_patches(gae, pca, f["embeddings"][s:e], device, feature_source, node_agg))
         writer.close()
     pd.DataFrame({
         "img_path": paths,

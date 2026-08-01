@@ -75,6 +75,49 @@ def test_encode_patches_deterministic_and_batch_agnostic(tmp_path):
     z_one = encode_patches(gae, StubPCA(), patches[:1], device="cpu")
     assert np.allclose(z_one[0], z1[0], atol=1e-5)   # batch-size independent
 
+def test_source_subdir_mapping():
+    import pytest
+    from src.downstream.encode import source_subdir
+    assert source_subdir("raw") == "raw"
+    assert source_subdir("zglobal") == "zglobal"
+    assert source_subdir("node", "mean") == "node_mean"
+    assert source_subdir("node", "flatten") == "node_flatten"
+    with pytest.raises(ValueError):
+        source_subdir("node", "median")      # bad node_agg
+    with pytest.raises(ValueError):
+        source_subdir("bogus")               # bad feature_source
+
+
+def test_encode_patches_raw_is_spatial_meanpool_no_model():
+    import numpy as np
+    from src.downstream.encode import encode_patches
+    patches = np.random.randn(2, 5, 4, 4).astype("float32")
+    # raw = mean over the H*W grid; encoder/PCA are unused (pass None).
+    out = encode_patches(None, None, patches, device="cpu", feature_source="raw")
+    assert out.shape == (2, 5)
+    assert np.allclose(out, patches.reshape(2, 5, -1).mean(axis=2), atol=1e-5)
+
+
+def test_encode_patches_node_agg_shapes(tmp_path):
+    import numpy as np, torch
+    from src.downstream.encode import load_frozen_pigvae, encode_patches, _build_pl_module
+    class StubPCA:
+        def __call__(self, x): return x[..., :128]
+    pl = _build_pl_module("vae16_fb0p0"); ckpt = tmp_path / "c.ckpt"
+    torch.save({"state_dict": pl.state_dict()}, ckpt)
+    gae = load_frozen_pigvae(str(ckpt), "vae16_fb0p0")
+    patches = np.random.randn(3, 768, 16, 16).astype("float32")
+
+    z_glob = encode_patches(gae, StubPCA(), patches, device="cpu", feature_source="zglobal")
+    z_mean = encode_patches(gae, StubPCA(), patches, device="cpu", feature_source="node", node_agg="mean")
+    z_flat = encode_patches(gae, StubPCA(), patches, device="cpu", feature_source="node", node_agg="flatten")
+
+    assert z_glob.shape[0] == z_mean.shape[0] == z_flat.shape[0] == 3
+    nz = z_mean.shape[1]                       # node_z_dim (mean-pooled over 256 nodes)
+    assert z_flat.shape[1] == nz * 256         # flatten = 256 nodes * node_z_dim
+    assert z_glob.shape[1] != nz               # z_global (CLS width) is a distinct feature
+
+
 def test_memmap_writer_roundtrip(tmp_path):
     import numpy as np
     from src.downstream.memmap_writer import MemmapWriter
