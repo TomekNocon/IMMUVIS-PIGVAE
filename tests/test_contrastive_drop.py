@@ -118,6 +118,43 @@ def test_encoder_zglobal_ignores_masked_node_values():
     assert torch.allclose(zg, zg_g, atol=1e-4)   # masked values do not leak into z_global
 
 
+def test_encoder_zglobal_finite_when_dropped_values_are_nan():
+    # NaN-safety regression: the neighborhood-AND-padding mask can leave a dropped node
+    # with zero valid keys (self and every neighbor also dropped). Some GPU SDPA backends
+    # return NaN for that all-masked softmax row, which then lands in node_features at the
+    # dropped position. Simulate the artifact directly by seeding NaN at dropped positions
+    # and require that it never reaches z_global (via the mask-aware stats pool AND the
+    # nan_to_num safety net on the transformer output in GraphEncoder.forward).
+    import torch
+    from src.downstream.encode import _build_pl_module
+    from src.data.components.graphs_datamodules import DenseGraphBatch
+    gae = _build_pl_module("vae16_fb0p0_film").graph_ae.eval()
+    nf = torch.randn(2, 256, 128)
+    mask = torch.ones(2, 256, dtype=torch.bool); mask[:, 200:] = False  # >=1 valid node remains
+    nf_nan = nf.clone(); nf_nan[:, 200:] = float("nan")
+    with torch.no_grad():
+        _, zg, *_ = gae.encode(DenseGraphBatch(node_features=nf_nan, edge_features=torch.empty(0), mask=mask), sample=False)
+    assert torch.isfinite(zg).all()
+
+
+def test_encoder_attention_all_true_mask_matches_mask_none_pin():
+    # Direct pin at the transformer level (isolated from GraphEncoder/stats-pool wiring):
+    # the new `neighborhood AND padding` is_encoder branch, given an all-True CLS-padded
+    # mask, must reproduce the old `mask=None` (pure neighborhood mask) path exactly.
+    import torch
+    from src.downstream.encode import _build_pl_module
+    gae = _build_pl_module("vae16_fb0p0_film").graph_ae.eval()
+    transformer = gae.encoder.graph_transformer
+    hidden_dim = gae.encoder.summary_node.shape[-1]
+    n = 257  # 256 content nodes (16x16 grid) + 1 CLS
+    x = torch.randn(2, n, hidden_dim)
+    all_true = torch.ones(2, n, dtype=torch.bool)
+    with torch.no_grad():
+        out_masked = transformer(x, mask=all_true, is_encoder=True)
+        out_none = transformer(x, mask=None, is_encoder=True)
+    assert torch.allclose(out_masked, out_none, atol=1e-6)
+
+
 def test_contrastive_path_finite_loss_and_encoder_gradient():
     from src.downstream.encode import _build_pl_module
     from src.models.components.contrastive import drop_views, ProjectionHead

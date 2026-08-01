@@ -32,10 +32,18 @@ class NodeStatsProjection(nn.Module):
         if mask is not None:
             m = mask.unsqueeze(-1).to(node_features.dtype)          # [B, N, 1]
             denom = m.sum(dim=1).clamp(min=1.0)                     # [B, 1]
-            mean = (node_features * m).sum(dim=1) / denom           # [B, D]
-            var = (((node_features - mean.unsqueeze(1)) ** 2) * m).sum(dim=1) / denom
+            # masked_fill (not multiply-by-m): the neighborhood-AND-padding attention mask
+            # can leave a dropped node's row fully masked, and some SDPA backends return
+            # NaN for an all-masked softmax row. `NaN * 0 == NaN`, so multiplying by m would
+            # leak that NaN into the reduction; masked_fill overwrites the value outright
+            # (NaN or not) at masked positions, so no NaN survives. No-op for all-True masks.
+            invalid = ~mask.unsqueeze(-1)
+            masked = node_features.masked_fill(invalid, 0.0)
+            mean = masked.sum(dim=1) / denom                        # [B, D]
+            sq = ((node_features - mean.unsqueeze(1)) ** 2).masked_fill(invalid, 0.0)
+            var = sq.sum(dim=1) / denom
             neg_inf = torch.finfo(node_features.dtype).min
-            max_ = node_features.masked_fill(~mask.unsqueeze(-1), neg_inf).max(dim=1).values
+            max_ = node_features.masked_fill(invalid, neg_inf).max(dim=1).values
         else:
             mean = node_features.mean(dim=1)
             var  = node_features.var(dim=1, unbiased=False)
@@ -359,6 +367,18 @@ class GraphEncoder(torch.nn.Module):
             x, enc_mask = self.init_message_matrix(node_features, edge_features, mask)
             x = self.graph_transformer(x, mask=enc_mask, is_encoder=True)
             x = self.output_norm(x)
+            # Safety net: the neighborhood-AND-padding mask can leave a dropped node with
+            # zero valid keys (its self-key and every neighbor also dropped). SDPA's weighted
+            # sum for an excluded key is `0 * V_key`, and if that key's V ever carries a NaN
+            # (e.g. from an all-masked softmax row on some GPU backends) IEEE754 gives
+            # `0 * NaN == NaN`, which leaks into every OTHER row's output through the same
+            # matmul — including CLS (position 0) — not just the dropped node's own row.
+            # This is verified empirically (test_encoder_zglobal_finite_when_dropped_values_are_nan);
+            # masking only the stats pool (NodeStatsProjection) does not catch it because
+            # graph_emb (CLS) can already be NaN before stats_correction is even added.
+            # nan_to_num is an exact no-op whenever nothing is actually NaN/Inf, so this
+            # preserves the all-True-mask baseline bit-for-bit.
+            x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
             graph_emb, node_features = self.read_out_message_matrix(x)
         graph_emb = graph_emb + self.stats_correction(node_features, mask)
         if self.structural_correction is not None:
