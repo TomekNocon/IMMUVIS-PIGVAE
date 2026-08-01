@@ -83,7 +83,10 @@ NT-Xent already implemented and correct (groups views per image, pos/neg `logsum
 - Branch `imc-pigvae-contrastive-drop` off `imc-pigvae-film-multi`.
 - New experiment config **`configs/experiment/vae16_fb0p0_film_drop.yaml`** — clone of
   `vae16_fb0p0_film.yaml` + `contrastive_loss_scale`, `drop_p`, `contrastive_temperature`,
-  `batch_size: 96`, and whatever flag enables the contrastive training path.
+  `batch_size: 96`. **The contrastive path is gated by `contrastive_loss_scale > 0`** (training-step /
+  critic side), NOT the existing `is_contrastive` datamodule flag — that flag drives the old
+  permutation-view dataloader path, which is unused here (drop views are generated in the training step).
+  Leave `is_contrastive` off.
 - Downstream: **reuse the existing 4-way sweep unchanged** (`sbatch_downstream_sweep.sh`); new run_tag
   `vae16_fb0p0_film_drop_<date>`. z_global is read raw, so the encode switch needs no change.
 
