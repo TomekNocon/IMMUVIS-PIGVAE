@@ -1,0 +1,68 @@
+# @package _global_
+# FiLM DIAGNOSTIC, more-AE point (scale 0.001). Clone of vae16_s0p001 with FiLM ON.
+#
+# Motivation: the feature-source sweep showed raw-768 mean-pool >= z_global >= node latent on every
+# downstream target. z_global gets ZERO reconstruction gradient (decoder use_film:false), so it is a
+# dead-end aggregation. This run routes z_global (the CLS) into the decoder via FiLM so reconstruction
+# gradient finally shapes it. This is a DIAGNOSTIC, not the expected winner: node_* already has
+# reconstruction gradient and still lost to raw, so FiLM tests only whether routing z_global through
+# reconstruction closes ANY of the gap — the objective (reconstruction, not discriminability) is
+# unchanged. See the contrastive branch for the actual bet.
+#
+# IDENTICAL to vae16_s0p001 EXCEPT decoder FiLM turned on with the STABLE recipe from
+# film_pca192_stable (plain FiLM once inflated decoder max_abs ~271; film_bound tanh-bounds gamma,beta):
+#   use_film: true, film_bound: true, film_weight_decay: 0.05.
+#
+# Run:
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_s0p001_film scripts/ablation_slurm.sh
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["full_res", "grid16", "pernode_z", "vae", "low_kl", "free_bits", "scale_sweep", "vanilla_vae",
+       "kl_anneal", "no_permuter", "qk_rmsnorm", "no_rope", "film", "film_bound", "z32", "pca128"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    grid_size: 16
+    size: 16
+    center_crop_size: 16
+    batch_size: 8
+
+model:
+  graph_ae:
+    hparams:
+      vae: true
+      node_z_dim: 32
+      encoder:
+        grid_size: 16
+      decoder:
+        grid_size: 16
+        use_film: true          # route z_global (CLS) into the decoder -> reconstruction gradient on it
+        film_bound: true        # tanh-bound gamma,beta (the real stabiliser; plain FiLM blew up before)
+        film_weight_decay: 0.05  # FiLM projections in a dedicated heavier-decay optimizer group
+      permuter:
+        grid_size: 16
+  critic:
+    hparams:
+      kld_loss_scale: 0.001  # more-AE point (10x less KL pressure)
+      kld_free_bits: 0.0     # vanilla VAE, no dead zone
+  kld_alpha_scheduler:
+    hparams:
+      start_epoch: 5                              # v2 timing (no onset spike)
+      num_epochs: ${divide:${trainer.max_epochs},2}
+
+logger:
+  wandb:
+    group: "full_res"
+    tags: ${tags}
+    name: "vae16-fb0.0-s0.001-FILM-start5-40ep"
