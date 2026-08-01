@@ -46,3 +46,14 @@ def test_drop_views_reproducible_with_same_seed():
     # Masks should be identical with same seed
     assert torch.equal(views1[0].mask, views2[0].mask)
     assert torch.equal(views1[1].mask, views2[1].mask)
+
+
+def test_projection_head_shape_and_grad():
+    import torch
+    from src.models.components.contrastive import ProjectionHead
+    head = ProjectionHead(in_dim=512, hidden_dim=512, out_dim=128)
+    x = torch.randn(6, 512, requires_grad=True)
+    y = head(x)
+    assert y.shape == (6, 128)
+    y.sum().backward()
+    assert x.grad is not None

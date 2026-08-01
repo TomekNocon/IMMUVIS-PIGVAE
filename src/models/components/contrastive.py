@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 
 from src.data.components.graphs_datamodules import DenseGraphBatch
 
@@ -45,3 +46,22 @@ def drop_views(
             )
         )
     return views
+
+
+class ProjectionHead(nn.Module):
+    """2-layer MLP applied to z_global for the contrastive loss only.
+
+    Discarded at inference — downstream reads raw z_global, so the encode/probe
+    pipeline is unaffected.
+    """
+
+    def __init__(self, in_dim: int = 512, hidden_dim: int = 512, out_dim: int = 128):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, out_dim),
+        )
+
+    def forward(self, x):
+        return self.net(x)
