@@ -264,6 +264,12 @@ class SelfAttention(torch.nn.Module):
 
         if mask is None:
             attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device, self.neighborhood_radius)
+        elif is_encoder:
+            # Neighborhood AND padding: within the local neighborhood, also drop invalid/
+            # masked nodes as attention KEYS. No-op when mask is all-True. Shape [B,1,N,N].
+            neigh = get_neighborhood_mask(num_nodes, is_encoder, device, self.neighborhood_radius)  # [N,N]
+            pad = mask.to(device).bool()                                    # [B, N] True = valid (incl. CLS at 0)
+            attn_mask = (neigh.unsqueeze(0) & pad.unsqueeze(1)).unsqueeze(1)  # [B,1,N,N], key = last dim
         else:
             attn_mask = get_full_mask(mask, is_encoder, device)
         if self.pos_bias is not None:

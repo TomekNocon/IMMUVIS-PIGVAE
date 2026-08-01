@@ -27,13 +27,21 @@ class NodeStatsProjection(nn.Module):
         self.proj = nn.Linear(3 * hidden_dim, hidden_dim, bias=False)
         nn.init.zeros_(self.proj.weight)
 
-    def forward(self, node_features: torch.Tensor) -> torch.Tensor:
-        # node_features: [B, N, D]
-        mean = node_features.mean(dim=1)                      # [B, D]
-        var  = node_features.var(dim=1, unbiased=False)       # [B, D]
-        max_ = node_features.max(dim=1).values                # [B, D]
-        stats = torch.cat([mean, var, max_], dim=-1)          # [B, 3D]
-        return self.proj(stats)                               # [B, D]
+    def forward(self, node_features: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+        # node_features: [B, N, D]; mask: [B, N] bool (True = valid). None -> all valid.
+        if mask is not None:
+            m = mask.unsqueeze(-1).to(node_features.dtype)          # [B, N, 1]
+            denom = m.sum(dim=1).clamp(min=1.0)                     # [B, 1]
+            mean = (node_features * m).sum(dim=1) / denom           # [B, D]
+            var = (((node_features - mean.unsqueeze(1)) ** 2) * m).sum(dim=1) / denom
+            neg_inf = torch.finfo(node_features.dtype).min
+            max_ = node_features.masked_fill(~mask.unsqueeze(-1), neg_inf).max(dim=1).values
+        else:
+            mean = node_features.mean(dim=1)
+            var  = node_features.var(dim=1, unbiased=False)
+            max_ = node_features.max(dim=1).values
+        stats = torch.cat([mean, var, max_], dim=-1)
+        return self.proj(stats)
 
 
 class StructuralCorrection(nn.Module):
@@ -348,11 +356,11 @@ class GraphEncoder(torch.nn.Module):
             graph_emb = self.pma(node_features)
         else:
             # CLS mode — prepend summary node, run transformer, read out position 0.
-            x, _ = self.init_message_matrix(node_features, edge_features, mask)
-            x = self.graph_transformer(x, mask=None, is_encoder=True)
+            x, enc_mask = self.init_message_matrix(node_features, edge_features, mask)
+            x = self.graph_transformer(x, mask=enc_mask, is_encoder=True)
             x = self.output_norm(x)
             graph_emb, node_features = self.read_out_message_matrix(x)
-        graph_emb = graph_emb + self.stats_correction(node_features)
+        graph_emb = graph_emb + self.stats_correction(node_features, mask)
         if self.structural_correction is not None:
             graph_emb = graph_emb + self.structural_correction(node_features)
         return graph_emb, node_features

@@ -87,6 +87,37 @@ def test_dropped_zglobal_differs_but_identical_inputs_match():
         assert not torch.allclose(zga, zgb, atol=1e-3)      # genuinely different
 
 
+def test_node_stats_masked_is_noop_when_all_valid_and_ignores_dropped():
+    import torch
+    from src.models.components.modules import NodeStatsProjection
+    head = NodeStatsProjection(hidden_dim=8)
+    torch.nn.init.normal_(head.proj.weight)          # un-zero the zero-init so stats are observable
+    x = torch.randn(2, 10, 8)
+    full = torch.ones(2, 10, dtype=torch.bool)
+    # all-valid mask == no mask (no-op guarantee for baselines)
+    assert torch.allclose(head(x, full), head(x, None), atol=1e-6)
+    # masked stats ignore the VALUES of dropped nodes
+    m = full.clone(); m[:, 5:] = False
+    x_garbage = x.clone(); x_garbage[:, 5:] = 999.0
+    assert torch.allclose(head(x, m), head(x_garbage, m), atol=1e-6)
+
+
+def test_encoder_zglobal_ignores_masked_node_values():
+    # The whole-encoder invariant: z_global must not depend on the feature values
+    # of masked-out nodes (attention + stats both honor the mask).
+    import torch
+    from src.downstream.encode import _build_pl_module
+    from src.data.components.graphs_datamodules import DenseGraphBatch
+    gae = _build_pl_module("vae16_fb0p0_film").graph_ae.eval()
+    nf = torch.randn(2, 256, 128)
+    mask = torch.ones(2, 256, dtype=torch.bool); mask[:, 200:] = False
+    nf_garbage = nf.clone(); nf_garbage[:, 200:] = 50.0
+    with torch.no_grad():
+        _, zg, *_ = gae.encode(DenseGraphBatch(node_features=nf, edge_features=torch.empty(0), mask=mask), sample=False)
+        _, zg_g, *_ = gae.encode(DenseGraphBatch(node_features=nf_garbage, edge_features=torch.empty(0), mask=mask), sample=False)
+    assert torch.allclose(zg, zg_g, atol=1e-4)   # masked values do not leak into z_global
+
+
 def test_contrastive_path_finite_loss_and_encoder_gradient():
     from src.downstream.encode import _build_pl_module
     from src.models.components.contrastive import drop_views, ProjectionHead
