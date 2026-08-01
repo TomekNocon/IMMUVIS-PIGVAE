@@ -32,3 +32,17 @@ def test_drop_views_never_reactivates_padded_nodes():
     a, = drop_views(batch, p=0.5, n=1, generator=torch.Generator().manual_seed(1))
     # dropped mask is a subset of the original valid nodes
     assert (a.mask & ~batch.mask).sum() == 0
+
+
+def test_drop_views_reproducible_with_same_seed():
+    from src.models.components.contrastive import drop_views
+    batch = _full_batch()
+    # First run with seeded generator
+    g1 = torch.Generator().manual_seed(42)
+    views1 = drop_views(batch, p=0.2, n=2, generator=g1)
+    # Second run with same seed
+    g2 = torch.Generator().manual_seed(42)
+    views2 = drop_views(batch, p=0.2, n=2, generator=g2)
+    # Masks should be identical with same seed
+    assert torch.equal(views1[0].mask, views2[0].mask)
+    assert torch.equal(views1[1].mask, views2[1].mask)
