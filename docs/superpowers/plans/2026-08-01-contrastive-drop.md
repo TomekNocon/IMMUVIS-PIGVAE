@@ -487,6 +487,127 @@ git commit -m "feat(experiment): vae16_fb0p0_film_drop (balanced+FiLM + drop-con
 
 ---
 
+### Task 5: Encoder mask-awareness (prerequisite — makes drop visible to z_global)
+
+**Discovered during Task 3:** the encoder ignores the node mask, so masked/dropped nodes still reach
+`z_global` and dropped views are identical (Task 3's `test_dropped_zglobal_differs...` fails). This task
+makes the encoder honor the mask so drop produces a real signal. **Execution order: run this BEFORE
+finalizing Task 3 and before Task 4.** Both changes are exact no-ops when the mask is all-True (every
+full-grid run), so the FiLM baselines and downstream encode stay bit-identical (no re-encode).
+
+**Files:**
+- Modify: `src/models/components/llama_graph_transformer.py` (attention `forward`, the mask branch ~line 265-268)
+- Modify: `src/models/components/modules.py` (`NodeStatsProjection.forward` ~line 30; `GraphEncoder.forward` CLS branch ~line 351-355)
+- Test: `tests/test_contrastive_drop.py`
+
+**Interfaces:**
+- Consumes: `get_neighborhood_mask(num_nodes, is_encoder, device, radius) -> [N,N] bool`, `get_full_mask` (unchanged), `GraphAE.encode`.
+- Produces: after this task, `GraphAE.encode` on a batch whose `mask` drops nodes yields a `z_global` that (a) differs from the full-mask `z_global` and (b) is invariant to the *feature values* of masked-out nodes. `NodeStatsProjection.forward(node_features, mask=None)` gains an optional mask.
+
+- [ ] **Step 1: Write the failing/acceptance tests**
+
+```python
+def test_node_stats_masked_is_noop_when_all_valid_and_ignores_dropped():
+    import torch
+    from src.models.components.modules import NodeStatsProjection
+    head = NodeStatsProjection(hidden_dim=8)
+    torch.nn.init.normal_(head.proj.weight)          # un-zero the zero-init so stats are observable
+    x = torch.randn(2, 10, 8)
+    full = torch.ones(2, 10, dtype=torch.bool)
+    # all-valid mask == no mask (no-op guarantee for baselines)
+    assert torch.allclose(head(x, full), head(x, None), atol=1e-6)
+    # masked stats ignore the VALUES of dropped nodes
+    m = full.clone(); m[:, 5:] = False
+    x_garbage = x.clone(); x_garbage[:, 5:] = 999.0
+    assert torch.allclose(head(x, m), head(x_garbage, m), atol=1e-6)
+
+
+def test_encoder_zglobal_ignores_masked_node_values():
+    # The whole-encoder invariant: z_global must not depend on the feature values
+    # of masked-out nodes (attention + stats both honor the mask).
+    import torch
+    from src.downstream.encode import _build_pl_module
+    from src.data.components.graphs_datamodules import DenseGraphBatch
+    gae = _build_pl_module("vae16_fb0p0_film").graph_ae.eval()
+    nf = torch.randn(2, 256, 128)
+    mask = torch.ones(2, 256, dtype=torch.bool); mask[:, 200:] = False
+    nf_garbage = nf.clone(); nf_garbage[:, 200:] = 50.0
+    with torch.no_grad():
+        _, zg, *_ = gae.encode(DenseGraphBatch(node_features=nf, edge_features=torch.empty(0), mask=mask), sample=False)
+        _, zg_g, *_ = gae.encode(DenseGraphBatch(node_features=nf_garbage, edge_features=torch.empty(0), mask=mask), sample=False)
+    assert torch.allclose(zg, zg_g, atol=1e-4)   # masked values do not leak into z_global
+```
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `uv run pytest tests/test_contrastive_drop.py -k "node_stats_masked or zglobal_ignores_masked" -v`
+Expected: FAIL — `NodeStatsProjection.forward()` takes no `mask` arg / masked values currently leak into `z_global`.
+
+- [ ] **Step 3: Make `NodeStatsProjection.forward` mask-aware** (`src/models/components/modules.py`)
+
+```python
+    def forward(self, node_features: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+        # node_features: [B, N, D]; mask: [B, N] bool (True = valid). None -> all valid.
+        if mask is not None:
+            m = mask.unsqueeze(-1).to(node_features.dtype)          # [B, N, 1]
+            denom = m.sum(dim=1).clamp(min=1.0)                     # [B, 1]
+            mean = (node_features * m).sum(dim=1) / denom           # [B, D]
+            var = (((node_features - mean.unsqueeze(1)) ** 2) * m).sum(dim=1) / denom
+            neg_inf = torch.finfo(node_features.dtype).min
+            max_ = node_features.masked_fill(~mask.unsqueeze(-1), neg_inf).max(dim=1).values
+        else:
+            mean = node_features.mean(dim=1)
+            var  = node_features.var(dim=1, unbiased=False)
+            max_ = node_features.max(dim=1).values
+        stats = torch.cat([mean, var, max_], dim=-1)
+        return self.proj(stats)
+```
+
+- [ ] **Step 4: Add the "neighborhood AND padding" encoder path** (`src/models/components/llama_graph_transformer.py`, the `if mask is None:` branch ~line 265)
+
+```python
+        if mask is None:
+            attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device, self.neighborhood_radius)
+        elif is_encoder:
+            # Neighborhood AND padding: within the local neighborhood, also drop invalid/
+            # masked nodes as attention KEYS. No-op when mask is all-True. Shape [B,1,N,N].
+            neigh = get_neighborhood_mask(num_nodes, is_encoder, device, self.neighborhood_radius)  # [N,N]
+            pad = mask.to(device).bool()                                    # [B, N] True = valid (incl. CLS at 0)
+            attn_mask = (neigh.unsqueeze(0) & pad.unsqueeze(1)).unsqueeze(1)  # [B,1,N,N], key = last dim
+        else:
+            attn_mask = get_full_mask(mask, is_encoder, device)
+```
+
+Note: `pos_bias` is `none` for this config so the `if self.pos_bias is not None:` branch is not exercised — do not touch it. The decoder (`is_encoder=False`) path is unchanged.
+
+- [ ] **Step 5: Wire the padded mask + content mask through `GraphEncoder.forward`** (`modules.py`, CLS branch ~line 351-355)
+
+```python
+            x, enc_mask = self.init_message_matrix(node_features, edge_features, mask)
+            x = self.graph_transformer(x, mask=enc_mask, is_encoder=True)
+            x = self.output_norm(x)
+            graph_emb, node_features = self.read_out_message_matrix(x)
+        graph_emb = graph_emb + self.stats_correction(node_features, mask)
+```
+
+`init_message_matrix` returns the CLS-padded mask (verify `add_emb_node_and_feature` pads the mask with
+`True` for the CLS position so CLS stays a valid key; if it pads with `False`, fix that pad value). The
+`stats_correction` gets the original content `mask` ([B, 256], no CLS). Leave the `use_pma` branch as-is.
+
+- [ ] **Step 6: Run the new tests + the Task 3 degeneracy test + full file**
+
+Run: `uv run pytest tests/test_contrastive_drop.py -v`
+Expected: PASS — including `test_dropped_zglobal_differs_but_identical_inputs_match` (Task 3), which was RED and is now GREEN because dropped nodes finally change `z_global`.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/models/components/llama_graph_transformer.py src/models/components/modules.py tests/test_contrastive_drop.py
+git commit -m "feat(encoder): honor node mask in CLS attention and stats-pool (makes drop visible)"
+```
+
+---
+
 ## Launch (after all tasks pass — not a plan step)
 
 ```bash

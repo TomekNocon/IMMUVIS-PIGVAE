@@ -20,8 +20,19 @@ drop is first because its positives are two on-the-fly dropped views of the *sam
 P-K sampler and no image-id dataloader change** (those are only for the "bag" view).
 
 Permutation views are NOT usable positives: the encoder is permutation-invariant by construction, so
-permuted copies map to the *same* `z_global` (zero gradient). Dropping nodes is *visible* to the
-encoder, so it produces genuinely different `z_global` — a real learning signal.
+permuted copies map to the *same* `z_global` (zero gradient). Dropping nodes should be *visible* to the
+encoder, producing genuinely different `z_global` — a real learning signal.
+
+**Correction (found during implementation):** the encoder currently *ignores* the node mask, so a masked
+drop is NOT visible and dropped views map to identical `z_global`. `z_global = layer_norm(CLS + stats_correction(node_features))`
+(the `structural_correction` term is off for this config), and three spots are mask-blind: encoder
+attention runs with `mask=None` (uses the structural neighborhood mask, no padding), and
+`NodeStatsProjection` pools mean/var/max over *all* nodes. Making drop visible therefore requires a
+prerequisite **encoder mask-awareness** task (see plan Task 5): (a) a "neighborhood AND padding" attention
+path that excludes dropped nodes as keys, and (b) masked mean/var/max in `NodeStatsProjection`. Both are
+exact no-ops when the mask is all-True (every full-grid run), so the FiLM baselines and the downstream
+encode are bit-identical — no re-encoding needed. The decoder is untouched (reconstructs the full clean
+crop). The TDD degeneracy-guard test caught this before any wasted training run.
 
 ## Success criterion
 
@@ -109,6 +120,10 @@ negatives/anchor is ample at this scale.
 
 ## Out of scope (later)
 
+- **MAE masked-reconstruction** — decode the dropped views to reconstruct the *full* image from the ~80%
+  visible latent (decoder full, encoder masked). A strong second self-supervised objective, but it couples
+  reconstruction with drop and changes the recon baseline, so it is a separate experiment (a natural
+  follow-up once drop-contrastive alone is validated).
 - Jitter and bag augmentation families (bag needs the P-K sampler + image-id dataloader).
 - The AE-ward (`s0.001`) contrastive run — add only if drop proves out on balanced.
 - λ / p sweeps — after the first run gives a yes/no.
