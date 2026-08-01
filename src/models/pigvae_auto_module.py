@@ -14,6 +14,8 @@ from torch.optim.lr_scheduler import OneCycleLR
 import src.models.components.metrics.recontructions as R
 import src.models.components.plot as pL
 from src.data.components.graphs_datamodules import DenseGraphBatch
+from src.models.components.contrastive import ProjectionHead, drop_views
+from src.models.components.losses import ContrastiveLoss
 from src.models.components.warmups import get_cosine_schedule_with_warmup
 
 rootutils.setup_root(os.getcwd(), indicator=".project-root", pythonpath=True)
@@ -67,6 +69,13 @@ class PLGraphAE(L.LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler._LRScheduler,
         compile: bool,
+        contrastive_loss_scale: float = 0.0,
+        drop_p: float = 0.2,
+        contrastive_temperature: float = 0.2,
+        contrastive_warmup_epochs: int = 5,
+        projection_in_dim: int = 512,
+        projection_hidden_dim: int = 512,
+        projection_dim: int = 128,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(
@@ -85,6 +94,18 @@ class PLGraphAE(L.LightningModule):
         self.validation_step_outputs: list[dict[str, Any]] = []
         self.test_step_outputs: list[dict[str, Any]] = []
         self.perms: list[torch.Tensor] = []
+        self.contrastive_loss_scale = float(contrastive_loss_scale)
+        self.drop_p = float(drop_p)
+        self.contrastive_warmup_epochs = int(contrastive_warmup_epochs)
+        if self.contrastive_loss_scale > 0.0:
+            self.projection_head = ProjectionHead(
+                in_dim=int(projection_in_dim),
+                hidden_dim=int(projection_hidden_dim),
+                out_dim=int(projection_dim),
+            )
+            self.contrastive_loss = ContrastiveLoss(
+                temperature=float(contrastive_temperature), num_aug_per_sample=2
+            )
 
     def forward(self, graph: DenseGraphBatch, training: bool, tau: float) -> tuple:
         graph_emb, graph_pred, soft_probs, perm, mu, logvar = self.graph_ae(graph, training, tau)
@@ -152,6 +173,18 @@ class PLGraphAE(L.LightningModule):
             mu=mu,
             logvar=logvar,
         )
+        if self.contrastive_loss_scale > 0.0:
+            bs = graph.node_features.shape[0]
+            feats = []
+            for view in drop_views(graph, p=self.drop_p, n=2):
+                _, z_global, _, _, _ = self.graph_ae.encode(view, sample=True)
+                feats.append(self.projection_head(z_global))
+            contrastive = self.contrastive_loss(torch.cat(feats, dim=0))
+            warmup = min(1.0, (self.current_epoch + 1) / max(1, self.contrastive_warmup_epochs))
+            eff_scale = self.contrastive_loss_scale * warmup
+            loss["contrastive_loss"] = contrastive
+            loss["loss"] = loss["loss"] + eff_scale * contrastive
+            self.log("contrastive/scale", eff_scale, batch_size=bs)
         self.log_dict(loss)
         if mu is not None:
             self._log_latent_stats(mu, logvar, alpha, prefix="")

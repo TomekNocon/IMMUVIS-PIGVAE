@@ -156,3 +156,11 @@ scheduler:
   final_div_factor: 100
 
 compile: false
+
+contrastive_loss_scale: 0.0
+drop_p: 0.2
+contrastive_temperature: 0.2
+contrastive_warmup_epochs: 5
+projection_in_dim: ${model.graph_ae.hparams.input_size}
+projection_hidden_dim: 512
+projection_dim: 128
