@@ -28,7 +28,9 @@ data:
     grid_size: 16
     size: 16
     center_crop_size: 16
-    batch_size: 96          # memory-probed ceiling with headroom (3B encoder passes)
+    batch_size: 64          # B=96 OOM'd on the real pipeline (~31GB); the synthetic probe under-counted
+                            # the true recon loss (Huber+Cosine+Gradient) + Lightning overhead by ~8GB.
+                            # B=64 fits with ~10GB VRAM margin; still 126 negatives/anchor for NT-Xent.
 
 model:
   contrastive_loss_scale: 0.05   # primary knob; linear warmup over 5 ep (PLGraphAE default)
