@@ -155,6 +155,96 @@ def test_encoder_attention_all_true_mask_matches_mask_none_pin():
     assert torch.allclose(out_masked, out_none, atol=1e-6)
 
 
+def _build_pl_module_with_contrastive(experiment: str, **overrides):
+    """Same Hydra composition as `_build_pl_module` (src/downstream/encode.py), but
+    forwards contrastive kwargs straight to `PLGraphAE.__init__`.
+
+    `_build_pl_module` itself never forwards `contrastive_loss_scale`/`drop_p`/etc.
+    (it hardcodes the `PLGraphAE(...)` call without them), so there is no way to get
+    a real, registered `projection_head`/`contrastive_loss` out of it. This mirrors
+    its composition logic locally instead of modifying that helper (out of scope
+    here), so tests can exercise `PLGraphAE._drop_contrastive` / the
+    `contrastive_loss_scale` gate on an actual module instance rather than
+    hand-built components.
+    """
+    from hydra.utils import instantiate
+    from omegaconf import OmegaConf
+
+    from src.downstream.encode import _PROJECT_ROOT
+    from src.models.pigvae_auto_module import PLGraphAE
+
+    configs = _PROJECT_ROOT / "configs"
+    for name, fn in [("multiply", lambda x, y: int(x) * int(y)), ("divide", lambda x, y: int(x) // int(y))]:
+        try:
+            OmegaConf.register_new_resolver(name, fn)
+        except Exception:
+            pass
+    model_cfg = OmegaConf.load(configs / "model" / "model.yaml")
+    exp_cfg = OmegaConf.load(configs / "experiment" / f"{experiment}.yaml")
+    if "model" in exp_cfg:
+        model_cfg = OmegaConf.merge(model_cfg, exp_cfg.model)
+    trainer_stub = OmegaConf.create({"max_epochs": 200, "min_epochs": 1})
+    if "trainer" in exp_cfg:
+        trainer_stub = OmegaConf.merge(trainer_stub, exp_cfg.trainer)
+    data_stub = OmegaConf.create({"hparams": {"num_aug_per_sample": 8, "batch_size": 16}})
+    if "data" in exp_cfg:
+        data_stub = OmegaConf.merge(data_stub, exp_cfg.data)
+    ctx = OmegaConf.create({"model": model_cfg, "trainer": trainer_stub, "data": data_stub})
+    OmegaConf.set_struct(ctx, False)
+    return PLGraphAE(
+        graph_ae=instantiate(ctx.model.graph_ae),
+        critic=instantiate(ctx.model.critic),
+        temperature_scheduler=instantiate(ctx.model.temperature_scheduler),
+        entropy_weight_scheduler=instantiate(ctx.model.entropy_weight_scheduler),
+        kld_alpha_scheduler=instantiate(ctx.model.kld_alpha_scheduler),
+        optimizer=instantiate(ctx.model.optimizer),
+        scheduler=ctx.model.scheduler,
+        compile=False,
+        **overrides,
+    )
+
+
+def test_drop_contrastive_gate_on_real_pl_module():
+    # Exercises the code actually added to training_step: contrastive_loss_scale>0
+    # gate, drop_views -> graph_ae.encode -> self.projection_head -> self.contrastive_loss
+    # on the REGISTERED submodules of a real PLGraphAE instance (not hand-built stand-ins).
+    pl = _build_pl_module_with_contrastive(
+        "vae16_fb0p0_film", contrastive_loss_scale=0.05, drop_p=0.2
+    )
+    assert hasattr(pl, "projection_head")
+    assert hasattr(pl, "contrastive_loss")
+    pl.graph_ae.train()
+    batch = DenseGraphBatch(
+        node_features=torch.randn(8, 256, 128),
+        edge_features=torch.empty(0),
+        mask=torch.ones(8, 256, dtype=torch.bool),
+    )
+    contrastive = pl._drop_contrastive(batch)
+    assert contrastive is not None
+    assert torch.isfinite(contrastive) and contrastive.item() > 0.0
+    contrastive.backward()
+    enc_grad = sum(
+        p.grad.abs().sum().item()
+        for n, p in pl.graph_ae.named_parameters()
+        if "encoder" in n and p.grad is not None
+    )
+    assert enc_grad > 0.0
+
+
+def test_drop_contrastive_gate_off_by_default():
+    # Default contrastive_loss_scale=0.0 -> no projection_head/contrastive_loss
+    # submodules registered, and _drop_contrastive is a no-op (returns None).
+    pl = _build_pl_module_with_contrastive("vae16_fb0p0_film")
+    assert not hasattr(pl, "projection_head")
+    assert not hasattr(pl, "contrastive_loss")
+    batch = DenseGraphBatch(
+        node_features=torch.randn(8, 256, 128),
+        edge_features=torch.empty(0),
+        mask=torch.ones(8, 256, dtype=torch.bool),
+    )
+    assert pl._drop_contrastive(batch) is None
+
+
 def test_contrastive_path_finite_loss_and_encoder_gradient():
     from src.downstream.encode import _build_pl_module
     from src.models.components.contrastive import drop_views, ProjectionHead

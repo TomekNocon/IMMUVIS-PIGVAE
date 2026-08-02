@@ -149,6 +149,23 @@ class PLGraphAE(L.LightningModule):
                     param.requires_grad = not in_freeze_window
             self.log("permuter/enc_dec_frozen", float(in_freeze_window), batch_size=1)
 
+    def _drop_contrastive(self, graph: DenseGraphBatch) -> torch.Tensor | None:
+        """Unscaled drop-view NT-Xent loss on `z_global`, or `None` when off.
+
+        Builds 2 node-dropout views of `graph`, encodes each with the real
+        (registered) encoder, projects `z_global` through `self.projection_head`,
+        and scores the stacked `[2B, out_dim]` features with `self.contrastive_loss`.
+        Returns `None` when `contrastive_loss_scale <= 0.0` (feature disabled, no
+        `projection_head`/`contrastive_loss` submodules exist in that case).
+        """
+        if self.contrastive_loss_scale <= 0.0:
+            return None
+        feats = []
+        for view in drop_views(graph, p=self.drop_p, n=2):
+            _, z_global, _, _, _ = self.graph_ae.encode(view, sample=True)
+            feats.append(self.projection_head(z_global))
+        return self.contrastive_loss(torch.cat(feats, dim=0))
+
     def training_step(self, graph: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
         self._apply_curriculum()
         tau = self.temperature_scheduler(self.current_epoch)
@@ -173,13 +190,9 @@ class PLGraphAE(L.LightningModule):
             mu=mu,
             logvar=logvar,
         )
-        if self.contrastive_loss_scale > 0.0:
+        contrastive = self._drop_contrastive(graph)
+        if contrastive is not None:
             bs = graph.node_features.shape[0]
-            feats = []
-            for view in drop_views(graph, p=self.drop_p, n=2):
-                _, z_global, _, _, _ = self.graph_ae.encode(view, sample=True)
-                feats.append(self.projection_head(z_global))
-            contrastive = self.contrastive_loss(torch.cat(feats, dim=0))
             warmup = min(1.0, (self.current_epoch + 1) / max(1, self.contrastive_warmup_epochs))
             eff_scale = self.contrastive_loss_scale * warmup
             loss["contrastive_loss"] = contrastive
