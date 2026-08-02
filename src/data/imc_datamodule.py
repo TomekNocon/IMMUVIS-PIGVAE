@@ -91,6 +91,7 @@ class IMCDataModule(LightningDataModule):
             prob=hparams.augmentation_prob,
             size=hparams.size,
             patch_size=hparams.patch_size,
+            num_views=hparams.num_aug_per_sample,
         )
 
         self.aug_transforms_val = PatchAugmentations(
@@ -98,6 +99,7 @@ class IMCDataModule(LightningDataModule):
             size=hparams.size,
             patch_size=hparams.patch_size,
             is_validation=True,
+            num_views=hparams.num_aug_per_sample,
         )
 
         self.dual_transforms_train = DualOutputTransform(
