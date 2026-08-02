@@ -266,10 +266,11 @@ class SelfAttention(torch.nn.Module):
             attn_mask = get_neighborhood_mask(num_nodes, is_encoder, device, self.neighborhood_radius)
         elif is_encoder:
             # Neighborhood AND padding: within the local neighborhood, also drop invalid/
-            # masked nodes as attention KEYS. No-op when mask is all-True. Shape [B,1,N,N].
+            # masked nodes as attention KEYS (self-key always kept — see helper docstring).
+            # No-op when mask is all-True. Shape [B,1,N,N].
             neigh = get_neighborhood_mask(num_nodes, is_encoder, device, self.neighborhood_radius)  # [N,N]
             pad = mask.to(device).bool()                                    # [B, N] True = valid (incl. CLS at 0)
-            attn_mask = (neigh.unsqueeze(0) & pad.unsqueeze(1)).unsqueeze(1)  # [B,1,N,N], key = last dim
+            attn_mask = combine_neighborhood_and_padding_mask(neigh, pad)   # [B, 1, N, N]
         else:
             attn_mask = get_full_mask(mask, is_encoder, device)
         if self.pos_bias is not None:
@@ -344,6 +345,28 @@ def get_neighborhood_mask(
     """Get dilated neighborhood mask, cached per device."""
     device_str = str(device) if device is not None else "cpu"
     return _create_neighborhood_mask(num_nodes, is_encoder, device_str, radius)
+
+
+def combine_neighborhood_and_padding_mask(neigh: torch.Tensor, pad: torch.Tensor) -> torch.Tensor:
+    """Combine a [N, N] neighborhood mask with a [B, N] key-validity mask for the
+    encoder's mask-aware attention, guaranteeing every query keeps its own self-key.
+
+    `pad` restricts the KEY axis only (a dropped/invalid node cannot be attended to
+    BY anyone). Without the self-key guarantee, a query `q` whose entire radius-1
+    neighborhood (including itself) is invalid would get an all-False row: every
+    key masked out. Some SDPA backends return NaN for such a row (softmax of all
+    -inf), which then propagates into downstream pooling (e.g. `0 * NaN == NaN`).
+    ORing in the identity matrix keeps every row non-empty by letting a node always
+    attend to itself, without adding any other key: `pad` still excludes a dropped
+    node as a key for every OTHER query (CLS included), so this cannot leak a
+    dropped node's value anywhere except its own row. No-op for the all-True
+    baseline, since `neigh`'s diagonal is already True (content self-distance 0,
+    and CLS's own (0,0) entry from the top-row pad in `_create_neighborhood_mask`).
+    """
+    attn_mask = neigh.unsqueeze(0) & pad.unsqueeze(1)  # [B, N, N], key = last dim
+    num_nodes = neigh.size(-1)
+    eye = torch.eye(num_nodes, dtype=torch.bool, device=neigh.device).unsqueeze(0)  # [1, N, N]
+    return (attn_mask | eye).unsqueeze(1)  # [B, 1, N, N]
 
 
 def get_full_mask(mask: torch.Tensor, is_encoder: bool, device: torch.device = None):

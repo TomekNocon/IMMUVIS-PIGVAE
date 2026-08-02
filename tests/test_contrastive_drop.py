@@ -155,6 +155,74 @@ def test_encoder_attention_all_true_mask_matches_mask_none_pin():
     assert torch.allclose(out_masked, out_none, atol=1e-6)
 
 
+def test_combine_neighborhood_and_padding_mask_keeps_self_key_for_isolated_node():
+    # Direct pin on the REAL production helper (`combine_neighborhood_and_padding_mask`,
+    # extracted from SelfAttention.forward's `elif is_encoder:` branch so it's testable
+    # in isolation, not reimplemented here). Construct the worst case: a query `q` whose
+    # entire radius-1 neighborhood (including itself) is invalid in `pad`. Before the
+    # fix this query's row was `neigh & pad` alone -> all-False (every key masked out,
+    # a softmax-NaN hazard on some SDPA backends -- not reproducible with a real forward
+    # pass on this CPU/MATH backend, which zero-fills instead; see the encode()-level
+    # test below for the end-to-end path). The fix ORs in an identity matrix so every
+    # row keeps >=1 True key.
+    from src.models.components.llama_graph_transformer import (
+        combine_neighborhood_and_padding_mask,
+        get_neighborhood_mask,
+    )
+    num_nodes = 257  # 16x16 grid + CLS at index 0
+    neigh = get_neighborhood_mask(num_nodes, is_encoder=True, device="cpu", radius=1)
+    q = 137  # mask index of content node (row=8, col=8): 8*16 + 8 + 1 (CLS offset)
+    neighbor_idx = neigh[q].nonzero(as_tuple=True)[0]  # q's radius-1 neighborhood (incl. self)
+    assert neighbor_idx.numel() == 5  # interior node: self + 4 grid neighbors
+
+    pad = torch.ones(1, num_nodes, dtype=torch.bool)
+    pad[0, neighbor_idx] = False  # drop q AND its entire neighborhood
+
+    attn_mask = combine_neighborhood_and_padding_mask(neigh, pad)  # [1, 1, N, N]
+    attn_mask = attn_mask[:, 0]                                    # [1, N, N]
+    assert attn_mask[0].any(dim=-1).all()  # every query row keeps >=1 True key
+    assert attn_mask[0, q, q]              # specifically, q's own self-key is restored
+    # no leakage: pre-fix (`neigh & pad`) is untouched off-diagonal; only a row's own
+    # diagonal entry can flip False->True, so q is still excluded as a key for every
+    # OTHER query -- e.g. CLS (row 0) still cannot attend to the dropped node q.
+    pre_fix = neigh.unsqueeze(0) & pad.unsqueeze(1)
+    off_diag = ~torch.eye(num_nodes, dtype=torch.bool)
+    assert torch.equal(attn_mask[0][off_diag], pre_fix[0][off_diag])
+    assert not attn_mask[0, 0, q]  # CLS still cannot attend to dropped node q as a key
+
+
+def test_encoder_zglobal_finite_when_node_and_full_neighborhood_dropped():
+    # Integration-level regression: on the REAL encoder (real `_build_pl_module`
+    # graph_ae, real mask-aware attention wiring), drop one content node AND its
+    # entire radius-1 neighborhood via the `mask` argument to `encode`. Before the
+    # self-key fix this leaves an all-False attention row for that node -> NaN
+    # softmax row -> `0 * NaN == NaN` leaks into the CLS row of the stats pool ->
+    # z_global loses its CLS contribution (silently, no crash). After the fix the
+    # isolated node still attends to itself, so no NaN is ever produced.
+    import torch
+    from src.downstream.encode import _build_pl_module
+    from src.data.components.graphs_datamodules import DenseGraphBatch
+    from src.models.components.llama_graph_transformer import get_neighborhood_mask
+
+    gae = _build_pl_module("vae16_fb0p0_film").graph_ae.eval()
+    num_nodes = 257  # 16x16 grid + CLS
+    neigh = get_neighborhood_mask(num_nodes, is_encoder=True, device="cpu", radius=1)
+    q = 137  # interior content node (row=8, col=8)
+    neighbor_idx = neigh[q].nonzero(as_tuple=True)[0]
+
+    nf = torch.randn(2, 256, 128)
+    mask = torch.ones(2, num_nodes - 1, dtype=torch.bool)
+    # neighbor_idx is in CLS-padded (257-wide) coordinates; content mask excludes CLS at 0.
+    content_idx = neighbor_idx - 1
+    mask[:, content_idx] = False
+    with torch.no_grad():
+        _, zg, *_ = gae.encode(
+            DenseGraphBatch(node_features=nf, edge_features=torch.empty(0), mask=mask),
+            sample=False,
+        )
+    assert torch.isfinite(zg).all()
+
+
 def _build_pl_module_with_contrastive(experiment: str, **overrides):
     """Same Hydra composition as `_build_pl_module` (src/downstream/encode.py), but
     forwards contrastive kwargs straight to `PLGraphAE.__init__`.
