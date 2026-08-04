@@ -344,3 +344,44 @@ def test_contrastive_path_finite_loss_and_encoder_gradient():
         if "encoder" in n and p.grad is not None
     )
     assert enc_grad > 0.0
+
+
+def test_mae_forward_encodes_dropped_but_targets_clean_grid():
+    import torch
+    from src.downstream.encode import _build_pl_module
+    from src.data.components.graphs_datamodules import DenseGraphBatch
+
+    pl = _build_pl_module("vae16_fb0p0_film")
+    pl.mae_enabled = True
+    pl.mae_block_frac = 0.5
+    pl.mae_grid_size = 16
+    pl.eval()
+    N = 256
+    graph = DenseGraphBatch(
+        node_features=torch.randn(2, N, 128),
+        edge_features=torch.empty(0),
+        mask=torch.ones(2, N, dtype=torch.bool),
+    )
+    graph_emb, graph_pred, _, _, mu, logvar = pl._mae_forward(graph, training=False)
+    # decoder reconstructs the FULL clean grid (all 256 positions), aligned to clean mask
+    assert graph_pred.node_features.shape[1] == N
+    assert torch.equal(graph_pred.mask, graph.mask)
+
+
+def test_mae_block_drop_changes_zglobal_vs_clean():
+    # The block-dropped view must be VISIBLE to z_global (else MAE is vacuous, like drop-contrastive).
+    import torch
+    from src.downstream.encode import _build_pl_module
+    from src.data.components.graphs_datamodules import DenseGraphBatch
+    from src.models.components.contrastive import block_drop
+
+    gae = _build_pl_module("vae16_fb0p0_film").graph_ae.eval()
+    N = 256
+    nf = torch.randn(1, N, 128)
+    clean = DenseGraphBatch(node_features=nf, edge_features=torch.empty(0),
+                            mask=torch.ones(1, N, dtype=torch.bool))
+    dropped = block_drop(clean, frac=0.5, grid_size=16, generator=torch.Generator().manual_seed(0))
+    with torch.no_grad():
+        _, zg_clean, *_ = gae.encode(clean, sample=False)
+        _, zg_drop, *_ = gae.encode(dropped, sample=False)
+    assert not torch.allclose(zg_clean, zg_drop, atol=1e-4)

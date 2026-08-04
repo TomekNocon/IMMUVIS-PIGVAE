@@ -14,7 +14,7 @@ from torch.optim.lr_scheduler import OneCycleLR
 import src.models.components.metrics.recontructions as R
 import src.models.components.plot as pL
 from src.data.components.graphs_datamodules import DenseGraphBatch
-from src.models.components.contrastive import ProjectionHead, drop_views
+from src.models.components.contrastive import ProjectionHead, block_drop, drop_views
 from src.models.components.losses import ContrastiveLoss
 from src.models.components.warmups import get_cosine_schedule_with_warmup
 
@@ -76,6 +76,9 @@ class PLGraphAE(L.LightningModule):
         projection_in_dim: int = 512,
         projection_hidden_dim: int = 512,
         projection_dim: int = 128,
+        mae_enabled: bool = False,
+        mae_block_frac: float = 0.5,
+        mae_grid_size: int | None = None,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(
@@ -97,6 +100,9 @@ class PLGraphAE(L.LightningModule):
         self.contrastive_loss_scale = float(contrastive_loss_scale)
         self.drop_p = float(drop_p)
         self.contrastive_warmup_epochs = int(contrastive_warmup_epochs)
+        self.mae_enabled = bool(mae_enabled)
+        self.mae_block_frac = float(mae_block_frac)
+        self.mae_grid_size = None if mae_grid_size is None else int(mae_grid_size)
         if self.contrastive_loss_scale > 0.0:
             self.projection_head = ProjectionHead(
                 in_dim=int(projection_in_dim),
@@ -166,6 +172,22 @@ class PLGraphAE(L.LightningModule):
             feats.append(self.projection_head(z_global))
         return self.contrastive_loss(torch.cat(feats, dim=0))
 
+    def _mae_forward(self, graph: DenseGraphBatch, training: bool) -> tuple:
+        """Denoising/MAE forward: encode a block-dropped view, reconstruct the CLEAN grid.
+
+        The encoder sees `block_drop(graph)` (a contiguous ~mae_block_frac block zeroed
+        and masked), but the decoder runs on the clean `graph.mask` and the caller scores
+        reconstruction against the clean `graph` — so the recon loss is unchanged and
+        val-comparable, while z_global must carry the global structure to fill the block.
+        """
+        dropped = block_drop(
+            graph, frac=self.mae_block_frac, grid_size=self.mae_grid_size, generator=None
+        )
+        z_nodes, z_global, _, mu, logvar = self.graph_ae.encode(dropped, sample=training)
+        graph_pred = self.graph_ae.decode(z_nodes, z_global, graph.mask)
+        graph_emb = z_nodes.mean(dim=1)
+        return graph_emb, graph_pred, None, None, mu, logvar
+
     def training_step(self, graph: DenseGraphBatch, batch_idx: int) -> torch.Tensor:
         self._apply_curriculum()
         tau = self.temperature_scheduler(self.current_epoch)
@@ -176,9 +198,14 @@ class PLGraphAE(L.LightningModule):
         # recon_gamma = self.gamma_weight_scheduler(self.current_epoch)
         # self.critic.reconstruction_loss.weights["beta"] = recon_beta
         # self.critic.reconstruction_loss.weights["gamma"] = recon_gamma
-        graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
-            graph=graph, training=True, tau=tau
-        )
+        if self.mae_enabled:
+            graph_emb, graph_pred, soft_probs, perm, mu, logvar = self._mae_forward(
+                graph, training=True
+            )
+        else:
+            graph_emb, graph_pred, soft_probs, perm, mu, logvar = self(
+                graph=graph, training=True, tau=tau
+            )
         loss = self.critic(
             graph_emb=graph_emb,
             graph_true=graph,
