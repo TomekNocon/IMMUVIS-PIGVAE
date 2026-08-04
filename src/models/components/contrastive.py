@@ -48,6 +48,63 @@ def drop_views(
     return views
 
 
+def block_drop(
+    batch: DenseGraphBatch,
+    frac: float = 0.5,
+    grid_size: int | None = None,
+    generator: torch.Generator | None = None,
+) -> DenseGraphBatch:
+    """Return one view with a contiguous ~`frac` block of grid nodes removed.
+
+    A random-position rectangular block covering ≈`frac` of the `grid_size`×`grid_size`
+    grid has its `node_features` **zeroed** (so the encoder carries no content there and
+    the per-node latent cannot leak the answer) and its `mask` set False (`mask AND
+    ~block`). Node order is row-major (`idx = row*grid + col`). `node_features` is
+    cloned (the clean tensor is the recon target — never mutate it); `edge_features`
+    is shared. Guarantees ≥1 kept node per row. Device/seed-deterministic.
+    """
+    B, N = batch.mask.shape
+    device = batch.mask.device
+    grid = int(round(N ** 0.5)) if grid_size is None else int(grid_size)
+
+    # Fixed block size derived from frac (random position), avoids degenerate slivers.
+    h = max(1, min(grid, round(grid * (frac ** 0.5))))
+    w = max(1, min(grid, -(-int(round(frac * N)) // h)))  # ceil(frac*N / h), clamped
+    w = min(w, grid)
+
+    def _randint(high: int) -> torch.Tensor:
+        # high is exclusive upper bound for the top-left coord; high>=1.
+        if generator is not None:
+            gen_device = torch.device(generator.device)
+            r = torch.randint(0, high, (B,), device=gen_device, generator=generator)
+            return r.to(device)
+        return torch.randint(0, high, (B,), device=device)
+
+    top = _randint(grid - h + 1)                 # [B]
+    left = _randint(grid - w + 1)                # [B]
+
+    rows = torch.arange(grid, device=device).view(1, grid, 1)   # [1, grid, 1]
+    cols = torch.arange(grid, device=device).view(1, 1, grid)   # [1, 1, grid]
+    row_in = (rows >= top.view(B, 1, 1)) & (rows < (top + h).view(B, 1, 1))
+    col_in = (cols >= left.view(B, 1, 1)) & (cols < (left + w).view(B, 1, 1))
+    block = (row_in & col_in).reshape(B, N)      # [B, N] True inside block
+
+    new_mask = batch.mask & ~block
+    empty = ~new_mask.any(dim=1)
+    if empty.any():
+        first_valid = batch.mask.float().argmax(dim=1)
+        new_mask[empty, first_valid[empty]] = True
+
+    node_features = batch.node_features.clone()
+    node_features[block] = 0.0
+
+    return DenseGraphBatch(
+        node_features=node_features,
+        edge_features=batch.edge_features,
+        mask=new_mask,
+    )
+
+
 class ProjectionHead(nn.Module):
     """2-layer MLP applied to z_global for the contrastive loss only.
 
