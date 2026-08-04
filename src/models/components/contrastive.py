@@ -91,12 +91,21 @@ def block_drop(
 
     new_mask = batch.mask & ~block
     empty = ~new_mask.any(dim=1)
+    first_valid = None  # computed below if needed
     if empty.any():
         first_valid = batch.mask.float().argmax(dim=1)
         new_mask[empty, first_valid[empty]] = True
 
     node_features = batch.node_features.clone()
     node_features[block] = 0.0
+
+    # Restore features for nodes that were restored by the empty-row fallback.
+    # A restored node must have non-zero features so it is consistent with mask=True.
+    if empty.any():
+        for b in range(B):
+            if empty[b]:
+                n = first_valid[b].item()
+                node_features[b, n] = batch.node_features[b, n]
 
     return DenseGraphBatch(
         node_features=node_features,
