@@ -1,0 +1,61 @@
+# @package _global_
+# Batch-64 FiLM-ONLY control (no MAE, no contrastive). Like-for-like recon baseline for the
+# drop-MAE run — retires the batch-64-vs-8 confound vs the batch-8 FiLM run 81zasevr.
+#
+# Run:
+#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=vae16_fb0p0_film_b64 scripts/ablation_slurm.sh
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["full_res", "grid16", "pernode_z", "vae", "low_kl", "free_bits", "fb_sweep", "vanilla_vae",
+       "kl_anneal", "no_permuter", "qk_rmsnorm", "no_rope", "film", "film_bound",
+       "control", "b64", "z32", "pca128"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    grid_size: 16
+    size: 16
+    center_crop_size: 16
+    batch_size: 64
+    num_aug_per_sample: 1
+
+model:
+  contrastive_loss_scale: 0.0
+  mae_enabled: false
+  graph_ae:
+    hparams:
+      vae: true
+      node_z_dim: 32
+      encoder:
+        grid_size: 16
+      decoder:
+        grid_size: 16
+        use_film: true
+        film_bound: true
+        film_weight_decay: 0.05
+      permuter:
+        grid_size: 16
+  critic:
+    hparams:
+      kld_loss_scale: 0.01
+      kld_free_bits: 0.0
+  kld_alpha_scheduler:
+    hparams:
+      start_epoch: 5
+      num_epochs: ${divide:${trainer.max_epochs},2}
+
+logger:
+  wandb:
+    group: "full_res"
+    tags: ${tags}
+    name: "vae16-fb0.0-s0.01-FILM-b64-control-40ep"
