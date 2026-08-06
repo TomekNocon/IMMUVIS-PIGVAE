@@ -76,9 +76,11 @@ is precisely what makes a block-dropped input *visible* to `z_global` while leav
 `drop_views` in `src/models/components/contrastive.py`.
 
 - Masks a **single contiguous rectangular block** covering **~50%** of the 16×16 grid (≈128 of 256
-  nodes), at a **random position** (random block height/width with area ≈ frac, random top-left,
-  clamped to the grid). Contiguity is the point: removing a node *and its neighbors* denies the
-  decoder a local-inpainting shortcut, forcing reliance on `z_global`.
+  nodes), at a **random position** (**fixed** block height/width derived from `frac` — `h≈grid·√frac`,
+  `w≈ceil(frac·N/h)`, giving 11×12≈132 nodes at frac=0.5 — with a **random top-left**, clamped to the
+  grid; the fixed size avoids degenerate slivers, as settled in the plan). Contiguity is the point:
+  removing a node *and its neighbors* denies the decoder a local-inpainting shortcut, forcing reliance
+  on `z_global`.
 - Combines with the existing padding mask: `new_mask = mask AND ~block`. Guarantees ≥1 kept node
   (trivially true at 50%). `node_features` unchanged (only the mask changes), matching the `drop_views`
   contract. Device/seed-deterministic.
