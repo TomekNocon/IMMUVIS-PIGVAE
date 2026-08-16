@@ -241,6 +241,22 @@ class GraphAE(torch.nn.Module):
         z_global = F.layer_norm(graph_emb, graph_emb.shape[-1:])   # [B, D] — CLS for FiLM
         return z_nodes, z_global, node_features, mu, logvar
 
+    def encode_zglobal_parts(self, graph: DenseGraphBatch) -> dict[str, torch.Tensor]:
+        """Decompose z_global into its CLS and stats-correction views (read-only diagnostic).
+
+        Returns LayerNorm'd views {"full", "cls", "stats"}, each [B, D]. The trained
+        encode() path is untouched; "full" is bit-identical to encode()'s z_global.
+        """
+        graph_emb, _node_features, cls, stats = self.encoder(
+            node_features=graph.node_features,
+            edge_features=graph.edge_features,
+            mask=graph.mask,
+            return_parts=True,
+        )
+        def _ln(t: torch.Tensor) -> torch.Tensor:
+            return F.layer_norm(t, t.shape[-1:])
+        return {"full": _ln(graph_emb), "cls": _ln(cls), "stats": _ln(stats)}
+
     def decode(
         self,
         z_nodes: torch.Tensor,
@@ -352,7 +368,8 @@ class GraphEncoder(torch.nn.Module):
         node_features: torch.Tensor,
         edge_features: torch.Tensor,
         mask: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        return_parts: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if self.project:
             node_features = self.projection_in(node_features)
         if self.use_pma:
@@ -380,9 +397,18 @@ class GraphEncoder(torch.nn.Module):
             # preserves the all-True-mask baseline bit-for-bit.
             x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
             graph_emb, node_features = self.read_out_message_matrix(x)
-        graph_emb = graph_emb + self.stats_correction(node_features, mask)
+        cls = graph_emb
+        stats = self.stats_correction(node_features, mask)
+        if return_parts and self.structural_correction is not None:
+            raise ValueError(
+                "return_parts=True requires structural_correction=None "
+                "(the decomposition is a 2-way CLS+stats split)"
+            )
+        graph_emb = cls + stats
         if self.structural_correction is not None:
             graph_emb = graph_emb + self.structural_correction(node_features)
+        if return_parts:
+            return graph_emb, node_features, cls, stats
         return graph_emb, node_features
 
 
