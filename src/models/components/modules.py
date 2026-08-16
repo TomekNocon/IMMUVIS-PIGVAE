@@ -301,7 +301,12 @@ class GraphEncoder(torch.nn.Module):
         )
         self.fc_in = nn.Linear(hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim)
         self.output_norm = nn.LayerNorm(hparams.graph_encoder_hidden_dim, elementwise_affine=False)
-        self.stats_correction = NodeStatsProjection(hparams.graph_encoder_hidden_dim)
+        self.use_stats_correction = getattr(hparams, "use_stats_correction", True)
+        self.stats_correction = (
+            NodeStatsProjection(hparams.graph_encoder_hidden_dim)
+            if self.use_stats_correction
+            else None
+        )
         use_hadamard  = getattr(hparams, "use_hadamard",  False)
         use_mlp_edges = getattr(hparams, "use_mlp_edges", False)
         use_spectrum  = getattr(hparams, "use_spectrum",  False)
@@ -380,7 +385,8 @@ class GraphEncoder(torch.nn.Module):
             # preserves the all-True-mask baseline bit-for-bit.
             x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
             graph_emb, node_features = self.read_out_message_matrix(x)
-        graph_emb = graph_emb + self.stats_correction(node_features, mask)
+        if self.stats_correction is not None:
+            graph_emb = graph_emb + self.stats_correction(node_features, mask)
         if self.structural_correction is not None:
             graph_emb = graph_emb + self.structural_correction(node_features)
         return graph_emb, node_features
