@@ -18,6 +18,8 @@ def _gae_and_batch(B=2, N=256, D=128, seed=0):
 
 def test_cls_plus_stats_equals_full_graph_emb():
     gae, batch = _gae_and_batch()
+    # The stats_correction is zero-initialized; reinitialize to get non-zero stats contribution
+    torch.nn.init.normal_(gae.encoder.stats_correction.proj.weight, mean=0.0, std=0.01)
     with torch.no_grad():
         full, _nodes, cls, stats = gae.encoder(
             node_features=batch.node_features,
@@ -30,6 +32,8 @@ def test_cls_plus_stats_equals_full_graph_emb():
 
 def test_full_view_matches_untouched_encode_zglobal():
     gae, batch = _gae_and_batch()
+    # The stats_correction is zero-initialized; reinitialize to get non-zero stats contribution
+    torch.nn.init.normal_(gae.encoder.stats_correction.proj.weight, mean=0.0, std=0.01)
     with torch.no_grad():
         _, z_global, *_ = gae.encode(batch, sample=False)
         parts = gae.encode_zglobal_parts(batch)
