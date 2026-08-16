@@ -67,3 +67,26 @@ def test_default_forward_unchanged_arity():
             mask=batch.mask,
         )
     assert len(out) == 2  # (graph_emb, node_features)
+
+
+def test_source_subdir_maps_decomposition_views():
+    from src.downstream.encode import source_subdir
+    assert source_subdir("zglobal_cls") == "zglobal_cls"
+    assert source_subdir("zglobal_stats") == "zglobal_stats"
+
+
+def test_encode_patches_cls_stats_shapes_and_distinct():
+    import numpy as np
+    from src.downstream.encode import encode_patches
+    gae, _ = _gae_and_batch()
+    # The stats_correction is zero-initialized; reinitialize to get non-zero stats contribution
+    torch.nn.init.normal_(gae.encoder.stats_correction.proj.weight, mean=0.0, std=0.01)
+    pca = lambda x: x[..., :128]  # [B,256,768] -> [B,256,128] stub
+    patches = np.random.randn(2, 768, 16, 16).astype("float32")
+    cls = encode_patches(gae, pca, patches, "cpu", feature_source="zglobal_cls")
+    stats = encode_patches(gae, pca, patches, "cpu", feature_source="zglobal_stats")
+    full = encode_patches(gae, pca, patches, "cpu", feature_source="zglobal")
+    assert cls.shape == (2, 512) and stats.shape == (2, 512)
+    assert np.isfinite(cls).all() and np.isfinite(stats).all()
+    assert not np.allclose(cls, stats, atol=1e-4)
+    assert not np.allclose(cls, full, atol=1e-4)

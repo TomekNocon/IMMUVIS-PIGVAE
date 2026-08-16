@@ -107,6 +107,8 @@ def source_subdir(feature_source: str, node_agg: str = "mean") -> str:
         if node_agg not in ("mean", "flatten"):
             raise ValueError(f"node_agg must be 'mean' or 'flatten', got {node_agg!r}")
         return f"node_{node_agg}"
+    if feature_source in ("zglobal_cls", "zglobal_stats"):
+        return feature_source
     raise ValueError(f"feature_source must be 'raw', 'zglobal', or 'node', got {feature_source!r}")
 
 
@@ -182,6 +184,9 @@ def encode_patches(
             out = z_nodes.reshape(z_nodes.shape[0], -1)   # [B, 256*node_z_dim]
         else:
             raise ValueError(f"node_agg must be 'mean' or 'flatten', got {node_agg!r}")
+    elif feature_source in ("zglobal_cls", "zglobal_stats"):
+        parts = gae.encode_zglobal_parts(batch)
+        out = parts["cls"] if feature_source == "zglobal_cls" else parts["stats"]
     else:
         raise ValueError(f"feature_source must be 'raw', 'zglobal', or 'node', got {feature_source!r}")
     return out.detach().cpu().float().numpy()
