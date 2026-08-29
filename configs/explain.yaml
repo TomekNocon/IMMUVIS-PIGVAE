@@ -1,0 +1,33 @@
+# @package _global_
+# Explainability entrypoint config (mirrors train.yaml's compose). Run e.g.:
+#   uv run scripts/explain_model.py experiment=vae16_fb0p0_film \
+#     ckpt_path=/raid_.../last.ckpt method=encoder_ig target=0 paths=szary
+defaults:
+  - _self_
+  - data: mnist
+  - model: model
+  - trainer: default   # present so `experiment` configs' `override /trainer` composes (unused here)
+  - paths: szary
+  # experiment overrides make architecture-varying checkpoints (input_size / num_node_features)
+  # build the matching model and emit matching features.
+  - experiment: null
+
+# --- required ---
+ckpt_path: ???            # path to the encoder .ckpt
+
+# --- method + target ---
+method: encoder_ig        # encoder_ig | rollout | abmil_ig | abmil_attention
+target: 0                 # z_global dim (encoder_ig) / class-logit col (abmil)
+n_steps: 50               # Integrated-Gradients Riemann steps
+to_markers: true          # map encoder_ig attribution to the 768 marker channels (inverse-PCA)
+
+# --- data selection ---
+split: val                # val | test
+num_samples: 8            # how many crops to explain
+
+# --- output ---
+grid_size: 16
+out_dir: explain_outputs
+
+# --- abmil decision-level (optional; needs a trained head) ---
+abmil_ckpt: null
