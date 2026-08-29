@@ -86,6 +86,27 @@ def main(cfg: DictConfig) -> None:
                                   os.path.join(cfg.out_dir, f"node_rollout_{b}.png"),
                                   title=f"attention rollout · crop {b}")
 
+    elif cfg.method == "faithfulness":
+        # Validate the encoder-IG node map: deletion/insertion on z_global[target], IG vs random.
+        from src.explainability.encoder_attribution import _encode_zglobal
+        from src.explainability.faithfulness import faithfulness_score
+
+        attr = encoder_ig(gae, nf, target=cfg.target, n_steps=cfg.n_steps)
+        node_imp = attr.abs().sum(-1)  # [B, N]
+        rows = []
+        for b in range(nf.shape[0]):
+            x = nf[b]
+            fwd = lambda bag: _encode_zglobal(gae, bag.unsqueeze(0))[0, cfg.target]
+            fs_ig = faithfulness_score(fwd, x, node_imp[b], steps=20)
+            torch.manual_seed(b)
+            fs_rand = faithfulness_score(fwd, x, torch.rand(x.shape[0]), steps=20)
+            print(f"[faithfulness] crop {b}: IG={fs_ig['faithfulness']:+.4f} "
+                  f"(ins {fs_ig['insertion_auc']:+.4f} - del {fs_ig['deletion_auc']:+.4f}) | "
+                  f"random={fs_rand['faithfulness']:+.4f}  "
+                  f"{'PASS' if fs_ig['faithfulness'] > fs_rand['faithfulness'] else 'FAIL'}")
+            rows.append({"crop": b, "ig": fs_ig, "random": fs_rand})
+        torch.save(rows, os.path.join(cfg.out_dir, "faithfulness.pt"))
+
     elif cfg.method in ("abmil_ig", "abmil_attention"):
         raise NotImplementedError(
             "ABMIL decision-level explainability needs a trained ABMIL head + per-image bag "

@@ -17,41 +17,46 @@ import torch
 
 
 @torch.no_grad()
-def _scores_along_order(forward_fn, x: torch.Tensor, order: list[int], baseline: torch.Tensor, mode: str) -> torch.Tensor:
+def _curve(forward_fn, x: torch.Tensor, order: list[int], baseline: torch.Tensor, mode: str, steps: int | None) -> torch.Tensor:
+    """Score at ``steps+1`` checkpoints as instances are removed/revealed in ``order``.
+
+    ``steps=None`` records every instance (``S+1`` points, per-instance granularity); a smaller
+    ``steps`` groups the ranking into that many chunks — far fewer ``forward_fn`` calls, which
+    matters when ``forward_fn`` is a full encoder pass and ``S`` is 256 nodes.
+    """
+    s = len(order)
+    steps = s if steps is None else min(int(steps), s)
+    ks = [round(i * s / steps) for i in range(steps + 1)]  # 0 .. S removed/revealed
     scores: list[float] = []
-    if mode == "deletion":
-        cur = x.clone()
+    for k in ks:
+        if mode == "deletion":
+            cur = x.clone()
+            for i in order[:k]:
+                cur[i] = baseline[i]
+        elif mode == "insertion":
+            cur = baseline.clone()
+            for i in order[:k]:
+                cur[i] = x[i]
+        else:
+            raise ValueError(f"mode must be 'deletion' or 'insertion', got {mode!r}")
         scores.append(float(forward_fn(cur)))
-        for i in order:
-            cur = cur.clone()
-            cur[i] = baseline[i]
-            scores.append(float(forward_fn(cur)))
-    elif mode == "insertion":
-        cur = baseline.clone()
-        scores.append(float(forward_fn(cur)))
-        for i in order:
-            cur = cur.clone()
-            cur[i] = x[i]
-            scores.append(float(forward_fn(cur)))
-    else:
-        raise ValueError(f"mode must be 'deletion' or 'insertion', got {mode!r}")
     return torch.tensor(scores)
 
 
-def deletion_curve(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseline: torch.Tensor | None = None, descending: bool = True) -> torch.Tensor:
-    """Score as top-``importance`` instances are progressively removed. Returns ``[S+1]``."""
+def deletion_curve(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseline: torch.Tensor | None = None, descending: bool = True, steps: int | None = None) -> torch.Tensor:
+    """Score as top-``importance`` instances are progressively removed. Returns ``[steps+1]`` (``[S+1]`` if steps=None)."""
     if baseline is None:
         baseline = torch.zeros_like(x)
     order = torch.argsort(importance, descending=descending).tolist()
-    return _scores_along_order(forward_fn, x, order, baseline, "deletion")
+    return _curve(forward_fn, x, order, baseline, "deletion", steps)
 
 
-def insertion_curve(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseline: torch.Tensor | None = None, descending: bool = True) -> torch.Tensor:
-    """Score as top-``importance`` instances are progressively revealed. Returns ``[S+1]``."""
+def insertion_curve(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseline: torch.Tensor | None = None, descending: bool = True, steps: int | None = None) -> torch.Tensor:
+    """Score as top-``importance`` instances are progressively revealed. Returns ``[steps+1]`` (``[S+1]`` if steps=None)."""
     if baseline is None:
         baseline = torch.zeros_like(x)
     order = torch.argsort(importance, descending=descending).tolist()
-    return _scores_along_order(forward_fn, x, order, baseline, "insertion")
+    return _curve(forward_fn, x, order, baseline, "insertion", steps)
 
 
 def curve_auc(scores: torch.Tensor) -> float:
@@ -60,9 +65,9 @@ def curve_auc(scores: torch.Tensor) -> float:
     return float(torch.trapz(scores, dx=1.0 / (n - 1)))
 
 
-def faithfulness_score(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseline: torch.Tensor | None = None) -> dict[str, float]:
+def faithfulness_score(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseline: torch.Tensor | None = None, steps: int | None = None) -> dict[str, float]:
     """Summary: insertion AUC minus deletion AUC. Higher = more faithful importance map."""
-    dele = deletion_curve(forward_fn, x, importance, baseline)
-    ins = insertion_curve(forward_fn, x, importance, baseline)
+    dele = deletion_curve(forward_fn, x, importance, baseline, steps=steps)
+    ins = insertion_curve(forward_fn, x, importance, baseline, steps=steps)
     del_auc, ins_auc = curve_auc(dele), curve_auc(ins)
     return {"deletion_auc": del_auc, "insertion_auc": ins_auc, "faithfulness": ins_auc - del_auc}
