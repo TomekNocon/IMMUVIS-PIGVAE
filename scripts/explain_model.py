@@ -67,6 +67,17 @@ def main(cfg: DictConfig) -> None:
             viz.plot_marker_attribution(marker_attr, os.path.join(cfg.out_dir, "markers_top.png"))
             print(f"[explain] marker attribution -> {marker_attr.shape[-1]} channels")
 
+            # Reconstruct the embedding feature map (inverse-PCA) and render the 3-option panel:
+            # [attribution | aggregate | false-colour] + top channel maps, per crop.
+            feat = pca_layer.inverse(nf)  # [B, N, C]
+            top_channels = marker_attr.abs().sum(dim=(0, 1)).argsort(descending=True).tolist()
+            for b in range(nf.shape[0]):
+                viz.plot_crop_panel(
+                    node_imp[b], feat[b], cfg.grid_size, top_channels,
+                    os.path.join(cfg.out_dir, f"panel_{b}.png"),
+                    title=f"crop {b} · IG(z_global[{cfg.target}]) vs embedding projections",
+                )
+
     elif cfg.method == "rollout":
         node_imp = attention_rollout(gae, nf)
         torch.save({"node_importance": node_imp}, os.path.join(cfg.out_dir, "rollout.pt"))

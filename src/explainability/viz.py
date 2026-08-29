@@ -55,6 +55,51 @@ def plot_marker_attribution(marker_attr, out_path: str, marker_names: list[str] 
     fig.tight_layout(); fig.savefig(out_path, dpi=150); plt.close(fig)
 
 
+def _norm01(a: np.ndarray) -> np.ndarray:
+    lo, hi = float(a.min()), float(a.max())
+    return (a - lo) / (hi - lo + 1e-9)
+
+
+def plot_crop_panel(attribution, feature_map, grid_size: int, top_channels, out_path: str, title: str | None = None) -> None:
+    """Grid comparing the attribution with 3 feature-map projections (for choosing a viz).
+
+    Panels: [IG attribution | aggregate intensity | false-colour(top-3)] on the top row, and the
+    top-3 individual channel maps on the bottom row. NB: ``feature_map`` is the *embedding*
+    (768-d), so these channels are upstream-encoder dims, not the 40 real IMC markers.
+
+    Args:
+        attribution: per-node importance ``[N]``.
+        feature_map: reconstructed per-node features ``[N, C]`` (inverse-PCA of the encoder input).
+        grid_size: side of the grid (16).
+        top_channels: iterable of channel indices to render (>= 3 used).
+    """
+    attr = node_importance_to_grid(attribution, grid_size)
+    feat = _to_np(feature_map).reshape(grid_size, grid_size, -1)
+    ch = list(top_channels)[:3]
+    while len(ch) < 3:
+        ch.append(ch[-1])
+
+    fig, axes = plt.subplots(2, 3, figsize=(10, 7))
+    # top-left: attribution
+    im = axes[0, 0].imshow(attr, cmap="magma"); axes[0, 0].set_title("IG attribution")
+    fig.colorbar(im, ax=axes[0, 0], fraction=0.046)
+    # top-mid: aggregate intensity (mean over channels)
+    im = axes[0, 1].imshow(feat.mean(axis=-1), cmap="viridis"); axes[0, 1].set_title("aggregate intensity")
+    fig.colorbar(im, ax=axes[0, 1], fraction=0.046)
+    # top-right: false-colour composite of the top-3 channels
+    rgb = np.stack([_norm01(feat[..., c]) for c in ch], axis=-1)
+    axes[0, 2].imshow(rgb); axes[0, 2].set_title(f"false-colour ch {ch}")
+    # bottom: individual channel maps
+    for j, c in enumerate(ch):
+        im = axes[1, j].imshow(feat[..., c], cmap="magma"); axes[1, j].set_title(f"channel {c}")
+        fig.colorbar(im, ax=axes[1, j], fraction=0.046)
+    for ax in axes.ravel():
+        ax.set_xticks([]); ax.set_yticks([])
+    if title:
+        fig.suptitle(title)
+    fig.tight_layout(); fig.savefig(out_path, dpi=150); plt.close(fig)
+
+
 def plot_crop_importance(coords, importance, out_path: str, title: str | None = None) -> None:
     """Scatter crops at ``coords`` ``[S, 2]`` coloured by per-crop ``importance`` ``[S]``."""
     c = _to_np(coords); imp = _to_np(importance).reshape(-1)
