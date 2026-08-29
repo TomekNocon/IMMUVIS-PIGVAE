@@ -1,0 +1,72 @@
+# @package _global_
+# BATCH-64 sibling of vae16_fb0p0_film_pca256_z768 — same two knobs (PCA-256 + z_global-768),
+# but the batch is 64 DISTINCT images with the D4 augmentation OFF (num_aug_per_sample: 1),
+# instead of 8 images x 8 D4 views.
+#
+# Rationale: the permuter is dormant, so the 8 D4 views feed no invariance objective. And since
+# z_global is EXACTLY D4-invariant by construction (no positional encoding + D4-equivariant mask
+# + symmetric readout), the 8 views produce the IDENTICAL z_global — they add orientation variety
+# to the per-node reconstruction but ZERO new image content to z_global. Batch-64 gives z_global
+# 8x more distinct-image gradient diversity per step, and trains ~5-6x faster (~1.75h vs ~10h).
+# The raw-768 baseline is recipe-independent, so "does z_global clear raw" stays a valid comparison.
+#
+# Run:
+#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=vae16_fb0p0_film_pca256_z768_b64 scripts/ablation_slurm.sh
+
+defaults:
+  - override /data: mnist
+  - override /model: model
+  - override /trainer: default
+  - _self_
+
+tags: ["full_res", "grid16", "pernode_z", "vae", "low_kl", "free_bits", "fb_sweep", "vanilla_vae",
+       "kl_anneal", "no_permuter", "qk_rmsnorm", "no_rope", "film", "film_bound", "z32",
+       "pca256", "hidden768", "apples_to_apples", "b64"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    grid_size: 16
+    size: 16
+    center_crop_size: 16
+    batch_size: 64            # 64 distinct images per step (vs 8 images x 8 views)
+    num_aug_per_sample: 1     # D4 augmentation OFF (dormant permuter -> views buy z_global nothing)
+    num_pca_components: 256   # 128 -> 256 (richer input into the encoder)
+    num_node_features: 256    # must match num_pca_components (encoder input dim)
+
+model:
+  graph_ae:
+    hparams:
+      input_size: 768         # 512 -> 768 (z_global/CLS width = raw-768 baseline dim)
+      vae: true
+      node_z_dim: 32
+      encoder:
+        grid_size: 16
+        num_node_features: 256
+      decoder:
+        grid_size: 16
+        num_node_features: 256
+        use_film: true
+        film_bound: true
+        film_weight_decay: 0.05
+      permuter:
+        grid_size: 16
+  critic:
+    hparams:
+      kld_loss_scale: 0.01
+      kld_free_bits: 0.0
+  kld_alpha_scheduler:
+    hparams:
+      start_epoch: 5
+      num_epochs: ${divide:${trainer.max_epochs},2}
+
+logger:
+  wandb:
+    group: "full_res"
+    tags: ${tags}
+    name: "vae16-fb0.0-s0.01-FILM-pca256-z768-b64-40ep"
