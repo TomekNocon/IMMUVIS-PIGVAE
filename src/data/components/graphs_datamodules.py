@@ -144,10 +144,17 @@ class PatchAugmentations(nn.Module):
         patch_size: int,
         is_validation: bool = False,
         center_crop_size: int | None = None,
+        num_views: int | None = None,
     ):
         super().__init__()
         self.prob = prob
         self.is_validation = is_validation
+        # How many of the (up to NUM_PERM=8) D4 augmentation views to emit per crop.
+        # Default = all 8 (unchanged). Set to 1 to feed single, distinct crops — required
+        # for the drop-contrastive run: the 8 D4 views are node permutations -> identical
+        # z_global (permutation-invariant encoder), so they would (a) inflate the effective
+        # batch 8x and (b) become false negatives in the drop NT-Xent.
+        self.num_views = self.NUM_PERM if num_views is None else int(num_views)
         num_nodes_per_dim = (
             size // patch_size if center_crop_size is None else center_crop_size // patch_size
         )
@@ -172,6 +179,8 @@ class PatchAugmentations(nn.Module):
         for transform_key, patch_embedding in patches.items():
             if transform_key == "img_path":
                 continue
+            if len(aug_list) >= self.num_views:  # emit only the first num_views D4 views
+                break
 
             # transformed_grid = self.apply_transform(grid, transform_key)
             transformed_grid = grid
@@ -184,11 +193,11 @@ class PatchAugmentations(nn.Module):
         argsort_tensor = torch.stack(argsort_list, dim=0).contiguous()
 
         if self.is_validation:
-            perm = torch.arange(self.NUM_PERM, device=device)
+            perm = torch.arange(self.num_views, device=device)
             return aug_tensor, argsort_tensor, perm
 
-        # perm = torch.randperm(self.NUM_PERM, device=device)
-        perm = torch.arange(self.NUM_PERM, device=device)
+        # perm = torch.randperm(self.num_views, device=device)
+        perm = torch.arange(self.num_views, device=device)
         return aug_tensor, argsort_tensor, perm
 
     @staticmethod
@@ -515,7 +524,7 @@ class DenseGraphBatch:
             graph.add_nodes_from(list(range(num_nodes, max_num_nodes)))
             node_features.append(augmented_embedding[perm].squeeze(1))
             argsort_augmented_indices.append(argsort_augmented[perm].squeeze(1))
-            perms.append(perm.squeeze(0))
+            perms.append(perm.reshape(-1))  # keep 1-D; squeeze(0) collapsed a single-view [1] perm to a scalar
             mask.append((torch.arange(max_num_nodes) < num_nodes).unsqueeze(0))
             metadata_list.append(metadata_item)
             paths_list.append(paths_item)
