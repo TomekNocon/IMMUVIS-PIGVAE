@@ -27,7 +27,7 @@ from omegaconf import DictConfig, OmegaConf
 OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
 OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
 
-from src.downstream.abmil.data import build_image_bags
+from src.downstream.abmil.data import _load_memmap, build_image_bags
 from src.downstream.abmil.lit import AbmilLitModule
 from src.explainability import viz
 from src.explainability.abmil_attribution import abmil_attention, abmil_ig, crop_importance
@@ -37,6 +37,25 @@ from src.explainability.faithfulness import faithfulness_score
 def _drop_nan_labels(meta_df):
     valid = meta_df.dropna(subset=["feature_value"])["img_path"].unique()
     return meta_df[meta_df["img_path"].isin(valid)]
+
+
+def build_bags_with_coords(meta_df, class_to_idx):
+    """Like build_image_bags, but also returns each crop's (coords0, coords1) in bag order,
+    so per-crop importance can be placed back on the tissue (CLAM-style heatmap)."""
+    bags, labels, coords = [], [], []
+    for _img, g in meta_df.groupby("img_path", sort=False):
+        raw = g["feature_value"].iloc[0]
+        lab = class_to_idx.get(str(raw))
+        if lab is None or pd.isna(raw):
+            continue
+        rows, crd = [], []
+        for ef, gg in g.groupby("embeddings_file"):
+            rows.append(_load_memmap(ef)[gg["embedding_idx"].values])
+            crd.append(gg[["coords0", "coords1"]].values)
+        bags.append(np.concatenate(rows, axis=0))
+        labels.append(lab)
+        coords.append(np.concatenate(crd, axis=0))
+    return bags, labels, coords
 
 
 def _balance_meta_df(meta_df, min_class_freq=0.05):
@@ -72,7 +91,7 @@ def main(cfg: DictConfig) -> None:
     class_to_idx = {c: i for i, c in enumerate(classes)}
     print(f"[abmil] feature={cfg.feature} (min_class_freq={cfg.min_class_freq}) classes={class_to_idx}")
 
-    bags, labels = build_image_bags(meta, class_to_idx)
+    bags, labels, coords = build_bags_with_coords(meta, class_to_idx)
     print(f"[abmil] {len(bags)} image bags, emb_dim={bags[0].shape[1]}")
 
     # ── zscore (global approximation of the per-fold cv_train normalisation) ──
@@ -103,6 +122,15 @@ def main(cfg: DictConfig) -> None:
         viz.plot_abmil_crops(
             a, imp, os.path.join(cfg.out_dir, f"abmil_img{i}.png"),
             title=f"img {i} · {cfg.feature} · label={int(labels[i])} logit={logit:+.2f}",
+        )
+        # CLAM-style spatial heatmaps: crops placed at their tissue coords, coloured by importance.
+        viz.plot_crop_importance(
+            coords[i], a, os.path.join(cfg.out_dir, f"spatial_attn_img{i}.png"),
+            title=f"img {i} · attention (logit {logit:+.2f})",
+        )
+        viz.plot_crop_importance(
+            coords[i], imp, os.path.join(cfg.out_dir, f"spatial_ig_img{i}.png"),
+            title=f"img {i} · IG importance (logit {logit:+.2f})",
         )
         rows.append({"img": i, "label": int(labels[i]), "logit": logit, "faithfulness": fs["faithfulness"]})
 
