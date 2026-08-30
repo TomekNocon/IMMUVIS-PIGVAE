@@ -1,0 +1,40 @@
+# @package _global_
+# IMC raw-input visualiser. Renders a whole .tiff image or a .npy patch two publication-standard
+# ways (per-marker grid + false-colour composite) and saves PNGs. No model/checkpoint needed --
+# reads raw pixels only. Runs on szary (needs the raid TIFFs). Example:
+#   uv run scripts/visualize_imc.py input_path=/raid_.../imgs/foo.tiff paths=szary
+defaults:
+  - _self_
+  - paths: szary
+
+# --- required ---
+input_path: ???           # whole-image .tiff, or a pre-cut .npy patch ([C,H,W] or [H,W,C])
+
+# --- preprocessing ---
+arcsinh_scale: 5.0        # arcsinh(x / scale), the repo recipe; set null for already-arcsinh inputs
+
+# --- marker names (optional, for panel labels + name-based composite) ---
+panel_config: null        # yaml with panels["markers"][<dataset>] -> ordered marker-name list
+dataset: null             # which dataset key in panel_config to read names from
+marker_names: null        # explicit list; overrides panel_config when given
+
+# --- what to render ---
+figure: both              # both | grid | composite
+patch: null               # null = whole image; or an int patch index (get_all_patches order)
+patch_size: 128
+
+# --- composite ---
+composite_channels: null  # list of int indices or marker-name strings; null -> auto-pick
+composite_k: 5            # how many markers to auto-pick when composite_channels is null
+blend: max                # max (separable) | add (co-localisation brighter)
+
+# --- style ---
+cmap: magma
+pctl: [1.0, 99.0]         # per-channel contrast percentiles
+ncols: 8                  # marker-grid columns
+pixel_size_um: null       # if set, draws a µm scale bar
+scale_bar_um: 100.0
+
+# --- output ---
+out_dir: explain_outputs/imc_viz
+name: null                # output filename stem; null -> derived from input basename

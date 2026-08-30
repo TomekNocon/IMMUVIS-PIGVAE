@@ -33,6 +33,7 @@ dependencies = [
     "pytorch-msssim>=1.0.0",
     "lpips>=0.1.4",
     "captum>=0.9.0",
+    "tifffile>=2025.5.10",
 ]
 
 [tool.ruff]
