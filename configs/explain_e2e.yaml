@@ -1,0 +1,35 @@
+# @package _global_
+# End-to-end raw-image explainability: for one DX image, produce
+#   (1) ABMIL decision on the raw tissue (which crop drove the diagnosis, CLAM mosaic), and
+#   (2) the z_global representation on the decisive raw crop (encoder-IG spatial map overlaid).
+# Chains the trained ABMIL head + PIGVAE (81zasevr) + ImmuVis-768-UN-475 encoder (submodule) and
+# renders onto the false-colour cords tissue. Run on szary.
+defaults:
+  - _self_
+  - data: mnist
+  - model: model
+  - trainer: default
+  - paths: szary
+  - experiment: vae16_fb0p0_film     # builds the 81zasevr PIGVAE arch
+
+# --- checkpoints ---
+pigvae_ckpt: ???        # PIGVAE last.ckpt (81zasevr)
+abmil_ckpt: ???         # trained DX.name gated-ABMIL fold checkpoint
+meta_dir: ???           # downstream meta_tables/zglobal dir
+
+# --- data ---
+feature: DX.name
+min_class_freq: 0.05
+tiff_root: /raid_encrypted/immucan/immuvis_split   # <root>/<split>/<dataset>/imgs/<img>.tiff
+dataset: cords
+panel_config: external/multiplex-image-model/configs/all_panels_config.yaml
+composite_channels: [DNA1, panCK, CD8a, SMA, Vimentin]
+
+# --- attribution ---
+target: 0               # z_global dim for the encoder-IG representation map (image 2)
+n_steps: 50
+num_images: 2           # how many DX images to explain
+pctl: [40.0, 99.5]      # false-colour contrast
+pixel_size_um: 1.0
+
+out_dir: explain_outputs/e2e_raw

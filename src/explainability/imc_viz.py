@@ -46,6 +46,18 @@ _COMPOSITE_HINTS: list[str] = ["dna", "dapi", "ir19", "histone", "panck", "kerat
                                "cd8", "cd3", "cd68", "cd20", "sma", "vimentin", "cd31"]
 
 
+def _to_np(x) -> np.ndarray:
+    """Detach a torch tensor to numpy, or pass a numpy array through."""
+    return x.detach().cpu().numpy() if hasattr(x, "detach") else np.asarray(x)
+
+
+def _norm01(a) -> np.ndarray:
+    """Normalise to [0, 1] by min/max (flat input -> zeros)."""
+    a = _to_np(a).astype(np.float32)
+    lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
+    return (a - lo) / (hi - lo) if hi > lo else np.zeros_like(a)
+
+
 def _to_chw(img: np.ndarray) -> np.ndarray:
     """Normalise a 3D multiplex array to channel-first ``[C, H, W]``.
 
@@ -276,3 +288,77 @@ def plot_false_colour(img, channels, colours=None, marker_names=None,
     fig.savefig(out_path, dpi=300, facecolor="black", bbox_inches="tight")
     plt.close(fig)
     return rgb
+
+
+def _upsample_nearest(a: np.ndarray, out_hw: tuple[int, int]) -> np.ndarray:
+    """Nearest-neighbour upsample a small 2D map (e.g. 16x16) to ``out_hw`` (e.g. 128x128)."""
+    a = _to_np(a)
+    H, W = out_hw
+    ri = (np.arange(H) * a.shape[0] // H).clip(0, a.shape[0] - 1)
+    ci = (np.arange(W) * a.shape[1] // W).clip(0, a.shape[1] - 1)
+    return a[ri][:, ci]
+
+
+def overlay_heatmap_on_rgb(rgb, heat, out_path: str, alpha: float = 0.5, title: str | None = None,
+                           pixel_size_um: float | None = None, scale_bar_um: float = 20.0) -> None:
+    """Overlay per-region importance ``heat`` (any 2D, e.g. 16x16) on a false-colour crop ``rgb``.
+
+    ``heat`` is nearest-upsampled to the crop size, normalised, magma-blended over the tissue --
+    'where on this crop' the attribution concentrates. For image-2 (representation on raw crop).
+    """
+    rgb = _to_np(rgb)
+    H, W = rgb.shape[:2]
+    hm = _norm01(_upsample_nearest(heat, (H, W)))
+    fig, ax = plt.subplots(figsize=(5, 5), facecolor="black")
+    ax.imshow(rgb, interpolation="nearest")
+    ax.imshow(hm, cmap="magma", alpha=alpha, interpolation="nearest")
+    ax.set_xticks([]); ax.set_yticks([])
+    for s in ax.spines.values():
+        s.set_visible(False)
+    if pixel_size_um:
+        _add_scale_bar(ax, scale_bar_um, pixel_size_um)
+    if title:
+        ax.set_title(title, color="white", fontsize=11)
+    fig.tight_layout(); fig.savefig(out_path, dpi=200, facecolor="black", bbox_inches="tight")
+    plt.close(fig)
+
+
+def stitch_composite_importance(crops_rgb, coords, importance, out_path: str, alpha: float = 0.55,
+                                title: str | None = None, highlight: int | None = None,
+                                cell: int = 32) -> None:
+    """Stitch false-colour crops at their tissue coords and overlay per-crop importance (CLAM).
+
+    ``crops_rgb``: list of ``[h,w,3]`` false-colour crops; ``coords``: ``[N,2]`` (row,col px);
+    ``importance``: ``[N]`` per-crop decision weight. Each crop is downscaled to a ``cell`` block
+    placed on the tissue grid, then the importance heatmap is overlaid -- 'which crop drove the
+    decision', on the real tissue. ``highlight`` outlines the decisive crop.
+    """
+    c = np.asarray(coords)
+    imp = _norm01(_to_np(importance).reshape(-1))
+    ys = {v: i for i, v in enumerate(sorted(set(c[:, 0].tolist())))}
+    xs = {v: i for i, v in enumerate(sorted(set(c[:, 1].tolist())))}
+    H, W = len(ys) * cell, len(xs) * cell
+    bg = np.zeros((H, W, 3), dtype=np.float32)
+    hm = np.zeros((H, W), dtype=np.float32)
+    av = np.zeros((H, W), dtype=np.float32)  # per-crop opacity = importance (glow only where it matters)
+    for k in range(len(crops_rgb)):
+        r, cc = ys[c[k, 0]] * cell, xs[c[k, 1]] * cell
+        thumb = np.stack([_upsample_nearest(_to_np(crops_rgb[k])[..., ch], (cell, cell))
+                          for ch in range(3)], axis=-1)
+        bg[r:r + cell, cc:cc + cell, :] = thumb
+        hm[r:r + cell, cc:cc + cell] = imp[k]
+        av[r:r + cell, cc:cc + cell] = imp[k]
+    fig, ax = plt.subplots(figsize=(7, 7), facecolor="black")
+    ax.imshow(bg, interpolation="nearest")
+    # Opacity follows importance^2.5 so only the decision-driving crops glow; the rest of the
+    # tissue stays visible. magma reads pink/white on the warm cords palette.
+    ax.imshow(hm, cmap="magma", alpha=np.clip(av ** 2.5 * (0.6 + alpha), 0, 1),
+              interpolation="nearest", vmin=0.0, vmax=1.0)
+    if highlight is not None:
+        r, cc = ys[c[highlight, 0]] * cell, xs[c[highlight, 1]] * cell
+        ax.add_patch(plt.Rectangle((cc, r), cell, cell, fill=False, edgecolor="cyan", lw=2))
+    ax.set_xticks([]); ax.set_yticks([])
+    if title:
+        ax.set_title(title, color="white", fontsize=12)
+    fig.tight_layout(); fig.savefig(out_path, dpi=200, facecolor="black", bbox_inches="tight")
+    plt.close(fig)
