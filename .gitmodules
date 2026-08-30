@@ -1,0 +1,4 @@
+[submodule "external/multiplex-image-model"]
+	path = external/multiplex-image-model
+	url = https://github.com/dav3794/multiplex-image-model.git
+	branch = immuvis_v0
