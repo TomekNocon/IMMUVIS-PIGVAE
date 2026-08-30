@@ -112,6 +112,15 @@ def test_compose_false_colour_needs_enough_colours(img_chw):
         imc_viz.compose_false_colour(img_chw, [0, 1], colours=[(1, 0, 0)])
 
 
+def test_butterworth_denoise_smooths(img_chw):
+    pytest.importorskip("skimage")
+    out = imc_viz.butterworth_denoise(img_chw[:3], cutoff_frequency_ratio=0.2)
+    assert out.shape == (3, 256, 256)
+    # low-pass filtering a noise field must reduce its high-frequency variance
+    for c in range(3):
+        assert out[c].std() < img_chw[c].std()
+
+
 def test_plot_marker_grid_writes_png(img_chw, tmp_path):
     out = tmp_path / "grid.png"
     imc_viz.plot_marker_grid(img_chw[:6], out_path=str(out), ncols=3, title="t")

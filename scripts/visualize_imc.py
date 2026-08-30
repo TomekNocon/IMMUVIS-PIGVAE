@@ -39,10 +39,13 @@ def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.out_dir, exist_ok=True)
 
     img = imc_viz.load_imc_image(cfg.input_path, arcsinh_scale=cfg.arcsinh_scale)
+    if cfg.get("denoise"):
+        img = imc_viz.butterworth_denoise(img, cutoff_frequency_ratio=float(cfg.denoise_cutoff))
     names = _marker_names(cfg)
     C, H, W = img.shape
     print(f"[imc-viz] {cfg.input_path} -> [C={C}, H={H}, W={W}]"
-          f"{' (named)' if names else ' (unnamed markers)'}")
+          f"{' (named)' if names else ' (unnamed markers)'}"
+          f"{' +butterworth' if cfg.get('denoise') else ''}")
 
     stem = cfg.name or os.path.splitext(os.path.basename(cfg.input_path))[0]
     if cfg.get("patch") is not None:

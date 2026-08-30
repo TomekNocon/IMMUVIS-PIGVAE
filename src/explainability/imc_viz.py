@@ -80,6 +80,22 @@ def load_imc_image(path: str, arcsinh_scale: float | None = 5.0) -> np.ndarray:
     return img
 
 
+def butterworth_denoise(img: np.ndarray, cutoff_frequency_ratio: float = 0.2) -> np.ndarray:
+    """Per-channel Butterworth low-pass filter -- the pipeline's denoiser.
+
+    Matches the recipe the PIGVAE embeddings were made with (``use_butterworth_filter=True``,
+    ``cutoff_frequency_ratio=0.2``, low-pass): it removes the high-frequency single-ion-count
+    speckle inherent to raw IMC, so the rendered image reflects what the encoder actually sees.
+    Input/output are channel-first ``[C, H, W]``.
+    """
+    from skimage.filters import butterworth
+
+    img = _to_chw(img)
+    out = [butterworth(img[c], cutoff_frequency_ratio=cutoff_frequency_ratio, high_pass=False)
+           for c in range(img.shape[0])]
+    return np.stack(out).astype(np.float32)
+
+
 def get_all_patches(img: np.ndarray, patch_size: int = 128):
     """Tile ``[C, H, W]`` into non-overlapping ``patch_size`` patches, dropping the remainder.
 

@@ -10,8 +10,10 @@ defaults:
 # --- required ---
 input_path: ???           # whole-image .tiff, or a pre-cut .npy patch ([C,H,W] or [H,W,C])
 
-# --- preprocessing ---
+# --- preprocessing (matches the pipeline that produced the PIGVAE embeddings) ---
 arcsinh_scale: 5.0        # arcsinh(x / scale), the repo recipe; set null for already-arcsinh inputs
+denoise: true             # Butterworth low-pass (removes raw IMC ion-count speckle); pipeline default
+denoise_cutoff: 0.2       # cutoff_frequency_ratio (lower = smoother); matches use_butterworth_filter
 
 # --- marker names (optional, for panel labels + name-based composite) ---
 panel_config: null        # yaml with panels["markers"][<dataset>] -> ordered marker-name list
