@@ -7,6 +7,7 @@ defaults:
 abmil_ckpt: ???           # a saved fold checkpoint from the downstream CV
 meta_dir: ???             # meta_tables/<source_tag> dir (for per-image bag reconstruction)
 feature: DX.name          # which clinical target's head
+min_class_freq: 0.05      # match the CV binarization (drops classes < this image frequency)
 num_samples: 4            # how many image bags to explain
 n_steps: 50               # IG steps
 out_dir: explain_outputs/abmil

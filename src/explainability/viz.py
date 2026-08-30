@@ -100,6 +100,24 @@ def plot_crop_panel(attribution, feature_map, grid_size: int, top_channels, out_
     fig.tight_layout(); fig.savefig(out_path, dpi=150); plt.close(fig)
 
 
+def plot_abmil_crops(attention, importance, out_path: str, title: str | None = None, top_k: int = 5) -> None:
+    """Per-crop decision view: attention bars (top) + IG-importance bars (bottom) over crops.
+
+    The top-``k`` crops by attention are highlighted — these are the tissue regions the
+    gated-ABMIL pools most when making the clinical call.
+    """
+    a = _to_np(attention).reshape(-1)
+    imp = _to_np(importance).reshape(-1)
+    s = len(a)
+    top = set(np.argsort(a)[::-1][:top_k].tolist())
+    fig, axes = plt.subplots(2, 1, figsize=(max(5, s * 0.18), 5), sharex=True)
+    axes[0].bar(range(s), a, color=["#e4572e" if i in top else "#3b7dd8" for i in range(s)])
+    axes[0].set_ylabel("attention"); axes[0].set_title(title or "gated-ABMIL per-crop")
+    axes[1].bar(range(s), imp, color="#d8763b")
+    axes[1].set_ylabel("IG importance"); axes[1].set_xlabel("crop index")
+    fig.tight_layout(); fig.savefig(out_path, dpi=150); plt.close(fig)
+
+
 def plot_crop_importance(coords, importance, out_path: str, title: str | None = None) -> None:
     """Scatter crops at ``coords`` ``[S, 2]`` coloured by per-crop ``importance`` ``[S]``."""
     c = _to_np(coords); imp = _to_np(importance).reshape(-1)
