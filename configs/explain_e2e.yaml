@@ -26,9 +26,10 @@ panel_config: external/multiplex-image-model/configs/all_panels_config.yaml
 composite_channels: [DNA1, panCK, CD8a, SMA, Vimentin]
 
 # --- attribution ---
-target: 0               # z_global dim for the encoder-IG representation map (image 2)
 n_steps: 50
-num_images: 2           # how many DX images to explain
+images_per_class: 2     # decision maps: this many images from EACH class (Adeno + Squamous)
+repr_dims: 12           # representation grid: show this many z_global dims on the decisive crop
+repr_n_steps: 25        # fewer IG steps for the (many) per-dim maps
 pctl: [40.0, 99.5]      # false-colour contrast
 pixel_size_um: 1.0
 

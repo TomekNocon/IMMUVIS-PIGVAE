@@ -378,3 +378,35 @@ def stitch_composite_importance(crops_rgb, coords, importance, out_path: str, al
         ax.set_title(title, color="white", fontsize=12)
     fig.tight_layout(); fig.savefig(out_path, dpi=200, facecolor="black", bbox_inches="tight")
     plt.close(fig)
+
+
+def plot_repr_dim_grid(rgb, maps, dims, out_path: str, alpha: float = 0.5, ncols: int = 4,
+                       title: str | None = None) -> None:
+    """Grid of z_global-dimension importance maps overlaid on one false-colour crop.
+
+    ``maps``: list of 2D importance arrays (e.g. 16x16), one per z_global dim in ``dims``. Each
+    panel shows the same crop with that dim's encoder-IG map overlaid -- so you can see how
+    different latent coordinates localise on the tissue.
+    """
+    rgb = _to_np(rgb)
+    H, W = rgb.shape[:2]
+    n = len(maps)
+    ncols = min(ncols, n)
+    nrows = (n + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(2.6 * ncols, 2.7 * nrows), facecolor="black")
+    axes = np.atleast_1d(axes).ravel()
+    for i in range(n):
+        ax = axes[i]
+        ax.imshow(rgb, interpolation="nearest")
+        ax.imshow(_norm01(_upsample_nearest(maps[i], (H, W))), cmap="magma", alpha=alpha,
+                  interpolation="bilinear")
+        ax.set_title(f"z_global[{dims[i]}]", color="white", fontsize=9, pad=2)
+        ax.set_xticks([]); ax.set_yticks([])
+        for s in ax.spines.values():
+            s.set_visible(False)
+    for i in range(n, len(axes)):
+        axes[i].axis("off")
+    if title:
+        fig.suptitle(title, color="white", fontsize=12)
+    fig.tight_layout(); fig.savefig(out_path, dpi=180, facecolor="black", bbox_inches="tight")
+    plt.close(fig)

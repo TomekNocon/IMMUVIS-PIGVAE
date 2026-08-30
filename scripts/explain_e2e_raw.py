@@ -127,65 +127,95 @@ def main(cfg: DictConfig) -> None:
 
     comp = list(cfg.composite_channels)
     pctl = tuple(cfg.pctl)
-    done = 0
+    idx_to_cls = {v: k for k, v in class_to_idx.items()}
+    short = {0: "adeno", 1: "squam"}
+
+    # ── phase 1: score every bag (cheap forward), pick confident-correct ones per class ──
+    scored = []
     for bidx, (crops, lab, coords, img_path) in enumerate(bags):
-        if done >= int(cfg.num_images):
-            break
-        tiff = _resolve_tiff(img_path, cfg.tiff_root, cfg.dataset)
-        if tiff is None:
-            print(f"[e2e] img {img_path}: no tiff found, skip")
+        if _resolve_tiff(img_path, cfg.tiff_root, cfg.dataset) is None:
             continue
-
-        # ABMIL decision + per-crop IG on the (zscored) bag
         x = torch.from_numpy(((crops - mu) / sd).astype("float32")).unsqueeze(0)
-        attn = abmil_attention(abmil, x)[0, :, 0]
-        attr = abmil_ig(abmil, x, target=0, n_steps=int(cfg.n_steps))
-        imp = crop_importance(attr)[0].numpy()          # [S]
-        logit = float(abmil(x)[0].item())
-        decisive = int(np.argmax(imp))
-        print(f"[e2e] img={os.path.basename(tiff)} label={lab} logit={logit:+.3f} "
-              f"crops={len(crops)} decisive_crop={decisive} imp={imp[decisive]:+.3f}")
+        with torch.no_grad():
+            logit = float(abmil(x)[0].item())
+        correct = (logit > 0) == (lab == 1)
+        scored.append((bidx, lab, logit, correct))
+    picks = []
+    for cl in sorted(class_to_idx.values()):
+        cands = [s for s in scored if s[1] == cl]
+        cands.sort(key=lambda s: (s[3], abs(s[2])), reverse=True)  # correct first, then confident
+        picks += cands[: int(cfg.images_per_class)]
+    print(f"[e2e] picked {len(picks)} images: "
+          + ", ".join(f"{idx_to_cls[l][:5]}(logit{lo:+.2f}{'ok' if c else 'X'})" for _, l, lo, c in picks))
 
-        # raw tiff -> per-crop false-colour + coord match
-        raw = imc_viz.load_imc_image(tiff, arcsinh_scale=None)          # raw counts [43,H,W]
+    dims = None
+    for n, (bidx, lab, _lg, _ok) in enumerate(picks):
+        crops, lab, coords, img_path = bags[bidx]
+        tiff = _resolve_tiff(img_path, cfg.tiff_root, cfg.dataset)
+        cls = short.get(lab, str(lab))
+
+        # ABMIL decision + per-crop IG
+        x = torch.from_numpy(((crops - mu) / sd).astype("float32")).unsqueeze(0)
+        attr = abmil_ig(abmil, x, target=0, n_steps=int(cfg.n_steps))
+        imp = crop_importance(attr)[0].numpy()
+        logit = float(abmil(x)[0].item())
+        # IG is signed toward the Squamous logit; orient toward the PREDICTED class so that, for
+        # BOTH classes, high (red) = the crop supports the model's call and argmax = the crop that
+        # most supports it (not the strongest counter-evidence).
+        imp = imp * (1.0 if logit > 0 else -1.0)
+        pred = short.get(int(logit > 0), "?")
+
+        # raw tiff -> per-crop false-colour
+        raw = imc_viz.load_imc_image(tiff, arcsinh_scale=None)
         patches, pcoords = imc_viz.get_all_patches(raw, 128)
         topleft = {(int(a[0]), int(a[1])): k for k, (a, _b) in enumerate(pcoords)}
-        crops_rgb, matched = [], 0
+        crops_rgb, has_tissue = [], np.zeros(len(coords), dtype=bool)
         for k in range(len(coords)):
             key = (int(coords[k, 0]), int(coords[k, 1]))
-            pk = topleft.get(key, topleft.get((key[1], key[0])))   # try swapped order too
+            pk = topleft.get(key, topleft.get((key[1], key[0])))
             if pk is None:
                 crops_rgb.append(np.zeros((128, 128, 3), np.float32)); continue
-            matched += 1
             arc = np.arcsinh(patches[pk] / 5.0)
-            crops_rgb.append(imc_viz.compose_false_colour(arc, imc_viz._resolve_channels(mnames, comp),
-                                                          imc_viz.DEFAULT_COLOURS[:len(comp)], pctl=pctl))
-        print(f"      coord match: {matched}/{len(coords)} crops")
+            rgb = imc_viz.compose_false_colour(arc, imc_viz._resolve_channels(mnames, comp),
+                                               imc_viz.DEFAULT_COLOURS[:len(comp)], pctl=pctl)
+            crops_rgb.append(rgb)
+            has_tissue[k] = float(rgb.mean()) > 0.02
+        # decisive = most decision-supporting crop AMONG tissue crops (an empty corner crop isn't
+        # biologically interpretable, and the representation grid needs real tissue).
+        masked = np.where(has_tissue, imp, -np.inf)
+        decisive = int(np.argmax(masked if np.isfinite(masked).any() else imp))
+        print(f"[e2e] {os.path.basename(tiff)} true={cls} pred={pred} logit={logit:+.3f} "
+              f"crops={len(crops)} decisive={decisive}")
 
-        # ── IMAGE 1: ABMIL decision mosaic on raw tissue ──
-        out1 = os.path.join(cfg.out_dir, f"img{done}_abmil_decision.png")
+        # ── IMAGE 1: ABMIL decision heatmap ──
+        tag = f"{n}_{cls}_{os.path.splitext(os.path.basename(tiff))[0]}"
+        out1 = os.path.join(cfg.out_dir, f"{tag}_decision.png")
         imc_viz.stitch_composite_importance(
             crops_rgb, coords, imp, out1, highlight=decisive,
-            title=f"{os.path.basename(tiff)} · ABMIL decision (label {lab}, logit {logit:+.2f})")
+            title=f"{os.path.basename(tiff)} · true={cls} pred={pred} (logit {logit:+.2f})")
 
-        # ── IMAGE 2: z_global representation on the decisive raw crop ──
+        # ── IMAGE 2: representation GRID over many z_global dims, on the decisive crop ──
         dkey = (int(coords[decisive, 0]), int(coords[decisive, 1]))
         pk = topleft.get(dkey, topleft.get((dkey[1], dkey[0])))
         if pk is not None:
-            pre = _preprocess_for_encoder(patches[pk])                        # [43,128,128] in [0,1]
-            xin = torch.from_numpy(pre).unsqueeze(0).float()                  # [1,43,128,128]
+            pre = _preprocess_for_encoder(patches[pk])
+            xin = torch.from_numpy(pre).unsqueeze(0).float()
             with torch.no_grad():
-                lat = ie.encode(imm, xin, cids.unsqueeze(0))                  # [1,768,16,16]
-                nf768 = lat.reshape(1, lat.shape[1], -1).transpose(1, 2)      # [1,256,768]
-                nf = pca_layer(nf768)                                         # [1,256,128]
-            a = encoder_ig(gae, nf.float(), target=int(cfg.target), n_steps=int(cfg.n_steps))
-            node_imp = a.abs().sum(-1)[0].reshape(16, 16).numpy()            # [16,16]
-            out2 = os.path.join(cfg.out_dir, f"img{done}_repr_decisive_crop.png")
-            imc_viz.overlay_heatmap_on_rgb(
-                crops_rgb[decisive], node_imp, out2, pixel_size_um=cfg.pixel_size_um,
-                title=f"decisive crop · z_global[{cfg.target}] origin")
+                lat = ie.encode(imm, xin, cids.unsqueeze(0))
+                nf = pca_layer(lat.reshape(1, lat.shape[1], -1).transpose(1, 2)).float()  # [1,256,128]
+            if dims is None:
+                from src.explainability.encoder_attribution import _encode_zglobal
+                zdim = _encode_zglobal(gae, nf).shape[-1]
+                dims = list(np.linspace(0, zdim - 1, int(cfg.repr_dims)).astype(int))
+            maps = []
+            for d in dims:
+                a = encoder_ig(gae, nf, target=int(d), n_steps=int(cfg.repr_n_steps))
+                maps.append(a.abs().sum(-1)[0].reshape(16, 16).numpy())
+            out2 = os.path.join(cfg.out_dir, f"{tag}_repr_dims.png")
+            imc_viz.plot_repr_dim_grid(
+                crops_rgb[decisive], maps, dims, out2,
+                title=f"{os.path.basename(tiff)} decisive crop · z_global dims")
             print(f"      wrote {out1}\n      wrote {out2}")
-        done += 1
 
     print(f"[e2e] done -> {os.path.abspath(cfg.out_dir)}")
 
