@@ -65,8 +65,13 @@ def main(cfg: DictConfig) -> None:
         print(f"[imc-viz] wrote {out}")
 
     if cfg.figure in ("both", "composite"):
-        chans = (list(cfg.composite_channels) if cfg.get("composite_channels")
-                 else imc_viz.default_composite_channels(names, num_channels=C, k=int(cfg.composite_k)))
+        cc = cfg.get("composite_channels")
+        if isinstance(cc, str) and cc.lower() == "all":
+            chans = list(range(C))          # every marker, distinct colours
+        elif cc:
+            chans = list(cc)
+        else:
+            chans = imc_viz.default_composite_channels(names, num_channels=C, k=int(cfg.composite_k))
         out = os.path.join(cfg.out_dir, f"{stem}_composite.png")
         imc_viz.plot_false_colour(img, chans, marker_names=names, out_path=out, pctl=pctl,
                                   blend=cfg.blend, pixel_size_um=cfg.pixel_size_um,

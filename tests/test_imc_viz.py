@@ -127,6 +127,26 @@ def test_plot_marker_grid_writes_png(img_chw, tmp_path):
     assert out.exists() and out.stat().st_size > 0
 
 
+def test_distinct_colours_count_and_range():
+    cols = imc_viz.distinct_colours(43)
+    assert len(cols) == 43
+    assert all(len(c) == 3 and all(0.0 <= v <= 1.0 for v in c) for c in cols)
+
+
+def test_compose_all_channels(img_chw):
+    cols = imc_viz.distinct_colours(40)
+    rgb = imc_viz.compose_false_colour(img_chw, list(range(40)), cols)
+    assert rgb.shape == (256, 256, 3)
+    assert rgb.min() >= 0.0 and rgb.max() <= 1.0
+
+
+def test_plot_false_colour_all_channels_writes_png(img_chw, tmp_path):
+    out = tmp_path / "all.png"
+    names = [f"m{i}" for i in range(40)]
+    imc_viz.plot_false_colour(img_chw, list(range(40)), marker_names=names, out_path=str(out))
+    assert out.exists() and out.stat().st_size > 0
+
+
 def test_plot_false_colour_writes_png_and_returns_rgb(img_chw, tmp_path):
     out = tmp_path / "comp.png"
     names = [f"m{i}" for i in range(40)]

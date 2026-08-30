@@ -26,7 +26,7 @@ patch: null               # null = whole image; or an int patch index (get_all_p
 patch_size: 128
 
 # --- composite ---
-composite_channels: null  # list of int indices or marker-name strings; null -> auto-pick
+composite_channels: null  # list of int idx or marker-name strings; "all" -> every marker; null -> auto-pick
 composite_k: 5            # how many markers to auto-pick when composite_channels is null
 blend: max                # max (separable) | add (co-localisation brighter)
 

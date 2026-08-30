@@ -125,6 +125,18 @@ def _percentile_clip(ch: np.ndarray, lo: float = 1.0, hi: float = 99.0) -> np.nd
     return np.clip((a - plo) / (phi - plo), 0.0, 1.0)
 
 
+def distinct_colours(n: int, cmap: str = "nipy_spectral") -> list[tuple[float, float, float]]:
+    """Return ``n`` visually distinct RGB colours sampled across a spread colormap.
+
+    Used for an all-marker composite (too many channels for the hand-picked palette). The
+    endpoints are trimmed off ``nipy_spectral`` so no marker lands on near-black/near-white.
+    """
+    if n <= len(DEFAULT_COLOURS):
+        return DEFAULT_COLOURS[:n]
+    cm = plt.get_cmap(cmap)
+    return [tuple(cm(t)[:3]) for t in np.linspace(0.05, 0.95, n)]
+
+
 def _resolve_channels(names, channels) -> list[int]:
     """Resolve a list of channel selectors (int indices or marker-name strings) to int indices."""
     out = []
@@ -236,7 +248,7 @@ def plot_false_colour(img, channels, colours=None, marker_names=None,
     """
     img = _to_chw(img)
     idx = _resolve_channels(marker_names, channels)
-    cols = list(colours) if colours is not None else DEFAULT_COLOURS[:len(idx)]
+    cols = list(colours) if colours is not None else distinct_colours(len(idx))
     rgb = compose_false_colour(img, idx, cols, pctl=pctl, blend=blend)
     names = ([str(marker_names[i]) for i in idx] if marker_names is not None
              else [f"ch {i}" for i in idx])
@@ -248,8 +260,14 @@ def plot_false_colour(img, channels, colours=None, marker_names=None,
     if pixel_size_um:
         _add_scale_bar(ax, scale_bar_um, pixel_size_um)
     handles = [mpatches.Patch(color=cols[k], label=names[k]) for k in range(len(idx))]
-    leg = ax.legend(handles=handles, loc="upper right", framealpha=0.35, facecolor="black",
-                    edgecolor="none", fontsize=9)
+    # Many markers -> compact multi-column legend placed OUTSIDE the image (right).
+    many = len(idx) > 12
+    leg = ax.legend(handles=handles,
+                    loc="upper left" if many else "upper right",
+                    bbox_to_anchor=(1.01, 1.0) if many else None,
+                    ncol=2 if len(idx) > 24 else 1,
+                    framealpha=0.0 if many else 0.35, facecolor="black", edgecolor="none",
+                    fontsize=6 if many else 9, labelspacing=0.25, handlelength=1.0)
     for txt in leg.get_texts():
         txt.set_color("white")
     if title:
