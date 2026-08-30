@@ -169,23 +169,29 @@ def main(cfg: DictConfig) -> None:
         raw = imc_viz.load_imc_image(tiff, arcsinh_scale=None)
         patches, pcoords = imc_viz.get_all_patches(raw, 128)
         topleft = {(int(a[0]), int(a[1])): k for k, (a, _b) in enumerate(pcoords)}
-        crops_rgb, has_tissue = [], np.zeros(len(coords), dtype=bool)
+        crops_rgb, dens = [], np.full(len(coords), -1.0, dtype=np.float32)
         for k in range(len(coords)):
             key = (int(coords[k, 0]), int(coords[k, 1]))
             pk = topleft.get(key, topleft.get((key[1], key[0])))
             if pk is None:
                 crops_rgb.append(np.zeros((128, 128, 3), np.float32)); continue
             arc = np.arcsinh(patches[pk] / 5.0)
-            rgb = imc_viz.compose_false_colour(arc, imc_viz._resolve_channels(mnames, comp),
-                                               imc_viz.DEFAULT_COLOURS[:len(comp)], pctl=pctl)
-            crops_rgb.append(rgb)
-            has_tissue[k] = float(rgb.mean()) > 0.02
-        # decisive = most decision-supporting crop AMONG tissue crops (an empty corner crop isn't
-        # biologically interpretable, and the representation grid needs real tissue).
+            dens[k] = float(arc.mean())   # RAW tissue density (false-colour mean is misleading)
+            crops_rgb.append(imc_viz.compose_false_colour(
+                arc, imc_viz._resolve_channels(mnames, comp),
+                imc_viz.DEFAULT_COLOURS[:len(comp)], pctl=pctl))
+        # decisive = strongest supporter among REAL-tissue crops (raw density well above zero).
+        # NB: the single top raw supporter can be a near-EMPTY crop -- a model shortcut we keep
+        # visible in the heatmap but do not point the box at.
+        valid = dens[dens >= 0]
+        thr = max(0.1, 0.4 * float(np.median(valid))) if len(valid) else 0.1
+        has_tissue = dens > thr
         masked = np.where(has_tissue, imp, -np.inf)
         decisive = int(np.argmax(masked if np.isfinite(masked).any() else imp))
+        top_raw = int(np.argmax(np.where(dens >= 0, imp, -np.inf)))
         print(f"[e2e] {os.path.basename(tiff)} true={cls} pred={pred} logit={logit:+.3f} "
-              f"crops={len(crops)} decisive={decisive}")
+              f"crops={len(crops)} decisive(tissue)={decisive} dens={dens[decisive]:.3f} "
+              f"| top-raw-supporter={top_raw} dens={dens[top_raw]:.3f}")
 
         # ── IMAGE 1: ABMIL decision heatmap ──
         tag = f"{n}_{cls}_{os.path.splitext(os.path.basename(tiff))[0]}"
