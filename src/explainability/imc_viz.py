@@ -323,41 +323,57 @@ def overlay_heatmap_on_rgb(rgb, heat, out_path: str, alpha: float = 0.5, title: 
     plt.close(fig)
 
 
-def stitch_composite_importance(crops_rgb, coords, importance, out_path: str, alpha: float = 0.55,
+def stitch_composite_importance(crops_rgb, coords, importance, out_path: str, alpha: float = 0.45,
                                 title: str | None = None, highlight: int | None = None,
                                 cell: int = 32) -> None:
-    """Stitch false-colour crops at their tissue coords and overlay per-crop importance (CLAM).
+    """Stitch false-colour crops at their tissue coords and lay a CLAM importance heatmap over them.
 
     ``crops_rgb``: list of ``[h,w,3]`` false-colour crops; ``coords``: ``[N,2]`` (row,col px);
-    ``importance``: ``[N]`` per-crop decision weight. Each crop is downscaled to a ``cell`` block
-    placed on the tissue grid, then the importance heatmap is overlaid -- 'which crop drove the
-    decision', on the real tissue. ``highlight`` outlines the decisive crop.
+    ``importance``: ``[N]`` per-crop decision weight. The crops form the (fully-visible) tissue
+    mosaic; a translucent, smoothly-interpolated jet heatmap of the importance is overlaid at
+    constant ``alpha`` so the tissue always shows through -- 'which region drove the decision'.
+    ``highlight`` outlines the decisive crop.
     """
     c = np.asarray(coords)
-    imp = _norm01(_to_np(importance).reshape(-1))
+    raw_imp = _to_np(importance).reshape(-1)
+    # Rank-normalise so the map is discriminative (uniform 0..1 by rank) even when raw IG values
+    # are bunched -- the decisive crop lands at 1.0 (red), the least relevant at 0 (blue).
+    order = np.argsort(np.argsort(raw_imp)).astype(np.float32)
+    imp = order / max(len(raw_imp) - 1, 1)
     ys = {v: i for i, v in enumerate(sorted(set(c[:, 0].tolist())))}
     xs = {v: i for i, v in enumerate(sorted(set(c[:, 1].tolist())))}
-    H, W = len(ys) * cell, len(xs) * cell
+    nr, nc = len(ys), len(xs)
+    H, W = nr * cell, nc * cell
     bg = np.zeros((H, W, 3), dtype=np.float32)
-    hm = np.zeros((H, W), dtype=np.float32)
-    av = np.zeros((H, W), dtype=np.float32)  # per-crop opacity = importance (glow only where it matters)
+    coarse = np.full((nr, nc), np.nan, dtype=np.float32)  # one importance value per crop
+    present = np.zeros((nr, nc), dtype=np.float32)         # 1 where the crop has real tissue
     for k in range(len(crops_rgb)):
-        r, cc = ys[c[k, 0]] * cell, xs[c[k, 1]] * cell
+        gy, gx = ys[c[k, 0]], xs[c[k, 1]]
         thumb = np.stack([_upsample_nearest(_to_np(crops_rgb[k])[..., ch], (cell, cell))
                           for ch in range(3)], axis=-1)
-        bg[r:r + cell, cc:cc + cell, :] = thumb
-        hm[r:r + cell, cc:cc + cell] = imp[k]
-        av[r:r + cell, cc:cc + cell] = imp[k]
-    fig, ax = plt.subplots(figsize=(7, 7), facecolor="black")
+        bg[gy * cell:gy * cell + cell, gx * cell:gx * cell + cell, :] = thumb
+        coarse[gy, gx] = imp[k]
+        present[gy, gx] = 1.0 if float(np.mean(thumb)) > 0.02 else 0.0
+
+    fig, ax = plt.subplots(figsize=(7.6, 7), facecolor="black")
     ax.imshow(bg, interpolation="nearest")
-    # Opacity follows importance^2.5 so only the decision-driving crops glow; the rest of the
-    # tissue stays visible. magma reads pink/white on the warm cords palette.
-    ax.imshow(hm, cmap="magma", alpha=np.clip(av ** 2.5 * (0.6 + alpha), 0, 1),
-              interpolation="nearest", vmin=0.0, vmax=1.0)
+    # CLAM heatmap: tissue stays FULLY visible; a translucent, smoothly-interpolated importance
+    # field (jet: blue=low -> red=high) is laid over it. Alpha is 0 on empty cells AND cells with
+    # no tissue, so the overlay never washes the background (both arrays interpolate together).
+    filled = np.where(np.isnan(coarse), 0.0, coarse)
+    alpha_arr = (np.where(np.isnan(coarse), 0.0, float(alpha)) * present).astype(np.float32)
+    im = ax.imshow(filled, cmap="jet", vmin=0.0, vmax=1.0, alpha=alpha_arr,
+                   interpolation="bilinear", extent=(0, W, H, 0), aspect="auto", zorder=2)
     if highlight is not None:
         r, cc = ys[c[highlight, 0]] * cell, xs[c[highlight, 1]] * cell
-        ax.add_patch(plt.Rectangle((cc, r), cell, cell, fill=False, edgecolor="cyan", lw=2))
+        ax.add_patch(plt.Rectangle((cc, r), cell, cell, fill=False, edgecolor="white",
+                                   lw=2.5, zorder=3))
+    ax.set_xlim(0, W); ax.set_ylim(H, 0)
     ax.set_xticks([]); ax.set_yticks([])
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+    cbar.set_label("decision importance", color="white", fontsize=9)
+    cbar.ax.yaxis.set_tick_params(color="white")
+    plt.setp(cbar.ax.get_yticklabels(), color="white")
     if title:
         ax.set_title(title, color="white", fontsize=12)
     fig.tight_layout(); fig.savefig(out_path, dpi=200, facecolor="black", bbox_inches="tight")
