@@ -40,22 +40,46 @@ def _drop_nan_labels(meta_df):
 
 
 def build_bags_with_coords(meta_df, class_to_idx):
-    """Like build_image_bags, but also returns each crop's (coords0, coords1) in bag order,
-    so per-crop importance can be placed back on the tissue (CLAM-style heatmap)."""
-    bags, labels, coords = [], [], []
+    """Like build_image_bags, but also returns each crop's (coords0, coords1) and its source
+    (embeddings_file, embedding_idx) in bag order, so per-crop importance can be placed back on
+    the tissue (CLAM heatmap) and the raw input patch reloaded from the h5 for stitching."""
+    bags, labels, coords, srcs = [], [], [], []
     for _img, g in meta_df.groupby("img_path", sort=False):
         raw = g["feature_value"].iloc[0]
         lab = class_to_idx.get(str(raw))
         if lab is None or pd.isna(raw):
             continue
-        rows, crd = [], []
+        rows, crd, ef_list, idx_list = [], [], [], []
         for ef, gg in g.groupby("embeddings_file"):
             rows.append(_load_memmap(ef)[gg["embedding_idx"].values])
             crd.append(gg[["coords0", "coords1"]].values)
+            ef_list += [ef] * len(gg)
+            idx_list += list(gg["embedding_idx"].values)
         bags.append(np.concatenate(rows, axis=0))
         labels.append(lab)
         coords.append(np.concatenate(crd, axis=0))
-    return bags, labels, coords
+        srcs.append((ef_list, np.asarray(idx_list)))
+    return bags, labels, coords, srcs
+
+
+def load_channel0_tiles(ef_list, idx_arr, data_root, channel=0):
+    """Reload each crop's input patch from the source h5 and return its channel-`channel`
+    tile (16×16). `embedding_idx` is the row index into <data_root>/<split>.h5['embeddings']."""
+    import h5py
+
+    tiles = [None] * len(idx_arr)
+    # group indices by split (train/test), derived from the embeddings_file basename
+    by_split: dict[str, list[int]] = {}
+    for k, ef in enumerate(ef_list):
+        base = os.path.basename(ef)
+        split = "train" if "train" in base else ("test" if "test" in base else "train")
+        by_split.setdefault(split, []).append(k)
+    for split, ks in by_split.items():
+        with h5py.File(f"{data_root}/{split}.h5", "r") as f:
+            emb = f["embeddings"]
+            for k in ks:
+                tiles[k] = np.asarray(emb[int(idx_arr[k])][channel], dtype=np.float32)  # [16,16]
+    return tiles
 
 
 def _balance_meta_df(meta_df, min_class_freq=0.05):
@@ -91,7 +115,7 @@ def main(cfg: DictConfig) -> None:
     class_to_idx = {c: i for i, c in enumerate(classes)}
     print(f"[abmil] feature={cfg.feature} (min_class_freq={cfg.min_class_freq}) classes={class_to_idx}")
 
-    bags, labels, coords = build_bags_with_coords(meta, class_to_idx)
+    bags, labels, coords, srcs = build_bags_with_coords(meta, class_to_idx)
     print(f"[abmil] {len(bags)} image bags, emb_dim={bags[0].shape[1]}")
 
     # ── zscore (global approximation of the per-fold cv_train normalisation) ──
@@ -132,6 +156,18 @@ def main(cfg: DictConfig) -> None:
             coords[i], imp, os.path.join(cfg.out_dir, f"spatial_ig_img{i}.png"),
             title=f"img {i} · IG importance (logit {logit:+.2f})",
         )
+        # Stitched PoC: reload channel-0 input tiles from the h5, stitch by coords, overlay importance.
+        if cfg.get("data_root"):
+            ef_list, idx_arr = srcs[i]
+            tiles = load_channel0_tiles(ef_list, idx_arr, cfg.data_root, channel=int(cfg.channel))
+            viz.plot_stitched_importance(
+                tiles, coords[i], a, os.path.join(cfg.out_dir, f"stitch_attn_img{i}.png"),
+                title=f"img {i} · ch{cfg.channel} + attention (logit {logit:+.2f})",
+            )
+            viz.plot_stitched_importance(
+                tiles, coords[i], imp, os.path.join(cfg.out_dir, f"stitch_ig_img{i}.png"),
+                title=f"img {i} · ch{cfg.channel} + IG importance (logit {logit:+.2f})",
+            )
         rows.append({"img": i, "label": int(labels[i]), "logit": logit, "faithfulness": fs["faithfulness"]})
 
     torch.save(rows, os.path.join(cfg.out_dir, "abmil_summary.pt"))

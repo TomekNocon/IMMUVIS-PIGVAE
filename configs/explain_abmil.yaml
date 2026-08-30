@@ -11,3 +11,7 @@ min_class_freq: 0.05      # match the CV binarization (drops classes < this imag
 num_samples: 4            # how many image bags to explain
 n_steps: 50               # IG steps
 out_dir: explain_outputs/abmil
+
+# stitched-crops PoC: reload channel-0 input patches from <data_root>/<split>.h5
+data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords
+channel: 0

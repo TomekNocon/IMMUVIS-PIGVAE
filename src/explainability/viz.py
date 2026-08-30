@@ -118,6 +118,34 @@ def plot_abmil_crops(attention, importance, out_path: str, title: str | None = N
     fig.tight_layout(); fig.savefig(out_path, dpi=150); plt.close(fig)
 
 
+def plot_stitched_importance(tiles, coords, importance, out_path: str, title: str | None = None, tile: int = 16, alpha: float = 0.55) -> None:
+    """Stitch per-crop channel-0 tiles at their coords, overlay per-crop importance (CLAM style).
+
+    Background = the crops' first-channel ``tile×tile`` maps placed on the tissue grid (shows
+    each crop's shape); overlay = the importance heatmap (magma, alpha-blended), so the regions
+    that drive the decision glow. ``tiles``: list of ``[tile, tile]``; ``coords``: ``[N, 2]``
+    (coords0=row, coords1=col); ``importance``: ``[N]``.
+    """
+    c = np.asarray(coords)
+    imp = _to_np(importance).reshape(-1)
+    ys = {v: i for i, v in enumerate(sorted(set(c[:, 0].tolist())))}
+    xs = {v: i for i, v in enumerate(sorted(set(c[:, 1].tolist())))}
+    H, W = len(ys) * tile, len(xs) * tile
+    bg = np.full((H, W), np.nan, dtype=np.float32)
+    hm = np.full((H, W), np.nan, dtype=np.float32)
+    for k in range(len(tiles)):
+        r, cc = ys[c[k, 0]] * tile, xs[c[k, 1]] * tile
+        t = _to_np(tiles[k]).astype(np.float32)
+        bg[r:r + tile, cc:cc + tile] = _norm01(t)      # per-tile normalise -> show shape
+        hm[r:r + tile, cc:cc + tile] = imp[k]
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(np.nan_to_num(bg), cmap="gray", interpolation="nearest")
+    ax.imshow(hm, cmap="magma", alpha=alpha, interpolation="nearest")  # NaN cells stay transparent
+    ax.set_title(title or "stitched crops · importance overlay")
+    ax.set_xticks([]); ax.set_yticks([])
+    fig.tight_layout(); fig.savefig(out_path, dpi=150); plt.close(fig)
+
+
 def plot_crop_importance(coords, importance, out_path: str, title: str | None = None) -> None:
     """Scatter crops at ``coords`` ``[S, 2]`` coloured by per-crop ``importance`` ``[S]``."""
     c = _to_np(coords); imp = _to_np(importance).reshape(-1)
