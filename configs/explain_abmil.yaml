@@ -1,0 +1,12 @@
+# @package _global_
+# Decision-level explainability on a trained gated-ABMIL head (downstream CV fold checkpoint).
+defaults:
+  - _self_
+  - paths: szary
+
+abmil_ckpt: ???           # a saved fold checkpoint from the downstream CV
+meta_dir: ???             # meta_tables/<source_tag> dir (for per-image bag reconstruction)
+feature: DX.name          # which clinical target's head
+num_samples: 4            # how many image bags to explain
+n_steps: 50               # IG steps
+out_dir: explain_outputs/abmil
