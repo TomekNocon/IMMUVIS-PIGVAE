@@ -1,0 +1,3 @@
+[submodule "external/dgi"]
+	path = external/dgi
+	url = https://github.com/PetarV-/DGI.git
