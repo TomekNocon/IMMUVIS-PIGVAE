@@ -193,15 +193,19 @@ class PLGraphAE(L.LightningModule):
             graph=graph, training=False, tau=tau
         )
 
-        if perm is not None:
+        # Only the FIRST validation batch is consumed at epoch end (on_validation_epoch_end reads
+        # validation_step_outputs[0] / perms[0]). Appending every batch kept the whole val set's
+        # graph_pred + graph + graph_emb + soft_probs resident on GPU for the entire epoch, which
+        # OOM'd the wider pca256+z768 model in validation. Keep only batch 0 -> O(1) not O(N).
+        if perm is not None and not self.perms:
             self.perms.append(perm)
-        outputs = {
-            "prediction": graph_pred,
-            "ground_truth": graph,
-            "graph_emb": graph_emb,
-            "soft_probs": soft_probs,
-        }
-        self.validation_step_outputs.append(outputs)
+        if not self.validation_step_outputs:
+            self.validation_step_outputs.append({
+                "prediction": graph_pred,
+                "ground_truth": graph,
+                "graph_emb": graph_emb,
+                "soft_probs": soft_probs,
+            })
         batch_size = graph_pred.node_features.shape[0]
 
         metrics_soft = self.critic.evaluate(
