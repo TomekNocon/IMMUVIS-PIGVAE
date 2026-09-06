@@ -100,12 +100,13 @@ class DGILitModule(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self.mi_loss(batch.node_features, getattr(batch, "mask", None))
-        self.log("train/mi_loss", loss, prog_bar=True)
+        # batch_size is explicit: Lightning can't infer it from the custom DenseGraphBatch.
+        self.log("train/mi_loss", loss, prog_bar=True, batch_size=batch.node_features.shape[0])
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss = self.mi_loss(batch.node_features, getattr(batch, "mask", None))
-        self.log("val/mi_loss", loss, prog_bar=True)
+        self.log("val/mi_loss", loss, prog_bar=True, batch_size=batch.node_features.shape[0])
         return loss
 
     def configure_optimizers(self):
