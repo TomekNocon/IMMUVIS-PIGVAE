@@ -10,7 +10,13 @@ from omegaconf import DictConfig
 # as `python scripts/encode_mil_embeddings.py` (its own dir would otherwise be sys.path[0]).
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from src.downstream.encode import load_frozen_pigvae, build_pca_layer, encode_h5, source_subdir
+from src.downstream.encode import (
+    build_pca_layer,
+    encode_h5,
+    load_frozen_dgi,
+    load_frozen_pigvae,
+    source_subdir,
+)
 
 @hydra.main(version_base=None, config_path="../configs", config_name="downstream/encode")
 def main(cfg: DictConfig) -> None:
@@ -31,6 +37,10 @@ def main(cfg: DictConfig) -> None:
     # no PCA -- skip loading them entirely.
     if feature_source == "raw":
         gae, pca = None, None
+    elif feature_source == "dgi":
+        # DGI baseline: load the frozen DGILitModule (grid adjacency lives inside it); same PCA-128.
+        gae = load_frozen_dgi(cfg.ckpt_path)
+        pca = build_pca_layer(cfg.pca_pkl, cfg.pca_stats)
     else:
         gae = load_frozen_pigvae(cfg.ckpt_path, cfg.model_experiment)
         pca = build_pca_layer(cfg.pca_pkl, cfg.pca_stats)

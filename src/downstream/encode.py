@@ -76,6 +76,22 @@ def load_frozen_pigvae(ckpt_path: str, experiment: str, paths_name: str = "szary
     return gae
 
 
+def load_frozen_dgi(ckpt_path: str) -> torch.nn.Module:
+    """Load a trained DGI baseline checkpoint, frozen and in eval mode.
+
+    Returns the ``DGILitModule`` itself (its ``embed`` gives the mean-readout summary used as the
+    per-crop feature); the fixed grid adjacency travels inside the module, so no experiment config
+    is needed (unlike ``load_frozen_pigvae``).
+    """
+    from src.baselines.dgi.model import DGILitModule
+
+    m = DGILitModule.load_from_checkpoint(ckpt_path, map_location="cpu")
+    m.eval()
+    for p in m.parameters():
+        p.requires_grad_(False)
+    return m
+
+
 def build_pca_layer(pca_path: str, stats_path: str):
     """Construct the frozen, fitted PCALayer used by cords training.
 
@@ -103,11 +119,13 @@ def source_subdir(feature_source: str, node_agg: str = "mean") -> str:
         return "raw"
     if feature_source == "zglobal":
         return "zglobal"
+    if feature_source == "dgi":
+        return "dgi"          # DGI baseline: mean-readout summary (gae must be a DGILitModule)
     if feature_source == "node":
         if node_agg not in ("mean", "flatten"):
             raise ValueError(f"node_agg must be 'mean' or 'flatten', got {node_agg!r}")
         return f"node_{node_agg}"
-    raise ValueError(f"feature_source must be 'raw', 'zglobal', or 'node', got {feature_source!r}")
+    raise ValueError(f"feature_source must be 'raw', 'zglobal', 'dgi', or 'node', got {feature_source!r}")
 
 
 def patch_to_nodes(patch: np.ndarray) -> torch.Tensor:
@@ -169,6 +187,12 @@ def encode_patches(
 
     nodes = torch.stack([patch_to_nodes(p) for p in patches], dim=0).to(device)  # [B,256,768]
     nodes = pca(nodes)                                                           # [B,256,128]
+
+    if feature_source == "dgi":
+        # DGI baseline: `gae` is a DGILitModule; the crop feature is its mean-readout summary.
+        # No DenseGraphBatch / PIGVAE encode -- the fixed grid adjacency lives inside the module.
+        return gae.embed(nodes).detach().cpu().float().numpy()  # [B, n_h]
+
     mask = torch.ones(nodes.shape[0], nodes.shape[1], dtype=torch.bool, device=device)
     batch = DenseGraphBatch(node_features=nodes, edge_features=torch.empty(0), mask=mask)
     z_nodes, z_global, *_ = gae.encode(batch, sample=False)  # z_nodes [B,256,node_z_dim]

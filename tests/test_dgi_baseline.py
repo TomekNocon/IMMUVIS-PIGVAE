@@ -91,3 +91,33 @@ def test_mi_loss_decreases_on_toy():
     for _ in range(50):
         opt.zero_grad(); loss = m.mi_loss(x); loss.backward(); opt.step()
     assert loss.item() < first                  # the contrastive objective actually trains
+
+
+def test_source_subdir_dgi():
+    from src.downstream.encode import source_subdir
+    assert source_subdir("dgi") == "dgi"        # DGI lands in its own mil_embeddings/dgi bundle
+
+
+def test_encode_patches_dgi_returns_summary():
+    # The encode path used by the ABMIL sweep must yield one DGI summary [B, n_h] per crop.
+    from src.downstream.encode import encode_patches
+    torch.manual_seed(0)
+    B, gs, C, n_in, n_h = 3, 16, 768, 128, 512
+    m = DGILitModule(n_in=n_in, n_h=n_h, grid_size=gs).eval()
+    pca = torch.nn.Linear(C, n_in)              # stand-in for the fitted 768->128 PCA
+    patches = np.random.randn(B, C, gs, gs).astype("float32")
+    out = encode_patches(m, pca, patches, "cpu", feature_source="dgi")
+    assert out.shape == (B, n_h)
+
+
+def test_load_frozen_dgi_roundtrip(tmp_path):
+    import lightning
+    from src.downstream.encode import load_frozen_dgi
+    m = DGILitModule(n_in=8, n_h=6, grid_size=4)
+    ckpt = tmp_path / "dgi.ckpt"
+    torch.save({"state_dict": m.state_dict(), "hyper_parameters": dict(m.hparams),
+                "pytorch-lightning_version": lightning.__version__}, ckpt)
+    loaded = load_frozen_dgi(str(ckpt))
+    assert hasattr(loaded, "embed") and not loaded.training      # loaded + eval mode
+    x = torch.randn(2, 16, 8)
+    assert torch.allclose(loaded.embed(x), m.eval().embed(x), atol=1e-5)  # same weights

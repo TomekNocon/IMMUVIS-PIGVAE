@@ -1,0 +1,41 @@
+# @package _global_
+# DGI graph baseline — self-supervised mutual-information objective (Velickovic et al. 2019) on the
+# same IMC crop-graphs, as a contrastive counterpart to PIGVAE's reconstruction. Matched to the
+# best PIGVAE run's input: PCA-128 node features, summary width 512 (= z_global). Single-view
+# (D4 augmentation off): the mean-readout summary is D4-invariant (a grid rotation is an
+# automorphism), so the 8 views are redundant — 1 view is cheaper and exact.
+#
+# Run:
+#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=dgi_pca128 scripts/ablation_slurm.sh
+# Then downstream (encode readout summary -> ABMIL) with feature_source=dgi, source_tag=dgi.
+
+defaults:
+  - override /data: mnist
+  - override /model: dgi
+  - override /trainer: default
+  - _self_
+
+tags: ["baseline", "dgi", "graph_infomax", "pca128", "singleview", "grid16", "h512"]
+
+seed: 42
+
+trainer:
+  max_epochs: 40
+  min_epochs: 1
+
+data:
+  hparams:
+    grid_size: 16
+    size: 16
+    center_crop_size: 16
+    batch_size: 64
+    num_aug_per_sample: 1     # single-view; DGI is D4-invariant so the 8 D4 views are redundant
+
+model:
+  n_h: 512
+
+logger:
+  wandb:
+    group: "baselines"
+    tags: ${tags}
+    name: "dgi-pca128-h512-singleview-40ep"

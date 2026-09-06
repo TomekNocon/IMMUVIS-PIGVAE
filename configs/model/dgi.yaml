@@ -1,0 +1,11 @@
+_target_: "src.baselines.dgi.model.DGILitModule"
+
+# Deep Graph Infomax baseline. n_in = PCA node-feature width (128); n_h = hidden/summary width
+# (512, to match z_global for a like-for-like ABMIL comparison); grid_size drives the fixed grid
+# adjacency built inside the module. The mean-readout summary (DGILitModule.embed) is the
+# per-crop, D4-invariant latent fed to the downstream ABMIL sweep (feature_source=dgi).
+n_in: ${data.hparams.num_pca_components}
+n_h: 512
+grid_size: ${data.hparams.grid_size}
+lr: 0.001
+activation: prelu
