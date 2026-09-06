@@ -23,6 +23,8 @@ seed: 42
 trainer:
   max_epochs: 40
   min_epochs: 1
+  log_every_n_steps: 25     # low so progress is visible early (num_workers=0 is slow: the
+                            # datamodule rebuilds an nx.grid_graph per sample, ~255s/epoch)
 
 data:
   hparams:
