@@ -1,0 +1,30 @@
+# Generic callback set for the DGI baseline. Drops the PIGVAE-specific activation_monitor and
+# permutation_diagnostics (they reach into pl_module.graph_ae / permuter, which DGI has no analog
+# of) and monitors DGI's own `val/mi_loss` instead of `val_loss`.
+defaults:
+  - model_checkpoint
+  - early_stopping
+  - model_summary
+  - rich_progress_bar
+  - learning_rate
+  - _self_
+
+model_checkpoint:
+  dirpath: ${paths.output_dir}/checkpoints
+  filename: "epoch_{epoch:03d}"
+  monitor: "val/mi_loss"
+  mode: "min"
+  save_last: True
+  auto_insert_metric_name: False
+
+early_stopping:
+  monitor: "val/mi_loss"
+  patience: 100
+  mode: "min"
+  check_finite: True
+
+model_summary:
+  max_depth: -1
+
+lr_monitor:
+  logging_interval: step
