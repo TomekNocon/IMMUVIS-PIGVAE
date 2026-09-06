@@ -31,6 +31,7 @@ data:
     center_crop_size: 16
     batch_size: 64
     num_aug_per_sample: 1     # single-view; DGI is D4-invariant so the 8 D4 views are redundant
+    num_workers: 0            # single-process loading: num_workers>0 deadlocked (CUDA-before-fork)
 
 model:
   n_h: 512
