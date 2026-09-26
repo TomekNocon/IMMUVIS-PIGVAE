@@ -16,7 +16,13 @@ import numpy as np
 import torch
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader
 
@@ -195,6 +201,15 @@ def run_cv(bags, labels, num_classes, cfg):
     eval_mask = oof_pred != -1
     oof_accuracy = float(accuracy_score(labels_np[eval_mask], oof_pred[eval_mask]))
     oof_macro_f1 = float(f1_score(labels_np[eval_mask], oof_pred[eval_mask], average="macro"))
+    # Macro precision/recall over the same out-of-fold predictions the macro_f1 uses, so the
+    # three are consistent summaries of one OOF prediction set. zero_division=0: a class the
+    # model never predicts (precision) or that never appears (recall) contributes 0, not a warning.
+    oof_precision = float(
+        precision_score(labels_np[eval_mask], oof_pred[eval_mask], average="macro", zero_division=0)
+    )
+    oof_recall = float(
+        recall_score(labels_np[eval_mask], oof_pred[eval_mask], average="macro", zero_division=0)
+    )
     oof_auc = _auc(labels_np[eval_mask], oof_logits[eval_mask], num_classes)
 
     return {
@@ -203,6 +218,8 @@ def run_cv(bags, labels, num_classes, cfg):
         "fold_auc": fold_auc,
         "oof_accuracy": oof_accuracy,
         "oof_macro_f1": oof_macro_f1,
+        "oof_precision": oof_precision,
+        "oof_recall": oof_recall,
         "oof_auc": oof_auc,
         "oof_predictions": oof_pred[eval_mask],
         "oof_logits": oof_logits[eval_mask],

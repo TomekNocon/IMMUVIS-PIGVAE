@@ -28,7 +28,11 @@ def collect(results_root: str, metric: str = "auc") -> pd.DataFrame:
         source = os.path.basename(os.path.dirname(csv))
         df = pd.read_csv(csv)
         if metric not in df.columns:
-            raise KeyError(f"{csv} has no '{metric}' column (columns: {list(df.columns)})")
+            # A source whose CV predates this metric (e.g. precision/recall added later, or only
+            # some sources re-run) simply has no column -- skip it rather than abort the whole
+            # table, so a partial metric still collects the sources that do have it.
+            print(f"[skip] {source}: no '{metric}' column (columns: {list(df.columns)})")
+            continue
         df = df[["dataset", "feature", metric]].rename(columns={metric: source})
         frames.append(df.set_index(["dataset", "feature"]))
     if not frames:
@@ -44,7 +48,8 @@ def main() -> None:
     ap.add_argument("--run_tag", required=True)
     ap.add_argument("--downstream_root",
                     default="/raid_encrypted/immucan/embeddings/tnocon/downstream")
-    ap.add_argument("--metric", default="auc", choices=["auc", "accuracy", "macro_f1"])
+    ap.add_argument("--metric", default="auc",
+                    choices=["auc", "accuracy", "macro_f1", "precision", "recall"])
     args = ap.parse_args()
 
     results_root = os.path.join(args.downstream_root, args.run_tag, "results")

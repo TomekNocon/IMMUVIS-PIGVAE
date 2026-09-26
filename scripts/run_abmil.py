@@ -156,6 +156,8 @@ def main(cfg: DictConfig) -> None:
                 "cv_auc_mean": float(np.nanmean(out["fold_auc"])),
                 "oof_accuracy": out["oof_accuracy"],
                 "oof_macro_f1": out["oof_macro_f1"],
+                "oof_precision": out["oof_precision"],
+                "oof_recall": out["oof_recall"],
                 "oof_auc": out["oof_auc"],
                 "n_total": len(bags),
             })
@@ -165,8 +167,19 @@ def main(cfg: DictConfig) -> None:
                 "feature": feature,
                 "accuracy": out["oof_accuracy"],
                 "macro_f1": out["oof_macro_f1"],
+                "precision": out["oof_precision"],
+                "recall": out["oof_recall"],
                 "auc": out["oof_auc"],
             })
+
+            # Persist the raw OOF predictions so any further metric never needs a CV re-run.
+            np.savez(
+                os.path.join(fold_results_dir, "oof_predictions.npz"),
+                ground_truth=out["oof_ground_truth"],
+                predictions=out["oof_predictions"],
+                logits=out["oof_logits"],
+                classes=np.array(classes, dtype=object),
+            )
 
             _flush()
 
