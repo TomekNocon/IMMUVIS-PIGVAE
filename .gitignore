@@ -171,3 +171,7 @@ wandb/
 outputs/
 # Claude Code machine-local settings (personal permission allowlist)
 .claude/settings.local.json
+
+# generated outputs
+/thesis_figures/
+/explain_outputs/
