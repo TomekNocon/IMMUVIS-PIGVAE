@@ -171,3 +171,6 @@ wandb/
 outputs/
 # Claude Code machine-local settings (personal permission allowlist)
 .claude/settings.local.json
+.claude/
+.cursor/
+.superpowers/
