@@ -1,6 +1,6 @@
 # @package _global_
-# Spatial ablation — Condition A: baseline (CLS + stats only, no spatial modules)
-# Run: python src/train.py experiment=ablation_spatial_A logger=wandb trainer=gpu paths=szary
+# Spatial ablation — Condition C: CLS + stats + Laplacian spectrum (global structure)
+# Run: python src/train.py experiment=ablation/spatial/spectrum logger=wandb trainer=gpu paths=szary
 
 defaults:
   - override /data: imc
@@ -8,7 +8,7 @@ defaults:
   - override /trainer: default
   - _self_
 
-tags: ["spatial_ablation", "condition_A", "no_spatial"]
+tags: ["spatial_ablation", "condition_C", "spectrum"]
 
 seed: 42
 
@@ -23,11 +23,12 @@ model:
       encoder:
         use_hadamard: false
         use_mlp_edges: false
-        use_spectrum: false
+        use_spectrum: true
+        n_spectral: 8
         use_pma: false
       permuter:
         turn_off: true
-        curriculum_epoch: 100   # never switches — oracle throughout all 40 epochs
+        curriculum_epoch: 100
   optimizer:
     lr: 0.0003
   scheduler:
@@ -35,6 +36,6 @@ model:
 
 logger:
   wandb:
-    group: "spatial_ablation_v2"
+    group: "spatial_ablation"
     tags: ${tags}
-    name: "A-no_spatial-normed"
+    name: "C-spectrum"

@@ -1,7 +1,7 @@
 # @package _global_
-# VAE 16x16, follow-up to vae16_lowkl — attack the back-half overfitting / memorization.
+# VAE 16x16, follow-up to ablation/kl/free_bits_0.5 — attack the back-half overfitting / memorization.
 #
-# vae16_lowkl (z32, scale 0.01) reached an excellent val_mse 0.026 at ep12, then
+# ablation/kl/free_bits_0.5 (z32, scale 0.01) reached an excellent val_mse 0.026 at ep12, then
 # MEMORISED the train set: val_mse climbed 0.026 -> 0.071 by ep39 (2.7x) while train
 # mse stayed flat ~0.033. Diagnosis (wandb jtscgh92): overfitting, NOT over-regularisation
 # (val kept rising at constant alpha=1 / flat val_kld 0.374), driven by a capacity-vs-
@@ -13,12 +13,12 @@
 # The KL scale 0.01 (tuned to not over-regularise the 1152-dim 6x6 latent) is too weak to
 # restrain the 8192-dim 16x16 latent.
 #
-# Two changes vs vae16_lowkl, both shrinking the memorisation surface / strengthening reg:
+# Two changes vs ablation/kl/free_bits_0.5, both shrinking the memorisation surface / strengthening reg:
 #   1. node_z_dim 32 -> 16   : latent 8192 -> 4096 dims. 256 nodes almost certainly don't
 #      need 32/node; cuts the memorisation surface in half.
 #   2. kld_loss_scale 0.01 -> 0.02 : ~2x stronger prior pressure — a native VAE regulariser
 #      to push the val optimum later and flatten the overfit collapse.
-# Everything else identical to vae16_lowkl: grid 16, PCA 128, free_bits 0.5, FiLM/RoPE off,
+# Everything else identical to ablation/kl/free_bits_0.5: grid 16, PCA 128, free_bits 0.5, FiLM/RoPE off,
 # permuter dormant, KL anneal start_epoch 5 + num_epochs max_epochs/2 (the v2 timing that
 # removed the onset spike), batch 8, 40 epochs.
 #

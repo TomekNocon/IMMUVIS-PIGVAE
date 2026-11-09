@@ -18,8 +18,8 @@ cd "$PROJECT_DIR"
 WALLTIME="${WALLTIME:-12:00:00}"
 
 EXPERIMENTS=(
-  vae16_s0p03    # scale 0.03  (3x more KL pressure)
-  vae16_s0p001   # scale 0.001 (10x less KL pressure)
+  ablation/kl/scale_3e-2    # scale 0.03  (3x more KL pressure)
+  ablation/kl/scale_1e-3   # scale 0.001 (10x less KL pressure)
 )
 
 echo "Submitting scale sweep (walltime $WALLTIME):"

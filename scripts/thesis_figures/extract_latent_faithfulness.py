@@ -67,7 +67,7 @@ for f, (tr, va) in enumerate(folds):
 Dz = bags[0].shape[1]
 print(f"{len(bags)} bags, classes {classes}, z_global dim {Dz}", flush=True)
 
-gae = load_frozen_pigvae(CKPT, "vae16_fb0p0_film").to(dev).eval(); gae.requires_grad_(False)
+gae = load_frozen_pigvae(CKPT, "pigvae").to(dev).eval(); gae.requires_grad_(False)
 pca = joblib.load(f"{D_}/pca_model_128_center_crop_16.pkl")
 V = torch.tensor(pca.components_, dtype=torch.float32, device=dev); pm = torch.tensor(pca.mean_, dtype=torch.float32, device=dev)
 h5 = {s: h5py.File(f"{D_}/{s}.h5", "r") for s in ["train", "test"]}

@@ -6,7 +6,7 @@
 # automorphism), so the 8 views are redundant — 1 view is cheaper and exact.
 #
 # Run:
-#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=dgi_pca128 scripts/ablation_slurm.sh
+#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=baseline/dgi scripts/ablation_slurm.sh
 # Then downstream (encode readout summary -> ABMIL) with feature_source=dgi, source_tag=dgi.
 
 defaults:

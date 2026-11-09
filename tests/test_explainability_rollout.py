@@ -5,7 +5,7 @@ from src.explainability.rollout import attention_rollout, capture_attention
 
 
 def test_capture_attention_collects_encoder_layers():
-    gae = _build_pl_module("vae16_fb0p0_film").graph_ae.eval()
+    gae = _build_pl_module("pigvae").graph_ae.eval()
     from src.data.components.graphs_datamodules import DenseGraphBatch
 
     nf = torch.randn(1, 256, 128)
@@ -19,7 +19,7 @@ def test_capture_attention_collects_encoder_layers():
 
 def test_attention_rollout_shape_and_valid():
     torch.manual_seed(0)
-    gae = _build_pl_module("vae16_fb0p0_film").graph_ae.eval()
+    gae = _build_pl_module("pigvae").graph_ae.eval()
     nf = torch.randn(2, 256, 128)
     imp = attention_rollout(gae, nf)
     assert imp.shape == (2, 256)  # per content-node importance

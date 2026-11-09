@@ -10,7 +10,7 @@ defaults:
   - model: model
   - trainer: default
   - paths: szary
-  - experiment: vae16_fb0p0_film     # builds the 81zasevr PIGVAE arch
+  - experiment: pigvae     # builds the 81zasevr PIGVAE arch
 
 # --- checkpoints ---
 pigvae_ckpt: ???        # PIGVAE last.ckpt (81zasevr)

@@ -1,7 +1,7 @@
 # @package _global_
 # free_bits sweep @ 16x16, point 3/3: free_bits 0.0 (a VANILLA VAE — every KL nat penalised).
 #
-# IDENTICAL to vae16_lowkl (jtscgh92) EXCEPT kld_free_bits. Single-knob A/B/C:
+# IDENTICAL to ablation/kl/free_bits_0.5 (jtscgh92) EXCEPT kld_free_bits. Single-knob A/B/C:
 #   jtscgh92 fb 0.5 (overfit, anchor) -> fb 0.2 -> fb 0.1 -> [this] fb 0.0.
 # fb 0.0 disables the free-bits dead zone entirely (KLDLoss skips the relu branch) -> maximum
 # prior pressure for this scale. This is the textbook VAE; it is the strong end of the sweep and
@@ -13,7 +13,7 @@
 # val_mse uniformly worse (the vae6 / 6x6 fb0 failure mode — though that was at scale 0.05).
 #
 # Run (or via scripts/run_fb_sweep.sh):
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_fb0p0 scripts/ablation_slurm.sh
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/film/no_film scripts/ablation_slurm.sh
 
 defaults:
   - override /data: imc

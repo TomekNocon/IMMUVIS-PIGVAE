@@ -1,6 +1,6 @@
 # @package _global_
 # Explainability entrypoint config (mirrors train.yaml's compose). Run e.g.:
-#   uv run scripts/explain_model.py experiment=vae16_fb0p0_film \
+#   uv run scripts/explain_model.py experiment=pigvae \
 #     ckpt_path=/raid_.../last.ckpt method=encoder_ig target=0 paths=szary
 defaults:
   - _self_

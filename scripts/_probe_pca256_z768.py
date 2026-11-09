@@ -15,7 +15,7 @@ OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y))
 with initialize(version_base="1.3", config_path="../configs"):
     cfg = compose(
         config_name="train",
-        overrides=["experiment=vae16_fb0p0_film_pca256_z768", "trainer=gpu", "paths=szary"],
+        overrides=["experiment=ablation/input_width/pca256_zg768", "trainer=gpu", "paths=szary"],
     )
 
 # Instantiate datamodule + model. Do NOT call dm.setup() by hand — the PCA-256 model

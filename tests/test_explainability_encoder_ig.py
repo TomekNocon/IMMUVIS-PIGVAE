@@ -5,8 +5,8 @@ from src.explainability.encoder_attribution import encoder_ig, pca_to_markers
 
 
 def _small_encoder():
-    # vae16_fb0p0_film: grid 16 -> 256 nodes, pca128 -> F=128, z_global width 512.
-    return _build_pl_module("vae16_fb0p0_film").graph_ae.eval()
+    # pigvae: grid 16 -> 256 nodes, pca128 -> F=128, z_global width 512.
+    return _build_pl_module("pigvae").graph_ae.eval()
 
 
 def test_encoder_ig_shape_and_finite():

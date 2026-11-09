@@ -1,7 +1,7 @@
 # @package _global_
 # kld_loss_scale sweep @ 16x16, on the fb0.0 substrate — point LOW: scale 0.001 (10x less KL pressure).
 #
-# IDENTICAL to vae16_fb0p0 (iaktnnux, the best substrate so far) EXCEPT kld_loss_scale.
+# IDENTICAL to ablation/film/no_film (iaktnnux, the best substrate so far) EXCEPT kld_loss_scale.
 # Single-knob scale bracket around the current 0.01:  [this] s0.001 <- [s0.01 = iaktnnux] -> s0.03.
 # free_bits stays 0.0 (no dead zone) so scale multiplies the FULL KL -> a clean prior-pressure axis.
 #
@@ -19,7 +19,7 @@
 # [[kl-regularization]] and [[exp-2026-06-24-vae16-overfit-mechanism]].
 #
 # Run (or via scripts/run_scale_sweep.sh):
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_s0p001 scripts/ablation_slurm.sh
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/kl/scale_1e-3 scripts/ablation_slurm.sh
 
 defaults:
   - override /data: imc

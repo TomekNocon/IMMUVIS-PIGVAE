@@ -12,7 +12,7 @@ set -e
 # CPU-only (no --gres=gpu) so it runs alongside a training job instead of queueing for the GPU.
 #
 # Run:
-#   sbatch --export=ALL,EXPERIMENT=vae16_fb0p0_film,CKPT=/raid_.../last.ckpt,METHOD=encoder_ig \
+#   sbatch --export=ALL,EXPERIMENT=pigvae,CKPT=/raid_.../last.ckpt,METHOD=encoder_ig \
 #          scripts/explain_slurm.sh
 # Optional overrides via --export: TARGET (default 0), NSTEPS (50), NSAMPLES (8), SPLIT (val),
 # OUTDIR (default explain_outputs/<METHOD>). METHOD: encoder_ig | rollout.
@@ -24,7 +24,7 @@ mkdir -p logs/slurm
 
 if [ -z "$EXPERIMENT" ] || [ -z "$CKPT" ]; then
   echo "ERROR: set EXPERIMENT and CKPT, e.g.:"
-  echo "  sbatch --export=ALL,EXPERIMENT=vae16_fb0p0_film,CKPT=/raid_.../last.ckpt,METHOD=encoder_ig scripts/explain_slurm.sh"
+  echo "  sbatch --export=ALL,EXPERIMENT=pigvae,CKPT=/raid_.../last.ckpt,METHOD=encoder_ig scripts/explain_slurm.sh"
   exit 1
 fi
 METHOD=${METHOD:-encoder_ig}

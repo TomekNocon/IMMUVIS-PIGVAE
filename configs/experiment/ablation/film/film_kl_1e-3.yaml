@@ -1,5 +1,5 @@
 # @package _global_
-# FiLM DIAGNOSTIC, more-AE point (scale 0.001). Clone of vae16_s0p001 with FiLM ON.
+# FiLM DIAGNOSTIC, more-AE point (scale 0.001). Clone of ablation/kl/scale_1e-3 with FiLM ON.
 #
 # Motivation: the feature-source sweep showed raw-768 mean-pool >= z_global >= node latent on every
 # downstream target. z_global gets ZERO reconstruction gradient (decoder use_film:false), so it is a
@@ -9,12 +9,12 @@
 # reconstruction closes ANY of the gap — the objective (reconstruction, not discriminability) is
 # unchanged. See the contrastive branch for the actual bet.
 #
-# IDENTICAL to vae16_s0p001 EXCEPT decoder FiLM turned on with the STABLE recipe from
+# IDENTICAL to ablation/kl/scale_1e-3 EXCEPT decoder FiLM turned on with the STABLE recipe from
 # film_pca192_stable (plain FiLM once inflated decoder max_abs ~271; film_bound tanh-bounds gamma,beta):
 #   use_film: true, film_bound: true, film_weight_decay: 0.05.
 #
 # Run:
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_s0p001_film scripts/ablation_slurm.sh
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/film/film_kl_1e-3 scripts/ablation_slurm.sh
 
 defaults:
   - override /data: imc

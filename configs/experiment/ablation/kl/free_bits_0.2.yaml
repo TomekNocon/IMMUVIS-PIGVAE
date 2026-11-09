@@ -1,18 +1,19 @@
 # @package _global_
-# free_bits sweep @ 16x16, point 2/3: free_bits 0.1 (the PRIMARY recommendation).
+# free_bits sweep @ 16x16, point 1/3: free_bits 0.2 (gentle increase in prior pressure).
 #
-# IDENTICAL to vae16_lowkl (jtscgh92) EXCEPT kld_free_bits. Single-knob A/B/C:
-#   jtscgh92 fb 0.5 (overfit, anchor) -> fb 0.2 -> [this] fb 0.1 -> fb 0.0 (vanilla VAE).
-# 0.1 leaves 8192 x 0.1 = ~820 free nats (vs 4096 at fb 0.5) -> the latent must pay for capacity
-# beyond that, so it compresses to the genuinely-useful amount: sigma up, mu_std down, training
-# clouds overlap, decoder forced to interpolate instead of memorise.
-# See research-ml [[exp-2026-06-24-vae16-overfit-mechanism]].
+# IDENTICAL to ablation/kl/free_bits_0.5 (jtscgh92) EXCEPT kld_free_bits. Single-knob A/B/C:
+#   jtscgh92 fb 0.5 (overfit, anchor) -> [this] fb 0.2 -> fb 0.1 -> fb 0.0 (vanilla VAE).
+# Rationale (see research-ml [[exp-2026-06-24-vae16-overfit-mechanism]]): jtscgh92 memorised
+# because the bottleneck was too loose -- fb 0.5 x 8192 dims = 4096 free, unpenalised nats, and
+# sigma (0.41) was too small vs code spacing mu_std (0.82) so the training "clouds" didn't overlap.
+# Lowering free_bits raises sigma + pulls mu_std down -> clouds overlap -> decoder forced to
+# interpolate instead of memorise. This is the gentlest step (lowest collapse risk).
 #
-# Watch: val_mse minimum should HOLD to ep39 (not climb to 0.07); train<->val gap shrinks.
+# Watch: val_mse minimum should HOLD to ep39 (not climb to 0.07); sigma up / mu_std down.
 # Collapse guardrail: active_dims stays a large fraction of 8192, kld_per_dim_median not -> ~0.
 #
 # Run (or via scripts/run_fb_sweep.sh):
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_fb0p1 scripts/ablation_slurm.sh
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/kl/free_bits_0.2 scripts/ablation_slurm.sh
 
 defaults:
   - override /data: imc
@@ -50,7 +51,7 @@ model:
   critic:
     hparams:
       kld_loss_scale: 0.01   # unchanged from jtscgh92
-      kld_free_bits: 0.1     # was 0.5 — the only knob that varies across the sweep
+      kld_free_bits: 0.2     # was 0.5 — the only knob that varies across the sweep
   kld_alpha_scheduler:
     hparams:
       start_epoch: 5                              # v2 timing (no onset spike)
@@ -60,4 +61,4 @@ logger:
   wandb:
     group: "full_res"
     tags: ${tags}
-    name: "vae16-fb0.1-s0.01-start5-40ep"
+    name: "vae16-fb0.2-s0.01-start5-40ep"

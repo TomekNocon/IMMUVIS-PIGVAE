@@ -16,9 +16,9 @@ cd "$PROJECT_DIR"
 
 mkdir -p logs/slurm
 
-# Pass experiment name via: --export=ALL,EXPERIMENT=ablation_spatial_A
+# Pass experiment name via: --export=ALL,EXPERIMENT=ablation/spatial/none
 if [ -z "$EXPERIMENT" ]; then
-    echo "ERROR: EXPERIMENT env var not set. Use: sbatch --export=ALL,EXPERIMENT=ablation_spatial_A scripts/ablation_slurm.sh"
+    echo "ERROR: EXPERIMENT env var not set. Use: sbatch --export=ALL,EXPERIMENT=ablation/spatial/none scripts/ablation_slurm.sh"
     exit 1
 fi
 

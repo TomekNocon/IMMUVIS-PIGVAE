@@ -42,10 +42,10 @@ def test_e2e_encode_to_abmil(tmp_path):
         f["positions"] = np.random.rand(n, 4).astype("float32")
 
     # --- Step 2: tiny (untrained) checkpoint + stub PCA, encode_h5 with ragged batches ---
-    pl_module = _build_pl_module("vae16_fb0p0")
+    pl_module = _build_pl_module("ablation/film/no_film")
     ckpt_path = tmp_path / "tiny.ckpt"
     torch.save({"state_dict": pl_module.state_dict()}, ckpt_path)
-    gae = load_frozen_pigvae(str(ckpt_path), "vae16_fb0p0")
+    gae = load_frozen_pigvae(str(ckpt_path), "ablation/film/no_film")
 
     out_emb = tmp_path / "e.npy"
     out_meta = tmp_path / "m.csv"

@@ -1,6 +1,6 @@
 # @package _global_
-# FiLM DIAGNOSTIC, more-VAE point (scale 0.01, free_bits 0.0 = vanilla VAE). Clone of vae16_fb0p0
-# with FiLM ON. Pair of vae16_s0p001_film — the two rebuild the AE<->VAE spectrum, now both FiLM-on.
+# FiLM DIAGNOSTIC, more-VAE point (scale 0.01, free_bits 0.0 = vanilla VAE). Clone of ablation/film/no_film
+# with FiLM ON. Pair of ablation/film/film_kl_1e-3 — the two rebuild the AE<->VAE spectrum, now both FiLM-on.
 #
 # Motivation: the feature-source sweep showed raw-768 mean-pool >= z_global >= node latent on every
 # downstream target. z_global gets ZERO reconstruction gradient (decoder use_film:false), so it is a
@@ -9,12 +9,12 @@
 # gradient and still lost to raw): it tests only whether routing z_global through reconstruction closes
 # ANY of the gap. The objective stays reconstruction, not discriminability.
 #
-# IDENTICAL to vae16_fb0p0 EXCEPT decoder FiLM turned on with the STABLE recipe from
+# IDENTICAL to ablation/film/no_film EXCEPT decoder FiLM turned on with the STABLE recipe from
 # film_pca192_stable (plain FiLM once inflated decoder max_abs ~271; film_bound tanh-bounds gamma,beta):
 #   use_film: true, film_bound: true, film_weight_decay: 0.05.
 #
 # Run:
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=vae16_fb0p0_film scripts/ablation_slurm.sh
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=pigvae scripts/ablation_slurm.sh
 
 defaults:
   - override /data: imc

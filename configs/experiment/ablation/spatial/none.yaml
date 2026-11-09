@@ -1,6 +1,6 @@
 # @package _global_
-# Spatial ablation — Condition B: CLS + stats + MLP edges (1-hop adjacency)
-# Run: python src/train.py experiment=ablation_spatial_B logger=wandb trainer=gpu paths=szary
+# Spatial ablation — Condition A: baseline (CLS + stats only, no spatial modules)
+# Run: python src/train.py experiment=ablation/spatial/none logger=wandb trainer=gpu paths=szary
 
 defaults:
   - override /data: imc
@@ -8,7 +8,7 @@ defaults:
   - override /trainer: default
   - _self_
 
-tags: ["spatial_ablation", "condition_B", "mlp_edges"]
+tags: ["spatial_ablation", "condition_A", "no_spatial"]
 
 seed: 42
 
@@ -22,12 +22,12 @@ model:
       dropout: 0.10
       encoder:
         use_hadamard: false
-        use_mlp_edges: true
+        use_mlp_edges: false
         use_spectrum: false
         use_pma: false
       permuter:
         turn_off: true
-        curriculum_epoch: 100
+        curriculum_epoch: 100   # never switches — oracle throughout all 40 epochs
   optimizer:
     lr: 0.0003
   scheduler:
@@ -35,6 +35,6 @@ model:
 
 logger:
   wandb:
-    group: "spatial_ablation"
+    group: "spatial_ablation_v2"
     tags: ${tags}
-    name: "B-mlp_edges"
+    name: "A-no_spatial-normed"

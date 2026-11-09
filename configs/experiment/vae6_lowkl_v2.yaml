@@ -1,7 +1,7 @@
 # @package _global_
-# VAE 6x6, follow-up to vae6_lowkl — smooth the KL-onset to kill the ep3 overshoot.
+# VAE 6x6, follow-up to ablation/resolution/grid6 — smooth the KL-onset to kill the ep3 overshoot.
 #
-# vae6_lowkl was healthy (val_mse 0.040, all 1152 latent dims active) but had a
+# ablation/resolution/grid6 was healthy (val_mse 0.040, all 1152 latent dims active) but had a
 # one-epoch transient at ep3: val_mse spiked 0.036 -> 0.167 and val_kld crashed
 # 1.83 -> 0.277, then self-healed by ep5. Root cause = a SCHEDULE COLLISION:
 #   - LR warmup (`scheduler.warmup: 0.05`) ramps to peak over ~5% of steps ≈ ep3,
@@ -10,7 +10,7 @@
 #
 # Fix here: change ONLY the alpha *timing* (recon settles first, KL bites after the
 # LR-warmup transient, with smaller per-epoch steps). Everything that made
-# vae6_lowkl healthy is unchanged: scale 0.01, free_bits 0.5, LR 7e-4, cosine.
+# ablation/resolution/grid6 healthy is unchanged: scale 0.01, free_bits 0.5, LR 7e-4, cosine.
 #   - kld_alpha_scheduler.start_epoch: 5   (was the dead default 0 — the scheduler
 #     now honours start_epoch; previously it was read from config but ignored.)
 #     Holds alpha=0 through the LR-warmup peak (~ep3); KL onset no longer collides.
@@ -18,7 +18,7 @@
 #     ~0.033/epoch instead of ~0.05, so each KL step is a smaller perturbation.
 #
 # Watch: the ep3 region should be smooth now (no val_mse spike / kld crash); final
-# latent health should match vae6_lowkl (std_mean ~0.38, active 1152/1152, kld/dim ~0.83).
+# latent health should match ablation/resolution/grid6 (std_mean ~0.38, active 1152/1152, kld/dim ~0.83).
 # If a residual bump remains, the next lever is a longer LR warmup (0.05 -> 0.10) or
 # step-based alpha annealing; LR magnitude (7e-4) is fine — the issue was timing.
 #
@@ -49,8 +49,8 @@ model:
       node_z_dim: 32
   critic:
     hparams:
-      kld_loss_scale: 0.01   # unchanged from vae6_lowkl
-      kld_free_bits: 0.5     # unchanged from vae6_lowkl
+      kld_loss_scale: 0.01   # unchanged from ablation/resolution/grid6
+      kld_free_bits: 0.5     # unchanged from ablation/resolution/grid6
   kld_alpha_scheduler:
     hparams:
       start_epoch: 5                              # delay KL onset past the LR-warmup peak (~ep3)

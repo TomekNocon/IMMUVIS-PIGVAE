@@ -18,7 +18,7 @@ from src.data.components.graphs_datamodules import DenseGraphBatch
 D = "/raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords"
 ap = argparse.ArgumentParser()
 ap.add_argument("--ckpt", default="/raid_encrypted/immucan/embeddings/tnocon/logs/train/runs/2026-07-31_10-29-22/checkpoints/last.ckpt")
-ap.add_argument("--experiment", default="vae16_fb0p0_film")
+ap.add_argument("--experiment", default="pigvae")
 ap.add_argument("--bs", type=int, default=64)
 ap.add_argument("--out", default="thesis_figures/_cache/recon_error_81zasevr.npz")
 a = ap.parse_args()

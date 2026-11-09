@@ -1,6 +1,6 @@
 # @package _global_
 # Spatial ablation — Condition D: CLS + stats + MLP edges + spectrum (full spatial)
-# Run: python src/train.py experiment=ablation_spatial_D logger=wandb trainer=gpu paths=szary
+# Run: python src/train.py experiment=ablation/spatial/edges_spectrum logger=wandb trainer=gpu paths=szary
 
 defaults:
   - override /data: imc

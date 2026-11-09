@@ -6,7 +6,7 @@ defaults:
   - _self_
 
 ckpt_path: ???
-model_experiment: vae16_fb0p0 # experiment config the checkpoint was trained with (not `experiment`: clashes with the Hydra group)
+model_experiment: ablation/film/no_film # experiment config the checkpoint was trained with (not `experiment`: clashes with the Hydra group)
 
 data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords
 pca_pkl: ${data_root}/pca_model_128_center_crop_16.pkl

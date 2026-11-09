@@ -2,7 +2,7 @@
 # free_bits sweep @ 16x16 — queue all 3 runs on SLURM in one go.
 #
 # Single-knob sweep (only kld_free_bits varies): 0.2 -> 0.1 -> 0.0, all else identical to
-# vae16_lowkl (jtscgh92, fb 0.5 = the existing loose-end anchor). Tests the hypothesis that the
+# ablation/kl/free_bits_0.5 (jtscgh92, fb 0.5 = the existing loose-end anchor). Tests the hypothesis that the
 # 16x16 back-half memorisation is a too-loose bottleneck, fixable with prior pressure (not by
 # cutting node_z_dim). See research-ml exp-2026-06-24-vae16-overfit-mechanism.
 #
@@ -21,9 +21,9 @@ cd "$PROJECT_DIR"
 WALLTIME="${WALLTIME:-12:00:00}"
 
 EXPERIMENTS=(
-  vae16_fb0p2   # free_bits 0.2
-  vae16_fb0p1   # free_bits 0.1  (primary)
-  vae16_fb0p0   # free_bits 0.0  (vanilla VAE)
+  ablation/kl/free_bits_0.2   # free_bits 0.2
+  ablation/kl/free_bits_0.1   # free_bits 0.1  (primary)
+  ablation/film/no_film   # free_bits 0.0  (vanilla VAE)
 )
 
 echo "Submitting free_bits sweep (walltime $WALLTIME):"

@@ -1,5 +1,5 @@
 # @package _global_
-# BATCH-64 sibling of vae16_fb0p0_film_pca256_z768 — same two knobs (PCA-256 + z_global-768),
+# BATCH-64 sibling of ablation/input_width/pca256_zg768 — same two knobs (PCA-256 + z_global-768),
 # but the batch is 64 DISTINCT images with the D4 augmentation OFF (num_aug_per_sample: 1),
 # instead of 8 images x 8 D4 views.
 #
@@ -11,7 +11,7 @@
 # The raw-768 baseline is recipe-independent, so "does z_global clear raw" stays a valid comparison.
 #
 # Run:
-#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=vae16_fb0p0_film_pca256_z768_b64 scripts/ablation_slurm.sh
+#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=ablation/input_width/pca256_zg768_single_view scripts/ablation_slurm.sh
 
 defaults:
   - override /data: imc

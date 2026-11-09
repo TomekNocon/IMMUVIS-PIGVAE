@@ -77,7 +77,7 @@ print("classes", classes, "picked", [(groups[i].img_path.iloc[0], classes[y[i]],
 imm, (miss, unexp) = ie.load_immuvis_refactored(device=dev); imm.requires_grad_(False)
 print("ImmuVis load missing/unexpected:", len(miss), len(unexp), flush=True)
 cids, mnames = ie.dataset_channel_ids("cords"); cids = cids.to(dev)
-gae = load_frozen_pigvae(CKPT, "vae16_fb0p0_film").to(dev)
+gae = load_frozen_pigvae(CKPT, "pigvae").to(dev)
 pca = joblib.load(f"{D}/pca_model_128_center_crop_16.pkl")
 V = torch.tensor(pca.components_, dtype=torch.float32, device=dev); pm = torch.tensor(pca.mean_, dtype=torch.float32, device=dev)
 h5 = {s: h5py.File(f"{D}/{s}.h5", "r") for s in ["train", "test"]}

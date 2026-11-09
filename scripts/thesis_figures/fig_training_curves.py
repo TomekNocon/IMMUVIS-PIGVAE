@@ -1,5 +1,5 @@
 """Thesis figure (Sec. 5.x, open item 13): training curves of the reference experiment
-vae16_fb0p0_film (wandb run 81zasevr, "vae16-fb0.0-s0.01-FILM-start5-40ep").
+pigvae (wandb run 81zasevr, "vae16-fb0.0-s0.01-FILM-start5-40ep").
 
 (a) reconstruction term by optimiser step (log), train every 250 steps, val once per epoch
 (b) reconstruction term vs validation KL per epoch: the exchange along the alpha ramp
@@ -19,7 +19,7 @@ plt.rcParams.update({"font.family": "serif", "font.size": 7.2, "mathtext.fontset
                      "axes.linewidth": 0.6, "xtick.major.width": 0.6, "ytick.major.width": 0.6,
                      "axes.spines.top": False, "axes.spines.right": False})
 KL_SCALE, SPE = 0.01, 5000          # kld_loss_scale of the run; optimiser steps per epoch
-EXP, RUN, NAME = "vae16_fb0p0_film", "81zasevr", "vae16-fb0.0-s0.01-FILM-start5-40ep"
+EXP, RUN, NAME = "pigvae", "81zasevr", "vae16-fb0.0-s0.01-FILM-start5-40ep"
 
 
 def load():

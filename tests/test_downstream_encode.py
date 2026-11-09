@@ -10,7 +10,7 @@ def _build_tiny_graph_ae(tmp_path):
     (as opposed to e.g. silently keeping a randomly-initialized module).
     """
     from src.downstream.encode import _build_pl_module  # helper Task A1 exposes
-    pl = _build_pl_module(experiment="vae16_fb0p0", paths_name="szary")
+    pl = _build_pl_module(experiment="ablation/film/no_film", paths_name="szary")
     param_name, param = next(iter(pl.graph_ae.named_parameters()))
     with torch.no_grad():
         param.fill_(12345.0)
@@ -26,7 +26,7 @@ def _build_tiny_graph_ae(tmp_path):
 def test_load_frozen_pigvae_returns_eval_graph_ae(tmp_path):
     from src.downstream.encode import load_frozen_pigvae
     ckpt, param_name, marker_value = _build_tiny_graph_ae(tmp_path)
-    gae = load_frozen_pigvae(ckpt, experiment="vae16_fb0p0")
+    gae = load_frozen_pigvae(ckpt, experiment="ablation/film/no_film")
     assert not gae.training                                        # eval mode
     assert all(not p.requires_grad for p in gae.parameters())      # weights frozen
     assert any(p.numel() > 0 for p in gae.parameters())            # weights present
@@ -65,8 +65,8 @@ def test_encode_patches_deterministic_and_batch_agnostic(tmp_path):
     # reuse the tiny ckpt + a stub PCALayer that just linearly maps 768->128
     class StubPCA:
         def __call__(self, x): return x[..., :128]
-    pl = _build_pl_module("vae16_fb0p0"); ckpt = tmp_path/"c.ckpt"; torch.save({"state_dict": pl.state_dict()}, ckpt)
-    gae = load_frozen_pigvae(str(ckpt), "vae16_fb0p0")
+    pl = _build_pl_module("ablation/film/no_film"); ckpt = tmp_path/"c.ckpt"; torch.save({"state_dict": pl.state_dict()}, ckpt)
+    gae = load_frozen_pigvae(str(ckpt), "ablation/film/no_film")
     patches = np.random.randn(5, 768, 16, 16).astype("float32")
     z1 = encode_patches(gae, StubPCA(), patches, device="cpu")
     z2 = encode_patches(gae, StubPCA(), patches, device="cpu")
@@ -103,9 +103,9 @@ def test_encode_patches_node_agg_shapes(tmp_path):
     from src.downstream.encode import load_frozen_pigvae, encode_patches, _build_pl_module
     class StubPCA:
         def __call__(self, x): return x[..., :128]
-    pl = _build_pl_module("vae16_fb0p0"); ckpt = tmp_path / "c.ckpt"
+    pl = _build_pl_module("ablation/film/no_film"); ckpt = tmp_path / "c.ckpt"
     torch.save({"state_dict": pl.state_dict()}, ckpt)
-    gae = load_frozen_pigvae(str(ckpt), "vae16_fb0p0")
+    gae = load_frozen_pigvae(str(ckpt), "ablation/film/no_film")
     patches = np.random.randn(3, 768, 16, 16).astype("float32")
 
     z_glob = encode_patches(gae, StubPCA(), patches, device="cpu", feature_source="zglobal")
@@ -141,8 +141,8 @@ def test_encode_h5_alignment(tmp_path):
         f["embeddings"] = np.random.randn(N, 768, 16, 16).astype("float32")
         f["paths"] = np.array([f"img{i//3}.tiff" for i in range(N)], dtype=object)
         f["positions"] = np.random.rand(N, 4).astype("float32")
-    pl = _build_pl_module("vae16_fb0p0"); ck = tmp_path/"c.ckpt"; torch.save({"state_dict": pl.state_dict()}, ck)
-    gae = load_frozen_pigvae(str(ck), "vae16_fb0p0")
+    pl = _build_pl_module("ablation/film/no_film"); ck = tmp_path/"c.ckpt"; torch.save({"state_dict": pl.state_dict()}, ck)
+    gae = load_frozen_pigvae(str(ck), "ablation/film/no_film")
     emb, meta = str(tmp_path/"out_embeddings.npy"), str(tmp_path/"out_metadata.csv")
     encode_h5(str(h5), gae, StubPCA(), emb, meta, device="cpu", batch_size=3)
     a = np.load(emb, mmap_mode="r"); df = pd.read_csv(meta)

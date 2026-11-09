@@ -5,9 +5,9 @@ Mirrors the training/inference conventions (Hydra compose + `hydra.utils.instant
 per-node heatmaps (+ marker attribution for the encoder IG path) to `out_dir`.
 
 Examples:
-  uv run scripts/explain_model.py experiment=vae16_fb0p0_film \
+  uv run scripts/explain_model.py experiment=pigvae \
       ckpt_path=/raid_.../last.ckpt method=encoder_ig target=0 paths=szary
-  uv run scripts/explain_model.py experiment=vae16_fb0p0_film \
+  uv run scripts/explain_model.py experiment=pigvae \
       ckpt_path=/raid_.../last.ckpt method=rollout paths=szary
 """
 

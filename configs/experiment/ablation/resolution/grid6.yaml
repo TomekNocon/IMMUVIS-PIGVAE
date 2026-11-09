@@ -21,9 +21,9 @@
 # (want it to drop below ~0.84 — encoder using the latent), active_dims, val_kld_loss.
 #
 # Run:
-#   sbatch --time=10:00:00 --export=ALL,EXPERIMENT=vae6_lowkl scripts/ablation_slurm.sh
-#   or: python src/train.py experiment=vae6_lowkl logger=wandb trainer=gpu paths=szary
-# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment vae6_lowkl
+#   sbatch --time=10:00:00 --export=ALL,EXPERIMENT=ablation/resolution/grid6 scripts/ablation_slurm.sh
+#   or: python src/train.py experiment=ablation/resolution/grid6 logger=wandb trainer=gpu paths=szary
+# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment ablation/resolution/grid6
 
 defaults:
   - override /data: imc

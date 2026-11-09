@@ -45,7 +45,7 @@ class KLDAlphaScheduler(torch.nn.Module):
         self.total_epochs = hparams.num_epochs
         # Hold at initial_alpha until start_epoch, then anneal over num_epochs. Lets the
         # KL ramp start *after* the LR warmup peak so prior pressure and peak LR don't
-        # collide (see the ep3 overshoot in vae6_lowkl). Default 0 = ramp from epoch 0.
+        # collide (see the ep3 overshoot in ablation/resolution/grid6). Default 0 = ramp from epoch 0.
         self.start_epoch = int(getattr(hparams, "start_epoch", 0))
         self.mode = getattr(hparams, "mode", "linear")
 
