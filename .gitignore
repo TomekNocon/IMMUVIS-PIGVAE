@@ -175,3 +175,6 @@ outputs/
 # generated outputs
 /thesis_figures/
 /explain_outputs/
+.claude/
+.cursor/
+.superpowers/
