@@ -167,3 +167,6 @@ PIGVAE/
 run0/
 # Ignore wandb folder
 wandb/
+.claude/
+.cursor/
+.superpowers/
