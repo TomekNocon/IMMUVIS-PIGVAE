@@ -1,0 +1,38 @@
+# @package _global_
+# Optuna search around the final PIGVAE recipe (experiment=pigvae)
+#   python src/train.py -m hparams_search=pigvae_optuna experiment=pigvae paths=szary trainer=gpu
+# KL settings stay fixed: reconstruction improves monotonically as KL pressure drops, so tuning
+# them against a recon metric would just collapse the VAE into an AE.
+
+defaults:
+  - override /hydra/sweeper: optuna
+
+optimized_metric: "val_mse_loss" # reconstruction only; val_loss includes the scaled KL term
+
+trainer:
+  max_epochs: 20 # per-trial budget (final model trains 40)
+
+hydra:
+  mode: "MULTIRUN"
+
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    storage: sqlite:///${paths.log_dir}/optuna_pigvae.db # persist + resume across SLURM jobs
+    study_name: pigvae
+    n_jobs: 1
+    direction: minimize
+    n_trials: 20
+
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 1234
+      n_startup_trials: 8 # random trials before TPE kicks in
+
+    params:
+      model.optimizer.lr: tag(log, interval(1e-4, 2e-3))
+      model.optimizer.weight_decay: tag(log, interval(1e-3, 1e-1))
+      model.scheduler.warmup: interval(0.02, 0.1)
+      model.graph_ae.hparams.dropout: interval(0.0, 0.2)
+      model.graph_ae.hparams.num_layers: choice(3, 4, 6)
+      model.graph_ae.hparams.node_z_dim: choice(16, 32, 64)
+      model.graph_ae.hparams.decoder.film_weight_decay: tag(log, interval(1e-2, 2e-1))
