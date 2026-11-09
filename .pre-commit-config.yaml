@@ -10,6 +10,11 @@ repos:
         args: ["--fix=lf"]
       - id: detect-private-key
 
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout # strip notebook outputs/metadata before commit
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.10
     hooks:
