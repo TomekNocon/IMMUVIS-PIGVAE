@@ -1,21 +1,18 @@
 # @package _global_
-# configs/downstream/abmil.yaml
+# Gated-ABMIL transfer eval of one PIGVAE checkpoint (scripts/run_abmil.py)
+
 defaults:
   - _self_
-# One PIGVAE checkpoint's transfer eval lives under downstream/<run_tag>/ on raid:
-# meta_tables/<source_tag>/ (label-joined, from build_abmil_meta.py) and
-# results/<source_tag>/ (this run's CV CSVs). source_tag selects which per-crop
-# feature bundle to probe: raw | zglobal | node_mean | node_flatten (see encode.py).
+
 downstream_root: /raid_encrypted/immucan/embeddings/tnocon/downstream
-run_tag: vae16_s0p001_2026-06-28
-source_tag: zglobal
+run_tag: vae16_s0p001_2026-06-28 # checkpoint bundle under downstream_root
+source_tag: zglobal # raw | zglobal | node_mean | node_flatten
 meta_dir: ${downstream_root}/${run_tag}/meta_tables/${source_tag}
 results_dir: ${downstream_root}/${run_tag}/results/${source_tag}
+
 datasets: [cords]
-# cords-appropriate classification targets (ERStatus/ERBB2_pos/PAM50 are danenberg/breast;
-# OS/DFS are continuous survival -> not classification). Any feature absent from the table
-# is auto-skipped.
-features: [Grade, Relapse, DX.name, Stage]
+features: [Grade, Relapse, DX.name, Stage] # targets absent from the table are skipped
+
 num_folds: 10
 hidden_dim: 256
 num_heads: 8
@@ -23,6 +20,6 @@ num_epochs: 100
 patience: 20
 lr: 1.0e-4
 batch_size: 16
-zscore: cv_train
-seed: 42            # per-fold seed_everything(seed+fold) -> reproducible transfer metrics
+zscore: cv_train # fit z-score on each fold's train split only
+seed: 42 # fold k uses seed + k
 min_class_freq: 0.05

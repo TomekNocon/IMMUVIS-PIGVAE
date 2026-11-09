@@ -1,28 +1,24 @@
 # @package _global_
-# configs/downstream/encode.yaml
+# Encode crops with a frozen PIGVAE checkpoint into per-crop MIL features (scripts/encode_mil_embeddings.py)
+
 defaults:
   - /paths: szary
   - _self_
-ckpt_path: ???            # PIGVAE checkpoint (last.ckpt)
-# NOTE: keyed `model_experiment`, NOT `experiment` — a plain `experiment` key collides
-# with the `configs/experiment/` group name and becomes un-overridable from the CLI
-# (Hydra rejects `experiment=`, `+experiment=`, and `++experiment=`).
-model_experiment: vae16_fb0p0   # architecture config the ckpt was trained with
+
+ckpt_path: ???
+model_experiment: vae16_fb0p0 # experiment config the checkpoint was trained with (not `experiment`: clashes with the Hydra group)
+
 data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords
 pca_pkl: ${data_root}/pca_model_128_center_crop_16.pkl
 pca_stats: ${data_root}/imc_statistics_128_center_crop_16.pt
-# Land the encode output in this checkpoint's raid downstream bundle (skip-resumable).
-# Each per-crop feature nests under mil_embeddings/<source_tag>/ so raw/zglobal/node_*
-# are compared under an identical bag/CV protocol (see encode.py::source_subdir).
+
 downstream_root: /raid_encrypted/immucan/embeddings/tnocon/downstream
-run_tag: vae16_s0p001_2026-06-28
-# Which frozen per-crop feature to write:
-#   feature_source: raw | zglobal | node   (node_agg: mean | flatten, node only)
-#   source_tag must equal source_subdir(feature_source, node_agg); the script asserts it.
-feature_source: zglobal
-node_agg: mean
-source_tag: zglobal
+run_tag: vae16_s0p001_2026-06-28 # checkpoint bundle under downstream_root
+feature_source: zglobal # raw | zglobal | node
+node_agg: mean # mean | flatten (node only)
+source_tag: zglobal # must equal source_subdir(feature_source, node_agg)
 out_dir: ${downstream_root}/${run_tag}/mil_embeddings/${source_tag}
+
 device: cuda
 batch_size: 64
 splits: [train, test]
