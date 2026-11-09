@@ -23,25 +23,26 @@ Each HDF5 contains:
 * ``paths``       (N,)          - variable-length UTF-8 strings
 
 Usage:
-
-    uv run python scripts/data/convert_imc_embeddings_to_h5.py \\
-        --input-dir /raid_encrypted/immucan/embeddings/tnocon/ImmuVis-768-UN-475 \\
-        --out-root  /raid/tnocon/data/IMC
+    uv run python scripts/data/convert_imc_embeddings_to_h5.py out_root=/raid_.../IMC_new
+    uv run python scripts/data/convert_imc_embeddings_to_h5.py input_dir=/raid_.../<embeddings> out_root=...
 """
 
 from __future__ import annotations
 
-import argparse
 import ast
 import re
 from collections import defaultdict
 from pathlib import Path
 
 import h5py
+import hydra
 import numpy as np
 import pandas as pd
+import rootutils
+from omegaconf import DictConfig
 
-WRITE_CHUNK = 512
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
 
 
 def _batch_id(name: str) -> int:
@@ -189,43 +190,18 @@ def process_split(
     return dict(counts)
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    p.add_argument(
-        "--input-dir",
-        type=Path,
-        required=True,
-        help="Root with train/ and test/ subdirs containing npy+csv batches.",
-    )
-    p.add_argument(
-        "--out-root",
-        type=Path,
-        required=True,
-        help="Output root. Creates {out_root}/{panel}/train.h5 and test.h5.",
-    )
-    p.add_argument("--chunk-rows", type=int, default=64, help="HDF5 chunk row size.")
-    p.add_argument(
-        "--write-chunk",
-        type=int,
-        default=WRITE_CHUNK,
-        help="Rows processed in memory at once.",
-    )
-    args = p.parse_args()
-
-    for split in ("train", "test"):
-        split_dir = args.input_dir / split
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="data_prep/convert_h5")
+def main(cfg: DictConfig) -> None:
+    input_dir, out_root = Path(cfg.input_dir), Path(cfg.out_root)
+    for split in cfg.splits:
+        split_dir = input_dir / split
         if not split_dir.is_dir():
             print(f"Skipping {split}: {split_dir} not found")
             continue
         print(f"Processing {split} from {split_dir} ...", flush=True)
-        counts = process_split(
-            split_dir, args.out_root, split, args.chunk_rows, args.write_chunk
-        )
+        counts = process_split(split_dir, out_root, split, cfg.chunk_rows, cfg.write_chunk)
         for name, n in sorted(counts.items()):
-            out_h5 = args.out_root / name / f"{split}.h5"
-            print(f"  -> {out_h5}  ({n} samples)")
+            print(f"  -> {out_root / name / f'{split}.h5'}  ({n} samples)")
 
     print("Done.")
 

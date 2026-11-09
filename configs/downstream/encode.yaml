@@ -14,7 +14,7 @@ data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords
 pca_pkl: ${data_root}/pca_model_128_center_crop_16.pkl
 pca_stats: ${data_root}/imc_statistics_128_center_crop_16.pt
 
-downstream_root: /raid_encrypted/immucan/embeddings/tnocon/downstream
+downstream_root: ${paths.root_dir}/downstream
 run_tag: vae16_s0p001_2026-06-28 # checkpoint bundle under downstream_root
 feature_source: zglobal # raw | zglobal | node
 node_agg: mean # mean | flatten (node only)

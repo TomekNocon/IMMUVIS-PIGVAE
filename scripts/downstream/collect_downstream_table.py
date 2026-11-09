@@ -5,13 +5,20 @@ node_mean | node_flatten) and writes one wide table indexed by (dataset, feature
 per source, so encoder features can be read off against the raw-768 baseline row by row.
 
 Usage:
-    uv run python scripts/downstream/collect_downstream_table.py --run_tag <RUN_TAG> --metric auc
+    uv run python scripts/downstream/collect_downstream_table.py run_tag=<RUN_TAG> metric=auc
 """
-import argparse
+
 import glob
 import os
 
+import hydra
 import pandas as pd
+import rootutils
+from omegaconf import DictConfig
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+_METRICS = ("auc", "accuracy", "macro_f1", "precision", "recall")
 
 # Stable column order for the sources we sweep (any missing source is skipped).
 _SOURCE_ORDER = ["raw", "zglobal", "node_mean", "node_flatten"]
@@ -39,20 +46,14 @@ def collect(results_root: str, metric: str = "auc") -> pd.DataFrame:
     return wide[ordered].reset_index()
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Collect per-source ABMIL results into one table.")
-    ap.add_argument("--run_tag", required=True)
-    ap.add_argument("--downstream_root",
-                    default="/raid_encrypted/immucan/embeddings/tnocon/downstream")
-    ap.add_argument("--metric", default="auc",
-                    choices=["auc", "accuracy", "macro_f1", "precision", "recall"])
-    args = ap.parse_args()
-
-    results_root = os.path.join(args.downstream_root, args.run_tag, "results")
-    wide = collect(results_root, args.metric)
-    out = os.path.join(results_root, f"comparison_{args.metric}.csv")
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="downstream/collect")
+def main(cfg: DictConfig) -> None:
+    if cfg.metric not in _METRICS:
+        raise ValueError(f"metric must be one of {_METRICS}, got {cfg.metric!r}")
+    wide = collect(cfg.results_root, cfg.metric)
+    out = os.path.join(cfg.results_root, f"comparison_{cfg.metric}.csv")
     wide.to_csv(out, index=False)
-    print(f"=== {args.run_tag}  ({args.metric}, per-crop feature source) ===")
+    print(f"=== {cfg.run_tag}  ({cfg.metric}, per-crop feature source) ===")
     print(wide.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
     print(f"\nwrote {out}")
 

@@ -23,8 +23,6 @@ cd "${SLURM_SUBMIT_DIR:-.}"
 (( $# == 3 )) || { echo "usage: $0 <CKPT> <EXPERIMENT> <RUN_TAG>" >&2; exit 1; }
 
 CKPT=$1; EXPERIMENT=$2; RUN_TAG=$3
-RAID=/raid_encrypted/immucan/embeddings/tnocon
-BUNDLE=$RAID/downstream/$RUN_TAG
 
 run_source() {
   local source_tag=$1 feature_source=$2 node_agg=$3
@@ -33,10 +31,7 @@ run_source() {
     ckpt_path="$CKPT" model_experiment="$EXPERIMENT" run_tag="$RUN_TAG" \
     feature_source="$feature_source" node_agg="$node_agg" source_tag="$source_tag"
   echo "=== [$source_tag] label join ==="
-  uv run python scripts/downstream/build_abmil_meta.py \
-    --encode_dir "$BUNDLE/mil_embeddings/$source_tag" \
-    --melted "$RAID/data/clinical/melted_table_images.csv" \
-    --out_dir "$BUNDLE/meta_tables/$source_tag" --splits train test
+  uv run python scripts/downstream/build_abmil_meta.py run_tag="$RUN_TAG" source_tag="$source_tag"
   echo "=== [$source_tag] 10-fold CV ==="
   uv run python scripts/downstream/run_abmil.py run_tag="$RUN_TAG" source_tag="$source_tag"
 }
@@ -48,5 +43,5 @@ run_source node_flatten node    flatten
 
 echo "=== comparison table ==="
 for metric in auc macro_f1; do
-  uv run python scripts/downstream/collect_downstream_table.py --run_tag "$RUN_TAG" --metric "$metric"
+  uv run python scripts/downstream/collect_downstream_table.py run_tag="$RUN_TAG" metric="$metric"
 done

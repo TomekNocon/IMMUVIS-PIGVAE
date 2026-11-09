@@ -1,35 +1,31 @@
-"""Determine the optimal number of PCA components for the cords dataset.
+"""Explained variance of an IncrementalPCA on the training crops.
 
-Fits IncrementalPCA on the **full** training split using the same preprocessing
-pipeline as ``IMCDataModule`` (center-crop → arcsinh → flatten) and reports how
-many components are needed to explain a given fraction of variance.
+Fits IncrementalPCA on the full training split with the same preprocessing as ``IMCDataModule``
+(center crop -> arcsinh -> flatten), reports how many components reach each cumulative
+explained-variance threshold, and saves the variance plot to the run directory. Crop size,
+channels and data root come from the data / experiment configs.
 
 Usage:
-    uv run python scripts/data/find_pca_components.py [OPTIONS]
-
-Examples:
-    # Use defaults (center_crop=6, normalize=False, batch_size=64)
     uv run python scripts/data/find_pca_components.py
-
-    # Custom data root and thresholds
-    uv run python scripts/data/find_pca_components.py \
-        --data-root /my/data/IMC \
-        --thresholds 0.90 0.95 0.99 0.999
+    uv run python scripts/data/find_pca_components.py experiment=pigvae thresholds=[0.9,0.99]
 """
+
 from __future__ import annotations
 
-import argparse
-import sys
 import time
 from pathlib import Path
+
+import hydra
 
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.decomposition import IncrementalPCA
 from torch.utils.data import DataLoader
+import rootutils
+from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.data.components.graphs_datamodules import (
     DualOutputTransform,
@@ -37,53 +33,6 @@ from src.data.components.graphs_datamodules import (
     PatchAugmentations,
     PickleDataset,
 )
-
-DEFAULT_DATA_ROOT = Path("/raid_encrypted/immucan/embeddings/tnocon/data/IMC")
-DATASET = "cords"
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Find optimal number of PCA components for the cords IMC dataset.",
-    )
-    parser.add_argument(
-        "--data-root",
-        type=Path,
-        default=DEFAULT_DATA_ROOT,
-        help="Root directory containing <dataset>/{train,test}.h5",
-    )
-    parser.add_argument("--dataset", type=str, default=DATASET)
-    parser.add_argument("--center-crop-size", type=int, default=6)
-    parser.add_argument(
-        "--normalize",
-        action="store_true",
-        default=False,
-        help="Apply channel-wise z-score before arcsinh (should match your training config).",
-    )
-    parser.add_argument("--num-channels", type=int, default=768)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--num-workers", type=int, default=7)
-    parser.add_argument(
-        "--max-components",
-        type=int,
-        default=None,
-        help="Max PCA components to fit. Defaults to min(num_channels, num_samples_seen).",
-    )
-    parser.add_argument(
-        "--thresholds",
-        type=float,
-        nargs="+",
-        default=[0.85, 0.90, 0.95, 0.99],
-        help="Cumulative explained-variance thresholds to report.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=None,
-        help="Where to save the plot. Defaults to <data-root>/<dataset>/.",
-    )
-    return parser.parse_args()
-
 
 def build_loader(
     h5_path: Path,
@@ -194,43 +143,39 @@ def plot_explained_variance(
     plt.close(fig)
 
 
-def main() -> None:
-    args = parse_args()
-
-    h5_path = args.data_root / args.dataset / "train.h5"
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="data_prep/find_pca")
+def main(cfg: DictConfig) -> None:
+    h5_path = Path(cfg.h5_path)
     if not h5_path.is_file():
-        print(f"ERROR: HDF5 not found at {h5_path}", file=sys.stderr)
-        sys.exit(1)
-
-    output_dir = args.output_dir or (args.data_root / args.dataset)
+        raise FileNotFoundError(f"HDF5 not found at {h5_path}")
+    output_dir = Path(cfg.out_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Dataset:          {args.dataset}")
+    print(f"Dataset:          {cfg.dataset}")
     print(f"HDF5 path:        {h5_path}")
-    print(f"Center crop size: {args.center_crop_size}")
-    print(f"Normalize:        {args.normalize}")
-    print(f"Num channels:     {args.num_channels}")
-    print(f"Batch size:       {args.batch_size}")
-    print(f"Thresholds:       {args.thresholds}")
+    print(f"Center crop size: {cfg.center_crop_size}")
+    print(f"Normalize:        {cfg.normalize}")
+    print(f"Num channels:     {cfg.num_channels}")
+    print(f"Batch size:       {cfg.batch_size}")
+    print(f"Thresholds:       {list(cfg.thresholds)}")
     print()
 
     loader = build_loader(
         h5_path,
-        center_crop_size=args.center_crop_size,
-        normalize=args.normalize,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
+        center_crop_size=cfg.center_crop_size,
+        normalize=cfg.normalize,
+        batch_size=cfg.batch_size,
+        num_workers=cfg.num_workers,
     )
 
     t0 = time.perf_counter()
     ipca = fit_incremental_pca(
         loader,
-        num_channels=args.num_channels,
-        batch_size=args.batch_size,
-        max_components=args.max_components,
+        num_channels=cfg.num_channels,
+        batch_size=cfg.batch_size,
+        max_components=cfg.max_components,
     )
-    elapsed = time.perf_counter() - t0
-    print(f"\nIncrementalPCA fitted in {elapsed:.1f}s")
+    print(f"\nIncrementalPCA fitted in {time.perf_counter() - t0:.1f}s")
 
     explained_ratio = ipca.explained_variance_ratio_
     cumvar = np.cumsum(explained_ratio)
@@ -238,7 +183,7 @@ def main() -> None:
     print(f"\nTotal components fitted: {len(explained_ratio)}")
     print(f"Total variance explained: {cumvar[-1]*100:.2f}%")
 
-    results = report_thresholds(cumvar, args.thresholds)
+    results = report_thresholds(cumvar, list(OmegaConf.to_container(cfg.thresholds)))
 
     print(f"\n{'Threshold':>12s}  {'Components':>12s}  {'Cumul. Var.':>12s}")
     print("-" * 40)
@@ -246,7 +191,7 @@ def main() -> None:
         actual_var = cumvar[n_comp - 1] if n_comp <= len(cumvar) else cumvar[-1]
         print(f"{thresh*100:>11.1f}%  {n_comp:>12d}  {actual_var*100:>11.2f}%")
 
-    plot_path = output_dir / f"pca_explained_variance_crop{args.center_crop_size}.png"
+    plot_path = output_dir / f"pca_explained_variance_crop{cfg.center_crop_size}.png"
     plot_explained_variance(explained_ratio, cumvar, results, plot_path)
 
     print("\nTop-20 individual component variance contributions:")

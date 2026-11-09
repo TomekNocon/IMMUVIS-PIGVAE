@@ -24,8 +24,6 @@ cd "${SLURM_SUBMIT_DIR:-.}"
 
 CKPT=$1; EXPERIMENT=$2; RUN_TAG=$3
 SOURCE_TAG=${4:-zglobal}; FEATURE_SOURCE=${5:-zglobal}; NODE_AGG=${6:-mean}
-RAID=/raid_encrypted/immucan/embeddings/tnocon
-BUNDLE=$RAID/downstream/$RUN_TAG
 
 echo "=== [$SOURCE_TAG] encode ==="
 uv run python scripts/downstream/encode_mil_embeddings.py \
@@ -33,10 +31,7 @@ uv run python scripts/downstream/encode_mil_embeddings.py \
   feature_source="$FEATURE_SOURCE" node_agg="$NODE_AGG" source_tag="$SOURCE_TAG"
 
 echo "=== [$SOURCE_TAG] label join ==="
-uv run python scripts/downstream/build_abmil_meta.py \
-  --encode_dir "$BUNDLE/mil_embeddings/$SOURCE_TAG" \
-  --melted "$RAID/data/clinical/melted_table_images.csv" \
-  --out_dir "$BUNDLE/meta_tables/$SOURCE_TAG" --splits train test
+uv run python scripts/downstream/build_abmil_meta.py run_tag="$RUN_TAG" source_tag="$SOURCE_TAG"
 
 echo "=== [$SOURCE_TAG] 10-fold CV ==="
 uv run python scripts/downstream/run_abmil.py run_tag="$RUN_TAG" source_tag="$SOURCE_TAG"

@@ -1,0 +1,27 @@
+# @package _global_
+# Explained variance of an IncrementalPCA on the training crops (scripts/data/find_pca_components.py)
+#   uv run python scripts/data/find_pca_components.py                     # 6x6 crop of data/imc.yaml
+#   uv run python scripts/data/find_pca_components.py experiment=pigvae   # crop of the final model
+
+defaults:
+  - _self_
+  - /data: imc
+  - /model: model
+  - /trainer: default # needed so experiment configs' `override /trainer` composes
+  - /paths: szary
+  - /hydra: default # run dir under ${paths.log_dir}/${task_name}
+  - /experiment: null
+
+task_name: find_pca
+
+dataset: ${data.hparams.imc_dataset_names.0}
+h5_path: ${paths.data_dir}/${data.hparams.imc_root}/${dataset}/train.h5
+center_crop_size: ${data.hparams.center_crop_size}
+normalize: ${data.hparams.normalize}
+num_channels: ${data.hparams.num_channels}
+
+batch_size: 16
+num_workers: 7
+max_components: null # null = num_channels
+thresholds: [0.85, 0.90, 0.95, 0.99] # cumulative explained variance to report
+out_dir: ${paths.output_dir}

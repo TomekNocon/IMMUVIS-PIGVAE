@@ -1,0 +1,15 @@
+# @package _global_
+# Convert ImmuVis .npy embeddings + metadata .csv into per-dataset HDF5 (scripts/data/convert_imc_embeddings_to_h5.py)
+
+defaults:
+  - /paths: szary
+  - /hydra: default # run dir under ${paths.log_dir}/${task_name}
+  - _self_
+
+task_name: convert_h5
+
+input_dir: ${paths.root_dir}/ImmuVis-768-UN-475 # <input_dir>/{train,test}/ with npy + csv batches
+out_root: ??? # writes <out_root>/<panel>/{train,test}.h5; the training data lives in ${paths.data_dir}/IMC
+splits: [train, test]
+chunk_rows: 64 # HDF5 chunk size along N
+write_chunk: 512 # rows held in memory at once

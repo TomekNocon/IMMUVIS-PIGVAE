@@ -7,15 +7,17 @@ image_shape, feature, feature_value. Mirrors ``merge_metadata_with_melted`` of t
 reference pipeline.
 
 Usage:
-    uv run python scripts/downstream/build_abmil_meta.py \
-        --encode_dir /raid_.../downstream/<RUN_TAG>/mil_embeddings/zglobal \
-        --melted /raid_.../data/clinical/melted_table_images.csv \
-        --out_dir /raid_.../downstream/<RUN_TAG>/meta_tables/zglobal --splits train test
+    uv run python scripts/downstream/build_abmil_meta.py run_tag=<RUN_TAG> source_tag=zglobal
 """
-import argparse
+
 import os
 
+import hydra
 import pandas as pd
+import rootutils
+from omegaconf import DictConfig
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 
 def _img_filename(path: str) -> str:
@@ -44,25 +46,16 @@ def merge_split(encode_meta_csv: str, melted: pd.DataFrame, out_csv: str) -> pd.
     return merged
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Join clinical labels onto PIGVAE encode metadata.")
-    ap.add_argument("--encode_dir", required=True,
-                    help="dir with <dataset>_<split>_metadata.csv from encode_mil_embeddings.py")
-    ap.add_argument("--melted", required=True,
-                    help="melted_table_images.csv (long: dataset,image_path,image_shape,feature,feature_value)")
-    ap.add_argument("--dataset", default="cords")
-    ap.add_argument("--out_dir", required=True, help="destination dir for the joined meta tables")
-    ap.add_argument("--splits", nargs="+", default=["train", "test"])
-    args = ap.parse_args()
-
-    melted = pd.read_csv(args.melted)
-    melted = melted[melted["dataset"] == args.dataset]
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="downstream/build_meta")
+def main(cfg: DictConfig) -> None:
+    melted = pd.read_csv(cfg.melted_csv)
+    melted = melted[melted["dataset"] == cfg.dataset]
     if len(melted) == 0:
-        raise ValueError(f"no dataset=={args.dataset!r} rows in {args.melted}")
+        raise ValueError(f"no dataset=={cfg.dataset!r} rows in {cfg.melted_csv}")
 
-    for split in args.splits:
-        src = os.path.join(args.encode_dir, f"{args.dataset}_{split}_metadata.csv")
-        out = os.path.join(args.out_dir, f"{args.dataset}_{split}_metadata.csv")
+    for split in cfg.splits:
+        src = os.path.join(cfg.encode_dir, f"{cfg.dataset}_{split}_metadata.csv")
+        out = os.path.join(cfg.out_dir, f"{cfg.dataset}_{split}_metadata.csv")
         merged = merge_split(src, melted, out)
         print(
             f"{split}: {merged['img_path'].nunique()} imgs x "

@@ -11,17 +11,11 @@ Loads a checkpoint, runs a few validation batches and prints a report on:
   - Decoder std diagnostic (is decoder std ~ 1/sqrt(N)?)
 
 Usage:
-    uv run python scripts/diagnostics/diagnose_model.py \\
-        --ckpt /path/to/checkpoint.ckpt \\
-        [--num-batches 3] \\
-        [--batch-idx 5]        # pick a specific batch instead
-        [--split val]          # val (default) or test
-        [--tau 0.5]            # temperature (default: from checkpoint)
-        [--data-dir /path/to/data]
-        [--paths szary]        # paths config name
+    uv run python scripts/diagnostics/diagnose_model.py experiment=pigvae ckpt_path=/raid_.../last.ckpt
+    uv run python scripts/diagnostics/diagnose_model.py experiment=pigvae ckpt_path=... inspect=true
+    uv run python scripts/diagnostics/diagnose_model.py experiment=pigvae ckpt_path=... batch_idx=5 tau=0.5
 """
 
-import argparse
 import operator
 import sys
 from pathlib import Path
@@ -35,7 +29,8 @@ import rootutils
 
 project_root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-from omegaconf import OmegaConf
+import hydra
+from omegaconf import DictConfig, OmegaConf
 OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
 OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
 
@@ -489,74 +484,24 @@ def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
-def load_model_and_data(
-    ckpt_path: str,
-    data_dir: str | None,
-    split: str,
-    paths_name: str = "szary",
-    experiment: str | None = None,
-):
-    configs = project_root / "configs"
-
-    model_cfg = OmegaConf.load(configs / "model" / "model.yaml")
-    data_cfg  = OmegaConf.load(configs / "data"  / "imc.yaml")
-    paths_cfg = OmegaConf.load(configs / "paths" / f"{paths_name}.yaml")
-
-    for name, fn in [("multiply", lambda x, y: int(x) * int(y)),
-                     ("divide",   lambda x, y: int(x) // int(y))]:
-        try:
-            OmegaConf.register_new_resolver(name, fn)
-        except Exception:
-            pass
-
-    if data_dir:
-        OmegaConf.update(paths_cfg, "data_dir", data_dir, merge=True)
-
-    trainer_stub = OmegaConf.create({"max_epochs": 200, "min_epochs": 1})
-    data_stub    = OmegaConf.create({"hparams": {"num_aug_per_sample": 8, "batch_size": 16}})
-
-    # Overlay an experiment's `model` (and `trainer`/`data`) overrides so architecture-varying
-    # checkpoints (different input_size / neighborhood_radius / pos_bias / num_node_features / ...)
-    # build the matching model and load cleanly, and the dataloader emits matching features.
-    exp_data = None
-    if experiment:
-        exp_cfg = OmegaConf.load(configs / "experiment" / f"{experiment}.yaml")
-        if "model" in exp_cfg:
-            model_cfg = OmegaConf.merge(model_cfg, exp_cfg.model)
-        if "trainer" in exp_cfg:
-            trainer_stub = OmegaConf.merge(trainer_stub, exp_cfg.trainer)
-        if "data" in exp_cfg:
-            exp_data = exp_cfg.data  # e.g. num_pca_components/num_node_features=192
-        print(f"[info] applied overrides from experiment={experiment}")
-
-    ctx = OmegaConf.create({
-        "model":   model_cfg,
-        "data":    data_stub,
-        "trainer": trainer_stub,
-        "paths":   paths_cfg,
-    })
-    OmegaConf.set_struct(ctx, False)
-    ctx.model = model_cfg
-
-    data_cfg_resolved = OmegaConf.merge(data_cfg, exp_data) if exp_data is not None else OmegaConf.merge(data_cfg, {})
-    OmegaConf.update(data_cfg_resolved, "hparams.data_dir", OmegaConf.select(ctx, "paths.data_dir"))
-
-    dm = instantiate(data_cfg_resolved)
-    dm.setup(stage="fit" if split == "val" else "test")
-    dataloader = dm.val_dataloader() if split == "val" else dm.test_dataloader()
+def load_model_and_data(cfg: DictConfig):
+    """Build the datamodule and the PIGVAE module from the composed config, load the checkpoint."""
+    dm = instantiate(cfg.data)
+    dm.setup(stage="fit" if cfg.split == "val" else "test")
+    dataloader = dm.val_dataloader() if cfg.split == "val" else dm.test_dataloader()
     # Keep the raw pre-PCA input on inspection batches so we can measure error vs the input x.
     # Set before iterating so it propagates to dataloader workers. Training is unaffected.
     collate_fn = getattr(dataloader, "collate_fn", None)
     if collate_fn is not None and hasattr(collate_fn, "keep_input"):
         collate_fn.keep_input = True
 
-    graph_ae      = instantiate(ctx.model.graph_ae)
-    critic        = instantiate(ctx.model.critic)
-    temp_sched    = instantiate(ctx.model.temperature_scheduler)
-    entropy_sched = instantiate(ctx.model.entropy_weight_scheduler)
-    kld_sched     = instantiate(ctx.model.kld_alpha_scheduler)
-    optimizer_fn  = instantiate(ctx.model.optimizer)
-    scheduler_cfg = ctx.model.scheduler
+    graph_ae      = instantiate(cfg.model.graph_ae)
+    critic        = instantiate(cfg.model.critic)
+    temp_sched    = instantiate(cfg.model.temperature_scheduler)
+    entropy_sched = instantiate(cfg.model.entropy_weight_scheduler)
+    kld_sched     = instantiate(cfg.model.kld_alpha_scheduler)
+    optimizer_fn  = instantiate(cfg.model.optimizer)
+    scheduler_cfg = cfg.model.scheduler
 
     from src.models.pigvae_auto_module import PLGraphAE
     model = PLGraphAE(
@@ -570,7 +515,7 @@ def load_model_and_data(
         compile=False,
     )
 
-    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    ckpt = torch.load(cfg.ckpt_path, map_location="cpu", weights_only=False)
     missing, unexpected = model.load_state_dict(ckpt["state_dict"], strict=False)
     if missing:
         print(f"[WARN] Missing keys: {missing[:5]}{'...' if len(missing) > 5 else ''}")
@@ -586,50 +531,23 @@ def load_model_and_data(
     return model, dataloader, tau, getattr(dm, "pca_layer", None)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="PIGVAE diagnostic inference (film branch)")
-    parser.add_argument("--ckpt", required=True, help="Path to .ckpt file")
-    parser.add_argument("--data-dir", default=None, help="Override data_dir")
-    parser.add_argument("--paths", default="szary", help="Paths config name")
-    parser.add_argument(
-        "--experiment",
-        default=None,
-        help="Experiment config name (configs/experiment/<name>.yaml) whose `model` overrides "
-             "are applied so an architecture-varying checkpoint builds the matching model.",
-    )
-    parser.add_argument("--split", choices=["val", "test"], default="val")
-    parser.add_argument("--num-batches", type=int, default=3)
-    parser.add_argument("--batch-idx", type=int, default=None)
-    parser.add_argument("--tau", type=float, default=None)
-    parser.add_argument(
-        "--inspect",
-        action="store_true",
-        help="Run full weight/activation/attention/latent/reconstruction inspection",
-    )
-    parser.add_argument(
-        "--out-dir",
-        default=None,
-        help="Output dir for inspection artifacts (default: logs/diagnostics/<ckpt-stem>)",
-    )
-    args = parser.parse_args()
-
-    model, dataloader, tau, pca_layer = load_model_and_data(
-        args.ckpt, args.data_dir, args.split, args.paths, args.experiment
-    )
-    if args.tau is not None:
-        tau = args.tau
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="diagnostics/model")
+def main(cfg: DictConfig) -> None:
+    model, dataloader, tau, pca_layer = load_model_and_data(cfg)
+    if cfg.tau is not None:
+        tau = cfg.tau
         print(f"[info] tau overridden to {tau}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
-    if args.inspect:
-        out_dir = args.out_dir or f"logs/diagnostics/{Path(args.ckpt).stem}"
+    if cfg.inspect:
+        out_dir = cfg.out_dir or str(Path(cfg.paths.log_dir) / "diagnostics" / Path(cfg.ckpt_path).stem)
         meta = {
-            "ckpt": args.ckpt,
-            "split": args.split,
+            "ckpt": cfg.ckpt_path,
+            "split": cfg.split,
             "tau": tau,
-            "run": Path(args.ckpt).parent.name,
+            "run": Path(cfg.ckpt_path).parent.name,
         }
         inspect_batch = next(iter(dataloader)).to(device)
         graph_ae = model.graph_ae if hasattr(model, "graph_ae") else model
@@ -638,7 +556,7 @@ def main():
 
     n_run = 0
     for batch_i, batch in enumerate(dataloader):
-        if args.batch_idx is not None and batch_i != args.batch_idx:
+        if cfg.batch_idx is not None and batch_i != cfg.batch_idx:
             continue
 
         batch = batch.to(device)
@@ -646,13 +564,11 @@ def main():
         print_report(results, batch_idx=batch_i)
 
         n_run += 1
-        if args.batch_idx is not None:
-            break
-        if n_run >= args.num_batches:
+        if cfg.batch_idx is not None or n_run >= cfg.num_batches:
             break
 
     if n_run == 0:
-        print(f"[ERROR] --batch-idx {args.batch_idx} was not reached.")
+        print(f"[ERROR] batch_idx={cfg.batch_idx} was not reached.")
         sys.exit(1)
 
 

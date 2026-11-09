@@ -1,0 +1,23 @@
+# @package _global_
+# Inspect a PIGVAE checkpoint for dead or collapsed subsystems (scripts/diagnostics/diagnose_model.py)
+#   uv run python scripts/diagnostics/diagnose_model.py experiment=pigvae ckpt_path=<last.ckpt>
+
+defaults:
+  - _self_
+  - /data: imc
+  - /model: model
+  - /trainer: default # needed so experiment configs' `override /trainer` composes
+  - /paths: szary
+  - /hydra: default # run dir under ${paths.log_dir}/${task_name}
+  - /experiment: null # must match the checkpoint's architecture
+
+task_name: diagnose_model
+
+ckpt_path: ???
+split: val # val | test
+num_batches: 3
+batch_idx: null # run only this batch index
+tau: null # null = the checkpoint epoch's temperature
+
+inspect: false # full weight / activation / attention / latent / reconstruction inspection
+out_dir: null # inspection artifacts; null = ${paths.log_dir}/diagnostics/<ckpt stem>

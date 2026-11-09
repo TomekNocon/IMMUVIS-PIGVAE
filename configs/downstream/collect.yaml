@@ -1,0 +1,14 @@
+# @package _global_
+# Pivot per-source ABMIL results into one comparison table (scripts/downstream/collect_downstream_table.py)
+
+defaults:
+  - /paths: szary
+  - /hydra: default # run dir under ${paths.log_dir}/${task_name}
+  - _self_
+
+task_name: collect_downstream
+
+downstream_root: ${paths.root_dir}/downstream
+run_tag: ??? # checkpoint bundle under downstream_root
+results_root: ${downstream_root}/${run_tag}/results
+metric: auc # auc | accuracy | macro_f1 | precision | recall
