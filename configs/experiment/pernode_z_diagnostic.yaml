@@ -6,7 +6,7 @@
 # Run: sbatch scripts/run_pernode_z.sh   (or: python src/train.py experiment=pernode_z_diagnostic logger=wandb trainer=gpu paths=szary)
 
 defaults:
-  - override /data: mnist
+  - override /data: imc
   - override /model: model
   - override /trainer: default
   - _self_

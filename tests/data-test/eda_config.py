@@ -51,7 +51,7 @@ from src.data.components.graphs_datamodules import (
 
 
 # ---------------------------------------------------------------------------
-# Configuration dataclass – mirrors configs/data/mnist.yaml values
+# Configuration dataclass – mirrors configs/data/imc.yaml values
 # ---------------------------------------------------------------------------
 @dataclass
 class EDAConfig:
@@ -73,8 +73,8 @@ class EDAConfig:
     num_pca_components: int = 128
     num_node_features: int = 128
     normalize: bool = False  # PCA handles normalisation
-    zscore: bool = True      # must match configs/data/mnist.yaml
-    clip_range: float = 3.0  # must match configs/data/mnist.yaml
+    zscore: bool = True      # must match configs/data/imc.yaml
+    clip_range: float = 3.0  # must match configs/data/imc.yaml
 
     # Derived paths
     @property

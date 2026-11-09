@@ -6,7 +6,7 @@
 # renders onto the false-colour cords tissue. Run on szary.
 defaults:
   - _self_
-  - data: mnist
+  - data: imc
   - model: model
   - trainer: default
   - paths: szary

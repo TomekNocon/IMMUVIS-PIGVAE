@@ -1,7 +1,7 @@
 """Report the magnitude range of the PCA coefficients fed to the model.
 
 Answers: was clip_range=10 ever biting? Builds the datamodule exactly like
-diagnose_model.py (data=mnist, paths=szary), iterates a few val batches, and
+diagnose_model.py (data=imc, paths=szary), iterates a few val batches, and
 reports max|coeff|, per-component max, and the fraction of coefficients beyond
 ±3 and ±10. Run on a node that can see the data mount:
 
@@ -30,7 +30,7 @@ def main() -> None:
     args = ap.parse_args()
 
     configs = project_root / "configs"
-    data_cfg = OmegaConf.load(configs / "data" / "mnist.yaml")
+    data_cfg = OmegaConf.load(configs / "data" / "imc.yaml")
     paths_cfg = OmegaConf.load(configs / "paths" / f"{args.paths}.yaml")
     for name, fn in [("multiply", lambda x, y: int(x) * int(y)),
                      ("divide", lambda x, y: int(x) // int(y))]:

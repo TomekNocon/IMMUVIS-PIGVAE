@@ -26,7 +26,7 @@
 #   std_mean < ~0.85 / active_dims a large fraction of 8192 / kld_per_dim_median above fb 0.5.
 
 defaults:
-  - override /data: mnist
+  - override /data: imc
   - override /model: model
   - override /trainer: default
   - _self_

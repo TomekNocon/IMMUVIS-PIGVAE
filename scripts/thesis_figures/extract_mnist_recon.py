@@ -15,7 +15,7 @@ the checkpoint epoch), and caches:
 
 plus whole-validation-set D4 view accuracy (soft and hard forward).
 
-Must run with the MNIST-era code (worktree of `main` / `fashion-mnist`), on a node that
+Must run with the MNIST-era code (worktree of the `mnist` / `fashion-mnist` branch), on a node that
 mounts /raid_encrypted, e.g.:
   cd /home/tnocon/master_thesis/pigvae-mnist && .venv/bin/python \
      /home/tnocon/master_thesis/IMMUVIS-PIGVAE/scripts/thesis_figures/extract_mnist_recon.py \

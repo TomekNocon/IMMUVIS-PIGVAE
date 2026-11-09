@@ -7,7 +7,7 @@
 # Run: sbatch --export=ALL,EXPERIMENT=context_swin_cosine scripts/ablation_slurm.sh
 
 defaults:
-  - override /data: mnist
+  - override /data: imc
   - override /model: model
   - override /trainer: default
   - _self_

@@ -10,7 +10,7 @@
 # Then downstream (encode readout summary -> ABMIL) with feature_source=dgi, source_tag=dgi.
 
 defaults:
-  - override /data: mnist
+  - override /data: imc
   - override /model: dgi
   - override /trainer: default
   - override /callbacks: dgi     # generic callbacks; PIGVAE's graph_ae/permuter monitors don't apply

@@ -14,7 +14,7 @@
 #   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=vae16_fb0p0_film_pca256_z768_b64 scripts/ablation_slurm.sh
 
 defaults:
-  - override /data: mnist
+  - override /data: imc
   - override /model: model
   - override /trainer: default
   - _self_

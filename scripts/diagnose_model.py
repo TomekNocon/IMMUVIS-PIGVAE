@@ -504,7 +504,7 @@ def load_model_and_data(
     configs = project_root / "configs"
 
     model_cfg = OmegaConf.load(configs / "model" / "model.yaml")
-    data_cfg  = OmegaConf.load(configs / "data"  / "mnist.yaml")
+    data_cfg  = OmegaConf.load(configs / "data"  / "imc.yaml")
     paths_cfg = OmegaConf.load(configs / "paths" / f"{paths_name}.yaml")
 
     for name, fn in [("multiply", lambda x, y: int(x) * int(y)),

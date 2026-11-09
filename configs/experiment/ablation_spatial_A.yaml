@@ -3,7 +3,7 @@
 # Run: python src/train.py experiment=ablation_spatial_A logger=wandb trainer=gpu paths=szary
 
 defaults:
-  - override /data: mnist
+  - override /data: imc
   - override /model: model
   - override /trainer: default
   - _self_

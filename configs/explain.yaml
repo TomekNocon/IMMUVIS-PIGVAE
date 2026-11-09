@@ -4,7 +4,7 @@
 #     ckpt_path=/raid_.../last.ckpt method=encoder_ig target=0 paths=szary
 defaults:
   - _self_
-  - data: mnist
+  - data: imc
   - model: model
   - trainer: default   # present so `experiment` configs' `override /trainer` composes (unused here)
   - paths: szary

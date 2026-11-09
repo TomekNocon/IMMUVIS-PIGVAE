@@ -33,7 +33,7 @@
 # Inspect: python scripts/diagnose_model.py --ckpt <ckpt> --inspect --experiment vae16_z16_kl02
 
 defaults:
-  - override /data: mnist
+  - override /data: imc
   - override /model: model
   - override /trainer: default
   - _self_
