@@ -2,7 +2,7 @@
 #SBATCH --job-name=pigvae_downstream_sweep
 #SBATCH --gres=gpu:1
 #SBATCH --time=08:00:00
-#SBATCH --output=outputs/logs/downstream_sweep_%j.log
+#SBATCH --output=logs/slurm/%j_downstream_sweep.log
 set -e
 # Feature-source baseline sweep for ONE frozen checkpoint: runs the full
 # encode -> label-join -> 10-fold CV pipeline for each per-crop feature, then

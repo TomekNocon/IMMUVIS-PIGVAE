@@ -100,7 +100,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--scan", type=int, default=0, help="number of images to scan")
     ap.add_argument("--image"); ap.add_argument("--crop", type=int)
-    ap.add_argument("--out", default="thesis_figures")
+    ap.add_argument("--out", default="figures")
     ap.add_argument("--markers", default="DNA1,panCK,CD45,SMA", help="comma-separated, see COLOURS")
     a = ap.parse_args(); os.makedirs(a.out, exist_ok=True)
     SHOW = [(m, COLOURS[m]) for m in a.markers.split(",")]

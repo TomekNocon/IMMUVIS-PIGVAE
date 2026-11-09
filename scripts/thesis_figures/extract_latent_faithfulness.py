@@ -34,7 +34,7 @@ RUN = "/raid_encrypted/immucan/embeddings/tnocon/downstream/vae16_s0p01_film_202
 META, RES = f"{RUN}/meta_tables/zglobal", f"{RUN}/results/zglobal/cords"
 D_ = "/raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords"
 CKPT = "/raid_encrypted/immucan/embeddings/tnocon/logs/train/runs/2026-07-31_10-29-22/checkpoints/last.ckpt"
-OUT = "thesis_figures/_cache/latent_faith"; FEAT = "DX.name"
+OUT = "figures/_cache/latent_faith"; FEAT = "DX.name"
 N_NODE_CROPS = int(os.environ.get("N_NODE_CROPS", 200)); NSTEP = 16; NRAND = 5; IG_STEPS = 64
 dev = "cuda" if torch.cuda.is_available() else "cpu"
 os.makedirs(OUT, exist_ok=True)
@@ -53,7 +53,7 @@ bags, labels = build_image_bags(fm, c2i); y = labels.numpy()
 groups = [g for _, g in fm.groupby("img_path", sort=False)]
 rows_of = [pd.concat([gg for _, gg in g.groupby("embeddings_file")]) for g in groups]
 names = [g.img_path.iloc[0] for g in groups]
-dens = pd.read_csv("thesis_figures/_cache/empty_shortcut/crop_density.csv").set_index(["img_path", "coords0", "coords1"])
+dens = pd.read_csv("figures/_cache/empty_shortcut/crop_density.csv").set_index(["img_path", "coords0", "coords1"])
 empty = [dens.loc[list(zip(r.img_path, r.coords0, r.coords1))]["empty"].values.astype(bool) for r in rows_of]
 folds = list(StratifiedKFold(n_splits=10, shuffle=True, random_state=42).split(np.zeros(len(bags)), y))
 fold_of = np.empty(len(bags), int)

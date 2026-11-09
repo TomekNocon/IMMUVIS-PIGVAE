@@ -32,7 +32,7 @@ TIFF = "/raid_encrypted/immucan/IMC/immu-vis-other-ds/full-20122025"
 SPLIT = "/raid_encrypted/immucan/immuvis_split"
 D = "/raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords"
 CKPT = "/raid_encrypted/immucan/embeddings/tnocon/logs/train/runs/2026-07-31_10-29-22/checkpoints/last.ckpt"
-OUT = "thesis_figures/_cache/spatial_v3"; FEAT = "DX.name"; P = 128
+OUT = "figures/_cache/spatial_v3"; FEAT = "DX.name"; P = 128
 dev = "cuda" if torch.cuda.is_available() else "cpu"
 os.makedirs(OUT, exist_ok=True)
 
@@ -51,7 +51,7 @@ classes = sorted(fm.feature_value.astype(str).unique()); c2i = {c: i for i, c in
 bags, labels = build_image_bags(fm, c2i); y = labels.numpy()
 groups = [g for _, g in fm.groupby("img_path", sort=False)]
 rows_of = [pd.concat([gg for _, gg in g.groupby("embeddings_file")]) for g in groups]
-dens = pd.read_csv("thesis_figures/_cache/empty_shortcut/crop_density.csv").set_index(["img_path", "coords0", "coords1"])
+dens = pd.read_csv("figures/_cache/empty_shortcut/crop_density.csv").set_index(["img_path", "coords0", "coords1"])
 folds = list(StratifiedKFold(n_splits=10, shuffle=True, random_state=42).split(np.zeros(len(bags)), y))
 fold_of = np.empty(len(bags), int)
 for f, (_, va) in enumerate(folds): fold_of[va] = f

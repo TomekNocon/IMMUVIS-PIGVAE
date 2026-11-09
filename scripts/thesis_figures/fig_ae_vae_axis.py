@@ -4,7 +4,7 @@
     with and without FiLM; right axis gives the same values as R^2 against predicting the mean.
 (b) rate-distortion: validation KL (rate) against validation MSE (distortion), points labelled by scale.
 All runs share the preprocessing (PCA-128 on the 16x16 grid, no whitening, no clip), free bits off.
-Data: final wandb summaries -> thesis_figures/_cache/ae_vae_axis_runs.csv.
+Data: final wandb summaries -> figures/_cache/ae_vae_axis_runs.csv.
 """
 import numpy as np, pandas as pd
 import matplotlib; matplotlib.use("Agg")
@@ -19,7 +19,7 @@ AE_X = 3e-4               # where the AE (no KL term) is drawn on the log axis
 
 
 def main(out):
-    df = pd.read_csv("thesis_figures/_cache/ae_vae_axis_runs.csv")
+    df = pd.read_csv("figures/_cache/ae_vae_axis_runs.csv")
     sweep = df[(df.fb == 0.0) & (df.z == 32)]
     ae = sweep[sweep.vae == False].iloc[0]
     vae = sweep[sweep.vae == True]
@@ -65,4 +65,4 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main("thesis_figures/fig_ae_vae_axis")
+    main("figures/fig_ae_vae_axis")

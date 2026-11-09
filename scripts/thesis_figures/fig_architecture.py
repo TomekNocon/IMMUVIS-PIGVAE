@@ -258,6 +258,6 @@ def main(npz, out):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--npz", default="thesis_figures/_cache/pipeline_7775_384_256.npz")
-    ap.add_argument("--out", default="thesis_figures/fig_architecture")
+    ap.add_argument("--npz", default="figures/_cache/pipeline_7775_384_256.npz")
+    ap.add_argument("--out", default="figures/fig_architecture")
     a = ap.parse_args(); main(a.npz, a.out)

@@ -3,7 +3,7 @@
 (a) ABMIL IG per tissue crop and z_global dimension (top 24 dims by |IG| on the slide), decisive crop boxed.
 (b) decisive crop: top 10 dims by |IG|, with the sum over all dims.
 The node-level maps of fig_latent_faithfulness.py are dropped (not validated, Sec. 6.5).
-Reads thesis_figures/_cache/latent_faith/example_<img>.npz. Writes thesis_figures/fig_latent_attribution_slim_<img>.{pdf,png}.
+Reads figures/_cache/latent_faith/example_<img>.npz. Writes figures/fig_latent_attribution_slim_<img>.{pdf,png}.
 """
 import glob
 from pathlib import Path
@@ -14,8 +14,8 @@ import numpy as np
 from matplotlib.patches import Rectangle
 
 ROOT = Path(__file__).resolve().parents[2]
-LF = ROOT / "thesis_figures" / "_cache" / "latent_faith"
-OUT = ROOT / "thesis_figures"
+LF = ROOT / "figures" / "_cache" / "latent_faith"
+OUT = ROOT / "figures"
 GOLD, GREY = "#a87f10", "#8a8a8a"
 plt.rcParams.update({
     "font.size": 7.5, "axes.titlesize": 8, "axes.labelsize": 7.5,

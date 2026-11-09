@@ -60,5 +60,5 @@ err = (err_sum / n).cpu().numpy().reshape(g, g); tgt = (tgt_sum / n).cpu().numpy
 r = np.minimum.outer(np.minimum(np.arange(g), g - 1 - np.arange(g)), np.minimum(np.arange(g), g - 1 - np.arange(g)))
 print(f"[{a.tag}] mean {err.mean():.4f} | by ring:", " ".join(f"{err[r == i].mean():.4f}" for i in range(r.max() + 1)),
       f"| corner/centre {err[[0, 0, -1, -1], [0, -1, 0, -1]].mean() / err[r == r.max()].mean():.2f}")
-np.savez_compressed(f"thesis_figures/_cache/recon_error_{a.tag}.npz", err=err, tgt=tgt, n=n,
+np.savez_compressed(f"figures/_cache/recon_error_{a.tag}.npz", err=err, tgt=tgt, n=n,
                     mag_bins=bins, mag_err=hist_err / np.maximum(hist_n, 1), mag_n=hist_n)

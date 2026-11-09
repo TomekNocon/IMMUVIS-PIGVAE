@@ -5,7 +5,9 @@
 defaults:
   - _self_
   - /paths: szary
+  - /hydra: default # run dir under ${paths.log_dir}/${task_name}
 
+task_name: visualize_imc
 input_path: ??? # .tiff image or .npy patch ([C,H,W] or [H,W,C])
 
 arcsinh_scale: 5.0 # arcsinh(x / scale); null for already-transformed input
@@ -30,5 +32,5 @@ ncols: 8
 pixel_size_um: null # set to draw a scale bar
 scale_bar_um: 100.0
 
-out_dir: explain_outputs/imc_viz
+out_dir: ${paths.log_dir}/explain/imc_viz
 name: null # output stem; null = input basename

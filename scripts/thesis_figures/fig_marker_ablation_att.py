@@ -3,9 +3,9 @@
 Marker ablation figure, Sec. 6.3 deep-dive: which of the 43 IMC markers drive the decision.
 
 Reads
-  thesis_figures/_cache/spatial_v3/<tag>_<img>.npz   per-crop ABMIL IG (decision map), decisive crop,
+  figures/_cache/spatial_v3/<tag>_<img>.npz   per-crop ABMIL IG (decision map), decisive crop,
                                                       Butterworth-filtered slide
-  thesis_figures/_cache/marker_ablation/*.npz        marker / group ablation through the full chain
+  figures/_cache/marker_ablation/*.npz        marker / group ablation through the full chain
                                                       (raw -> ImmuVis -> PCA -> PIGVAE -> z_global -> ABMIL)
 Effects are oriented to the predicted class: > 0 means removing the marker weakens the call.
 
@@ -26,8 +26,8 @@ import numpy as np
 from matplotlib.patches import Rectangle
 
 ROOT = Path(__file__).resolve().parents[2]
-CACHE = ROOT / "thesis_figures" / "_cache"
-OUT = ROOT / "thesis_figures"
+CACHE = ROOT / "figures" / "_cache"
+OUT = ROOT / "figures"
 TAG = sys.argv[1] if len(sys.argv) > 1 else "adeno_7064"
 P = 128
 

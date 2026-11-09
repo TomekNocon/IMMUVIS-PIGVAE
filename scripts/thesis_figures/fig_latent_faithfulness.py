@@ -1,10 +1,10 @@
 """Figures for items 17 (Sec. 6.4, decision -> latent) and 18 (Sec. 6.5, faithfulness).
 
-Reads thesis_figures/_cache/latent_faith/{cohort,faith_nodes,example_<img>}.npz (extract_latent_faithfulness.py)
+Reads figures/_cache/latent_faith/{cohort,faith_nodes,example_<img>}.npz (extract_latent_faithfulness.py)
 and the Butterworth-filtered slide from _cache/spatial_v3 for the crop image.
 Writes
-  thesis_figures/fig_latent_attribution_<img>.{pdf,png}
-  thesis_figures/fig_faithfulness.{pdf,png}
+  figures/fig_latent_attribution_<img>.{pdf,png}
+  figures/fig_faithfulness.{pdf,png}
 and prints the numbers quoted in the text (means, 95% bootstrap CIs, paired win rates).
 """
 import glob, sys
@@ -16,9 +16,9 @@ import numpy as np
 from matplotlib.patches import Rectangle
 
 ROOT = Path(__file__).resolve().parents[2]
-C = ROOT / "thesis_figures" / "_cache"
+C = ROOT / "figures" / "_cache"
 LF = C / "latent_faith"
-OUT = ROOT / "thesis_figures"
+OUT = ROOT / "figures"
 P = 128
 BLUE, RED, GOLD, GREY = "#2f6db5", "#c8323e", "#a87f10", "#8a8a8a"
 METH_COL = {"ig": GOLD, "attention": RED, "rollout": RED, "random": GREY}

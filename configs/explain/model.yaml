@@ -9,7 +9,9 @@ defaults:
   - /trainer: default # needed so experiment configs' `override /trainer` composes
   - /paths: szary
   - /experiment: null # must match the checkpoint's architecture
+  - /hydra: default # run dir under ${paths.log_dir}/${task_name}
 
+task_name: explain_model
 ckpt_path: ???
 method: encoder_ig # encoder_ig | rollout | abmil_ig | abmil_attention
 target: 0 # z_global dim (encoder_ig) or class-logit column (abmil)
@@ -20,5 +22,5 @@ split: val # val | test
 num_samples: 8
 
 grid_size: 16
-out_dir: explain_outputs
+out_dir: ${paths.log_dir}/explain/${method}
 abmil_ckpt: null # trained ABMIL head, only for the abmil_* methods

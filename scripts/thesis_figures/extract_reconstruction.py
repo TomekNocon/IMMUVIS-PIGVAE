@@ -10,7 +10,7 @@ from src.downstream.encode import load_frozen_pigvae
 from src.data.components.graphs_datamodules import DenseGraphBatch
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--npz", default="thesis_figures/_cache/pipeline_7775_384_256.npz")
+ap.add_argument("--npz", default="figures/_cache/pipeline_7775_384_256.npz")
 ap.add_argument("--ckpt", default="/raid_encrypted/immucan/embeddings/tnocon/logs/train/runs/2026-07-31_10-29-22/checkpoints/last.ckpt")
 ap.add_argument("--experiment", default="pigvae")
 a = ap.parse_args()

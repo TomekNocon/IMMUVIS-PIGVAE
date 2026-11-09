@@ -117,5 +117,5 @@ def main(out):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default="thesis_figures/fig_attention_mask")
+    ap.add_argument("--out", default="figures/fig_attention_mask")
     main(ap.parse_args().out)

@@ -5,7 +5,7 @@ fig_pca_variance : cumulative explained variance of the fitted PCAs (6x6 develop
 fig_recon_error  : per-node reconstruction error on the 10,197 validation crops for the radius-1
                    (cuogzab1) and radius-2 (d391t2al) runs, as a ratio to each run's interior mean,
                    plus error vs per-node target magnitude.
-Inputs: thesis_figures/_cache/recon_error_*.npz (extract_recon_error*.py, szary).
+Inputs: figures/_cache/recon_error_*.npz (extract_recon_error*.py, szary).
 """
 import argparse
 import numpy as np
@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
 INK, BLUE, GOLD, RED, GREY = "#2b2b2b", "#2f6db5", "#a87f10", "#c8323e", "#8a8a8a"
-C = "thesis_figures/_cache/"
+C = "figures/_cache/"
 plt.rcParams.update({"font.family": "serif", "font.size": 7.5, "mathtext.fontset": "dejavuserif",
                      "axes.spines.top": False, "axes.spines.right": False, "axes.linewidth": 0.6,
                      "xtick.major.width": 0.6, "ytick.major.width": 0.6})
@@ -78,5 +78,5 @@ def fig_err(out):
 
 
 if __name__ == "__main__":
-    fig_pca("thesis_figures/fig_pca_variance")
-    fig_err("thesis_figures/fig_recon_error")
+    fig_pca("figures/fig_pca_variance")
+    fig_err("figures/fig_recon_error")

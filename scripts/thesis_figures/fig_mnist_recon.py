@@ -80,8 +80,8 @@ def main(npz, out, examples, gt_per_view, title):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--npz", default="thesis_figures/_cache/mnist_recon_f1twm4pw.npz")
-    ap.add_argument("--out", default="thesis_figures/fig_mnist_recon")
+    ap.add_argument("--npz", default="figures/_cache/mnist_recon_f1twm4pw.npz")
+    ap.add_argument("--out", default="figures/fig_mnist_recon")
     ap.add_argument("--examples", type=lambda s: [int(x) for x in s.split(",")], default=None)
     ap.add_argument("--gt-per-view", action="store_true", help="repeat ground truth under every view (wandb layout)")
     ap.add_argument("--title", default="")

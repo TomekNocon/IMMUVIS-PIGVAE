@@ -25,7 +25,7 @@ from run_abmil import drop_nan_labels, balance_meta_df, _load_pooled_meta
 RUN = "/raid_encrypted/immucan/embeddings/tnocon/downstream/vae16_s0p01_film_2026-07-31"
 META, RES = f"{RUN}/meta_tables/zglobal", f"{RUN}/results/zglobal/cords"
 TIFF = "/raid_encrypted/immucan/IMC/immu-vis-other-ds/full-20122025"
-OUT = "thesis_figures/_cache/empty_shortcut"
+OUT = "figures/_cache/empty_shortcut"
 FEATURES = ["Grade", "Relapse", "DX.name", "Stage"]
 P = 128
 

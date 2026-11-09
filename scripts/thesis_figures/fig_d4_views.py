@@ -70,7 +70,7 @@ def main(npz, out, with_crop):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--npz", default="thesis_figures/_cache/pipeline_7775_384_256.npz")
-    ap.add_argument("--out", default="thesis_figures/fig_d4_views")
+    ap.add_argument("--npz", default="figures/_cache/pipeline_7775_384_256.npz")
+    ap.add_argument("--out", default="figures/fig_d4_views")
     ap.add_argument("--with-crop", action="store_true")
     a = ap.parse_args(); main(a.npz, a.out, a.with_crop)

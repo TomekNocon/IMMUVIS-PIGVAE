@@ -2,7 +2,7 @@
 #SBATCH --job-name=pigvae_downstream
 #SBATCH --gres=gpu:1
 #SBATCH --time=04:00:00
-#SBATCH --output=outputs/logs/downstream_%j.log
+#SBATCH --output=logs/slurm/%j_downstream.log
 set -e
 # Single per-crop-feature transfer eval: encode -> label-join -> 10-fold CV.
 # Usage: sbatch scripts/sbatch_downstream.sh <CKPT> <EXP> <TAG> [SRC FS NA]

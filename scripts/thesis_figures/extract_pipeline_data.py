@@ -11,7 +11,7 @@ from fig_cords_crop import preprocess, markers, ROOT
 D = "/raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords"
 ap = argparse.ArgumentParser()
 ap.add_argument("--image", default="7775"); ap.add_argument("--i", type=int, default=384)
-ap.add_argument("--j", type=int, default=256); ap.add_argument("--out", default="thesis_figures/_cache")
+ap.add_argument("--j", type=int, default=256); ap.add_argument("--out", default="figures/_cache")
 a = ap.parse_args()
 
 slide = preprocess(tifffile.imread(f"{ROOT}/{a.image}.tiff"))

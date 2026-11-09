@@ -7,7 +7,7 @@ pigvae (wandb run 81zasevr, "vae16-fb0.0-s0.01-FILM-start5-40ep").
 (d) Huber component, (e) per-node cosine similarity (= 1 - beta_recon / 0.1),
 (f) reconstruction SNR in dB (logged for monitoring, not optimised).
 Reconstruction term = alpha_recon + beta_recon + gamma_recon (Huber + 0.1*cosine + 0.001*gradient).
-All epoch panels shade the alpha ramp. Data: wandb history -> thesis_figures/_cache/history_81zasevr.csv
+All epoch panels shade the alpha ramp. Data: wandb history -> figures/_cache/history_81zasevr.csv
 """
 import numpy as np, pandas as pd
 import matplotlib; matplotlib.use("Agg")
@@ -23,7 +23,7 @@ EXP, RUN, NAME = "pigvae", "81zasevr", "vae16-fb0.0-s0.01-FILM-start5-40ep"
 
 
 def load():
-    df = pd.read_csv(f"thesis_figures/_cache/history_{RUN}.csv")
+    df = pd.read_csv(f"figures/_cache/history_{RUN}.csv")
     v = df.dropna(subset=["val_alpha_recon"]).set_index("epoch").sort_index()
     t = df.dropna(subset=["alpha_recon"]).copy()
     for d, p in [(v, "val_"), (t, "")]:
@@ -117,4 +117,4 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main("thesis_figures/fig_training_curves")
+    main("figures/fig_training_curves")

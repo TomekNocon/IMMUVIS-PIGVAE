@@ -15,7 +15,7 @@ set -e
 #   sbatch --export=ALL,EXPERIMENT=pigvae,CKPT=/raid_.../last.ckpt,METHOD=encoder_ig \
 #          scripts/explain_slurm.sh
 # Optional overrides via --export: TARGET (default 0), NSTEPS (50), NSAMPLES (8), SPLIT (val),
-# OUTDIR (default explain_outputs/<METHOD>). METHOD: encoder_ig | rollout.
+# OUTDIR (default <paths.log_dir>/explain/<METHOD>). METHOD: encoder_ig | rollout.
 
 PROJECT_DIR=/home/tnocon/master_thesis/IMMUVIS-PIGVAE
 cd "$PROJECT_DIR"
@@ -32,7 +32,7 @@ TARGET=${TARGET:-0}
 NSTEPS=${NSTEPS:-50}
 NSAMPLES=${NSAMPLES:-8}
 SPLIT=${SPLIT:-val}
-OUTDIR=${OUTDIR:-$PROJECT_DIR/explain_outputs/$METHOD}
+OUTDIR=${OUTDIR:-/raid_encrypted/immucan/embeddings/tnocon/logs/explain/$METHOD}
 
 [ -f "$CKPT" ] || { echo "ERROR: checkpoint not found: $CKPT"; exit 1; }
 echo "=== explain: experiment=$EXPERIMENT method=$METHOD ckpt=$CKPT -> $OUTDIR ==="

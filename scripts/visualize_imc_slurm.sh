@@ -28,7 +28,7 @@ if [ -z "$INPUT" ]; then
   exit 1
 fi
 FIGURE=${FIGURE:-both}
-OUTDIR=${OUTDIR:-$PROJECT_DIR/explain_outputs/imc_viz}
+OUTDIR=${OUTDIR:-/raid_encrypted/immucan/embeddings/tnocon/logs/explain/imc_viz}
 
 ARGS=(input_path="'$INPUT'" figure="$FIGURE" paths=szary out_dir="$OUTDIR"
       hydra.run.dir=. hydra.output_subdir=null)

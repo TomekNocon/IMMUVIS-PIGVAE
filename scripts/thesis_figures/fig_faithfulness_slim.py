@@ -5,8 +5,8 @@ The node-level median curves of fig_latent_faithfulness.py (old panels d/e) are 
   (a) crop deletion AUC   (b) crop insertion AUC   (slides with |logit| > 1)
   (c) slide 7064 crop curves
   (d) % of slides / crops where a method beats a random order (deletion AUC), crops vs nodes
-Reads thesis_figures/_cache/latent_faith/{cohort,faith_nodes,example_7064}.npz.
-Writes thesis_figures/fig_faithfulness_slim.{pdf,png}.
+Reads figures/_cache/latent_faith/{cohort,faith_nodes,example_7064}.npz.
+Writes figures/fig_faithfulness_slim.{pdf,png}.
 """
 from pathlib import Path
 
@@ -15,8 +15,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
-LF = ROOT / "thesis_figures" / "_cache" / "latent_faith"
-OUT = ROOT / "thesis_figures"
+LF = ROOT / "figures" / "_cache" / "latent_faith"
+OUT = ROOT / "figures"
 RED, GOLD, GREY = "#c8323e", "#a87f10", "#8a8a8a"
 METH_COL = {"ig": GOLD, "attention": RED, "random": GREY}
 plt.rcParams.update({

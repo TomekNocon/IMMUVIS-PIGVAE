@@ -1,7 +1,7 @@
 """Attention vs IG per crop: a faithful example (img2) next to a cautionary one (img0).
 
-Reads explain_outputs/abmil_dx/abmil_img{i}.pt (attention, ig_importance, logit, label,
-faithfulness). Writes thesis_figures/fig_abmil_attention_vs_ig.{pdf,png}.
+Reads figures/_cache/abmil_dx/abmil_img{i}.pt (attention, ig_importance, logit, label,
+faithfulness). Writes figures/fig_abmil_attention_vs_ig.{pdf,png}.
 """
 from pathlib import Path
 
@@ -10,8 +10,8 @@ import numpy as np
 import torch
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "explain_outputs" / "abmil_dx"
-OUT = ROOT / "thesis_figures"
+SRC = ROOT / "figures" / "_cache" / "abmil_dx"
+OUT = ROOT / "figures"
 
 BLUE = "#2f6db5"    # DNA1 — attention
 RED = "#c8323e"     # CD45 — top-k attention highlight

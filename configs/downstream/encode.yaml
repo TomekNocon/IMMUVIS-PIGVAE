@@ -3,8 +3,10 @@
 
 defaults:
   - /paths: szary
+  - /hydra: default # run dir under ${paths.log_dir}/${task_name}
   - _self_
 
+task_name: encode
 ckpt_path: ???
 model_experiment: ablation/film/no_film # experiment config the checkpoint was trained with (not `experiment`: clashes with the Hydra group)
 

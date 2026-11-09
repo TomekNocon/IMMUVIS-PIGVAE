@@ -5,14 +5,16 @@
 defaults:
   - _self_
   - /paths: szary
+  - /hydra: default # run dir under ${paths.log_dir}/${task_name}
 
+task_name: explain_abmil
 abmil_ckpt: ???
 meta_dir: ??? # meta_tables/<source_tag>, used to rebuild per-image bags
 feature: DX.name # clinical target of the head
 min_class_freq: 0.05 # must match the downstream CV binarisation
 num_samples: 4 # image bags to explain
 n_steps: 50 # Integrated-Gradients steps
-out_dir: explain_outputs/abmil
+out_dir: ${paths.log_dir}/explain/abmil
 
 data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords # <data_root>/<split>.h5 for crop images
 channel: 0
