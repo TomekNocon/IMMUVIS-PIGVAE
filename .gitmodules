@@ -1,3 +1,7 @@
 [submodule "external/dgi"]
 	path = external/dgi
 	url = https://github.com/PetarV-/DGI.git
+[submodule "external/multiplex-image-model"]
+	path = external/multiplex-image-model
+	url = https://github.com/dav3794/multiplex-image-model.git
+	branch = immuvis_v0
