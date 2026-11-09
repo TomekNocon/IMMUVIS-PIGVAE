@@ -1,0 +1,18 @@
+# @package _global_
+# Decision-level attribution on a trained gated-ABMIL head
+#   uv run scripts/explain_abmil.py abmil_ckpt=<fold.ckpt> meta_dir=<meta_tables/zglobal>
+
+defaults:
+  - _self_
+  - /paths: szary
+
+abmil_ckpt: ???
+meta_dir: ??? # meta_tables/<source_tag>, used to rebuild per-image bags
+feature: DX.name # clinical target of the head
+min_class_freq: 0.05 # must match the downstream CV binarisation
+num_samples: 4 # image bags to explain
+n_steps: 50 # Integrated-Gradients steps
+out_dir: explain_outputs/abmil
+
+data_root: /raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords # <data_root>/<split>.h5 for crop images
+channel: 0

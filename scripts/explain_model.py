@@ -30,7 +30,7 @@ from src.explainability.encoder_attribution import encoder_ig, pca_to_markers
 from src.explainability.rollout import attention_rollout
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="explain")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="explain/model")
 def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.out_dir, exist_ok=True)
 

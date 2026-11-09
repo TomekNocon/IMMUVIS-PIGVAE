@@ -95,7 +95,7 @@ def _balance_meta_df(meta_df, min_class_freq=0.05):
     return meta_df[meta_df["img_path"].isin(keep_imgs)]
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="explain_abmil")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="explain/abmil")
 def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.out_dir, exist_ok=True)
 

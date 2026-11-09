@@ -3,7 +3,7 @@
 For the reference run's z_global downstream (vae16_s0p01_film_2026-07-31, source zglobal):
   1. tissue density of every crop from the raw TIFF: mean arcsinh(x/5) over channels and pixels;
      a crop is EMPTY if density <= max(0.1, 0.4 * median density of its image's crops)
-     (the visualiser's rule, scripts/explain_e2e_raw.py); a stricter absolute rule (<= 0.1) is
+     (the rule of the former raw-image visualiser); a stricter absolute rule (<= 0.1) is
      reported as a sensitivity check.
   2. rebuild each label's bags and the 10 stratified folds exactly as run_abmil/run_cv do
      (same filtering, bag order, StratifiedKFold(random_state=42), train-fold z-score), load each

@@ -34,7 +34,7 @@ def _marker_names(cfg: DictConfig):
     return None
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="visualize_imc")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="explain/visualize_imc")
 def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.out_dir, exist_ok=True)
 

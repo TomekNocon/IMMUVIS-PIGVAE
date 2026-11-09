@@ -1,0 +1,34 @@
+# @package _global_
+# Render a raw IMC image or patch as a per-marker grid and a false-colour composite (no model)
+#   uv run scripts/visualize_imc.py input_path=<image.tiff | patch.npy>
+
+defaults:
+  - _self_
+  - /paths: szary
+
+input_path: ??? # .tiff image or .npy patch ([C,H,W] or [H,W,C])
+
+arcsinh_scale: 5.0 # arcsinh(x / scale); null for already-transformed input
+denoise: true # Butterworth low-pass, as in the embedding pipeline
+denoise_cutoff: 0.2
+
+panel_config: null # yaml with panels.markers.<dataset> marker names
+dataset: null
+marker_names: null # explicit names, overrides panel_config
+
+figure: both # both | grid | composite
+patch: null # null = whole image, int = patch index
+patch_size: 128
+
+composite_channels: null # indices or marker names; "all"; null = auto-pick
+composite_k: 5 # markers to auto-pick
+blend: max # max | add
+
+cmap: magma
+pctl: [1.0, 99.0] # per-channel contrast percentiles
+ncols: 8
+pixel_size_um: null # set to draw a scale bar
+scale_bar_um: 100.0
+
+out_dir: explain_outputs/imc_viz
+name: null # output stem; null = input basename
