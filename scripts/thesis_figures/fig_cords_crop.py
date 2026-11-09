@@ -7,6 +7,10 @@ in the caption). Crops are the non-overlapping 128 tiling the embeddings were cu
 Stage 1 (--scan): score crops over many images, write a candidate contact sheet.
 Stage 2 (--image ID --crop K): render the final figure as PDF + PNG.
 """
+import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
+
 import argparse, glob, os
 import numpy as np, tifffile, yaml
 import matplotlib; matplotlib.use("Agg")

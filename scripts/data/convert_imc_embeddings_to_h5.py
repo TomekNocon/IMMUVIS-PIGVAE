@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Convert .npy embeddings + metadata .csv into per-dataset HDF5 (single-view).
 
 The 8 spatial views (rotations + flips) are generated on the fly at training time,
@@ -23,9 +22,9 @@ Each HDF5 contains:
 * ``positions``   (N, 4)        - parsed from coords0/coords1
 * ``paths``       (N,)          - variable-length UTF-8 strings
 
-Example::
+Usage:
 
-    python scripts/data/convert_imc_embeddings_to_h5.py \\
+    uv run python scripts/data/convert_imc_embeddings_to_h5.py \\
         --input-dir /raid_encrypted/immucan/embeddings/tnocon/ImmuVis-768-UN-475 \\
         --out-root  /raid/tnocon/data/IMC
 """
@@ -35,7 +34,6 @@ from __future__ import annotations
 import argparse
 import ast
 import re
-import sys
 from collections import defaultdict
 from pathlib import Path
 

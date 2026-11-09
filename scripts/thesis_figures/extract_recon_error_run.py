@@ -5,11 +5,12 @@ optional z-score with the saved statistics and clipping (PCALayer). Error is mea
 model's training space (what the loss sees), per node, averaged over all test.h5 crops.
 Also reports error vs per-node target magnitude, binned, for the magnitude claim.
 """
-import argparse, sys
+import rootutils
+import argparse
 import h5py, numpy as np, torch
 from omegaconf import OmegaConf
 from hydra.utils import instantiate
-sys.path.insert(0, ".")
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 from src.data.components.graphs_datamodules import DenseGraphBatch, PCALayer
 
 D = "/raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords"

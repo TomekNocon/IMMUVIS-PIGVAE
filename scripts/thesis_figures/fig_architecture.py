@@ -8,14 +8,15 @@ CD45 red (global / invariant stream), panCK gold (decoder, tissue glyphs).
 Input/output grids: -PC2 of the real node features of the example crop (tracks panCK) on a
 black->gold ramp; the output is the trained model's reconstruction (extract_reconstruction.py).
 """
-import argparse, os, sys
+import rootutils
+import argparse
 import numpy as np
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Polygon, Rectangle
 
-sys.path.insert(0, os.path.dirname(__file__))
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 from fig_pipeline import PC
 
 INK = "#2b2b2b"

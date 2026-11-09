@@ -1,13 +1,20 @@
-# scripts/encode_mil_embeddings.py
+"""Encode IMC crops with a frozen checkpoint into per-crop MIL features (stage 1 of transfer).
+
+Writes one memmap per split under ``<downstream_root>/<run_tag>/mil_embeddings/<source_tag>/``,
+plus the per-crop metadata the label-join stage consumes.
+
+Usage:
+    uv run python scripts/downstream/encode_mil_embeddings.py \
+        ckpt_path=/raid_.../last.ckpt model_experiment=pigvae run_tag=<RUN_TAG> \
+        feature_source=zglobal source_tag=zglobal
+"""
+
 import os
 
 import hydra
 import rootutils
 from omegaconf import DictConfig
 
-# Repo convention (see src/train.py, src/eval.py, scripts/diagnose_model.py): put the
-# project root on sys.path so `from src...` resolves when this file is invoked directly
-# as `python scripts/encode_mil_embeddings.py` (its own dir would otherwise be sys.path[0]).
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.downstream.encode import (
@@ -18,7 +25,7 @@ from src.downstream.encode import (
     source_subdir,
 )
 
-@hydra.main(version_base=None, config_path="../configs", config_name="downstream/encode")
+@hydra.main(version_base=None, config_path="../../configs", config_name="downstream/encode")
 def main(cfg: DictConfig) -> None:
     feature_source = getattr(cfg, "feature_source", "zglobal")
     node_agg = getattr(cfg, "node_agg", "mean")

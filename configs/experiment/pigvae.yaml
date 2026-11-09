@@ -14,7 +14,7 @@
 #   use_film: true, film_bound: true, film_weight_decay: 0.05.
 #
 # Run:
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=pigvae scripts/ablation_slurm.sh
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=pigvae scripts/slurm/train.sh
 
 defaults:
   - override /data: imc

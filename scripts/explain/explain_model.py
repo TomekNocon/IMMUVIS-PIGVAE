@@ -1,14 +1,14 @@
-"""Hydra entrypoint for post-hoc explainability on a trained PIGVAE checkpoint.
+"""Encoder attribution (Integrated Gradients / attention rollout) on a PIGVAE checkpoint.
 
 Mirrors the training/inference conventions (Hydra compose + `hydra.utils.instantiate` +
 `load_state_dict(strict=False)`). Runs an attribution method on a batch of crops and writes
 per-node heatmaps (+ marker attribution for the encoder IG path) to `out_dir`.
 
-Examples:
-  uv run scripts/explain_model.py experiment=pigvae \
-      ckpt_path=/raid_.../last.ckpt method=encoder_ig target=0 paths=szary
-  uv run scripts/explain_model.py experiment=pigvae \
-      ckpt_path=/raid_.../last.ckpt method=rollout paths=szary
+Usage:
+    uv run python scripts/explain/explain_model.py experiment=pigvae \
+        ckpt_path=/raid_.../last.ckpt method=encoder_ig target=0
+    uv run python scripts/explain/explain_model.py experiment=pigvae \
+        ckpt_path=/raid_.../last.ckpt method=rollout
 """
 
 import operator
@@ -30,7 +30,7 @@ from src.explainability.encoder_attribution import encoder_ig, pca_to_markers
 from src.explainability.rollout import attention_rollout
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="explain/model")
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="explain/model")
 def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.out_dir, exist_ok=True)
 

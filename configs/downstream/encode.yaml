@@ -1,5 +1,5 @@
 # @package _global_
-# Encode crops with a frozen PIGVAE checkpoint into per-crop MIL features (scripts/encode_mil_embeddings.py)
+# Encode crops with a frozen PIGVAE checkpoint into per-crop MIL features (scripts/downstream/encode_mil_embeddings.py)
 
 defaults:
   - /paths: szary

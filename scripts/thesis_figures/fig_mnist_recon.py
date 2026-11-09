@@ -6,7 +6,11 @@ canonical orientation (bottom), exactly as in the wandb validation panels. A red
 a view whose chosen permutation is inconsistent with the other views of the same image (i.e. not
 explained by the majority view->class mapping composed with one image-specific D4 offset). Data: extract_mnist_recon.py.
 """
-import argparse, json, os
+import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
+
+import argparse, json
 
 import numpy as np
 import matplotlib; matplotlib.use("Agg")

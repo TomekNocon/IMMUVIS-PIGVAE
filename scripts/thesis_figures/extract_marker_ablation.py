@@ -13,18 +13,18 @@ Per slide:
   marker_mean [n, 43] mean preprocessed intensity per crop and marker
 Cohort: 2 example slides (7064 adeno, 6577 squamous) + up to N correctly classified OOF slides per class.
 """
-import os, sys
+import rootutils
+import os
 import h5py, joblib, numpy as np, pandas as pd, tifffile, torch
-from captum.attr import IntegratedGradients
 from sklearn.model_selection import StratifiedKFold
-sys.path.insert(0, "."); sys.path.insert(0, "scripts"); sys.path.insert(0, "scripts/thesis_figures")
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 import glob
 from src.downstream.abmil.cv import zscore_stats_from_bags, apply_zscore_to_bags
 from src.downstream.abmil.data import build_image_bags
 from src.downstream.abmil.lit import AbmilLitModule
 from src.downstream.encode import load_frozen_pigvae
 from src.data.components.graphs_datamodules import DenseGraphBatch
-from run_abmil import drop_nan_labels, balance_meta_df, _load_pooled_meta
+from src.downstream.abmil.data import balance_meta_df, drop_nan_labels, load_pooled_meta
 from fig_cords_crop import preprocess
 import immuvis_encoder as ie
 
@@ -47,7 +47,7 @@ def attention(model, x, mask=None):
     return model.classifier(torch.bmm(a, x).reshape(x.size(0), -1)), a
 
 
-pooled = _load_pooled_meta(META, "cords")
+pooled = load_pooled_meta(META, "cords")
 fm = balance_meta_df(drop_nan_labels(pooled[pooled.feature == FEAT]), min_class_freq=0.05)
 classes = sorted(fm.feature_value.astype(str).unique()); c2i = {c: i for i, c in enumerate(classes)}
 bags, labels = build_image_bags(fm, c2i); y = labels.numpy()

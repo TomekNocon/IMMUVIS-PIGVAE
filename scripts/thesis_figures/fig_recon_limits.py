@@ -7,7 +7,10 @@ fig_recon_error  : per-node reconstruction error on the 10,197 validation crops 
                    plus error vs per-node target magnitude.
 Inputs: figures/_cache/recon_error_*.npz (extract_recon_error*.py, szary).
 """
-import argparse
+import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
+
 import numpy as np
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt

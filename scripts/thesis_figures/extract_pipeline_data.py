@@ -3,9 +3,10 @@
 Runs on szary (raid). Pulls the whole slide, the 128x128 crop, the stored ImmuVis 16x16x768
 feature map for that crop (train.h5), and its projection by the pipeline's PCA-128 (grid 16).
 """
-import argparse, sys
+import rootutils
+import argparse
 import h5py, joblib, numpy as np, tifffile
-sys.path.insert(0, "scripts/thesis_figures")
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 from fig_cords_crop import preprocess, markers, ROOT
 
 D = "/raid_encrypted/immucan/embeddings/tnocon/data/IMC/cords"

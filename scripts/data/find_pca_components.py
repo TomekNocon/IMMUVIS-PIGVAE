@@ -1,21 +1,18 @@
-#!/usr/bin/env python3
 """Determine the optimal number of PCA components for the cords dataset.
 
 Fits IncrementalPCA on the **full** training split using the same preprocessing
 pipeline as ``IMCDataModule`` (center-crop → arcsinh → flatten) and reports how
 many components are needed to explain a given fraction of variance.
 
-Usage
------
-    python scripts/data/find_pca_components.py [OPTIONS]
+Usage:
+    uv run python scripts/data/find_pca_components.py [OPTIONS]
 
-Examples
---------
+Examples:
     # Use defaults (center_crop=6, normalize=False, batch_size=64)
-    python scripts/data/find_pca_components.py
+    uv run python scripts/data/find_pca_components.py
 
     # Custom data root and thresholds
-    python scripts/data/find_pca_components.py \
+    uv run python scripts/data/find_pca_components.py \
         --data-root /my/data/IMC \
         --thresholds 0.90 0.95 0.99 0.999
 """

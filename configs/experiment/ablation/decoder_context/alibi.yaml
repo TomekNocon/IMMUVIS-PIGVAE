@@ -4,7 +4,7 @@
 #   - decoder ALiBi-2D relative-position bias (soft locality; absolute PE auto-dropped)
 #   - hidden 384 (efficiency; 90%-energy rank says ~parity with 512)
 #   - final_norm ON, z=32, RoPE/FiLM off, permuter dormant (per-view AE)
-# Run: sbatch scripts/run_pernode_z.sh  (set EXPERIMENT) — or:
+# Run: sbatch scripts/slurm/train.sh  (set EXPERIMENT) — or:
 #   python src/train.py experiment=ablation/decoder_context/alibi logger=wandb trainer=gpu paths=szary
 
 defaults:

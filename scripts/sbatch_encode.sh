@@ -1,9 +1,0 @@
-#!/bin/bash
-#SBATCH --job-name=pigvae_encode
-#SBATCH --gres=gpu:1
-#SBATCH --time=03:00:00
-#SBATCH --output=logs/slurm/%j_encode_full.log
-cd /home/tnocon/master_thesis/IMMUVIS-PIGVAE
-uv run python scripts/encode_mil_embeddings.py \
-  ckpt_path=/raid_encrypted/immucan/embeddings/tnocon/logs/train/runs/2026-06-28_23-11-45/checkpoints/last.ckpt \
-  model_experiment=ablation/kl/scale_1e-3

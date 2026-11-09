@@ -8,9 +8,9 @@
 # RoPE off, neighborhood_radius 1, permuter dormant (per-view AE). Even grid -> D4 still holds.
 # Memory: 256 nodes + full-attention decoder (256x256) is ~7x the 6x6 work, so batch_size 16->8.
 # Run (PCA refit over 256-node samples + bigger graphs = slower; give it walltime):
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/vae/deterministic_ae scripts/ablation_slurm.sh
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/vae/deterministic_ae scripts/slurm/train.sh
 #   (if it OOMs, drop data.hparams.batch_size to 4)
-# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment ablation/vae/deterministic_ae
+# Inspect: python scripts/diagnostics/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment ablation/vae/deterministic_ae
 
 defaults:
   - override /data: imc

@@ -1,27 +1,16 @@
-# scripts/build_abmil_meta.py
-"""Build label-joined ABMIL meta tables (Stage 2 of the PIGVAE->ABMIL pipeline).
+"""Join clinical labels onto the encode-stage crop metadata (stage 2 of transfer).
 
-Replicates the merge in `/home/tnocon/mil/logistic_regression/main.py`
-(`merge_metadata_with_melted`): the PIGVAE encode stage already writes per-crop
-metadata [img_path, coords0, coords1, embeddings_file, embedding_idx] with
-`embeddings_file`/`embedding_idx` pointing into our z_global .npy, so -- unlike
-main.py -- we do NOT re-pair embeddings (that's `concat_metadata`'s job upstream);
-we only attach clinical labels.
+The encode stage writes per-crop metadata (img_path, coords, embeddings_file, embedding_idx);
+this attaches the clinical labels from the melted table by tiff basename, giving the columns
+``run_abmil.py`` consumes: img_path, coords*, embeddings_file, embedding_idx, dataset,
+image_shape, feature, feature_value. Mirrors ``merge_metadata_with_melted`` of the gated-ABMIL
+reference pipeline.
 
-The join, verbatim from main.py: normalize the encode `img_path` to its tiff
-basename via `_img_filename`, then `merge(left_on="img_path",
-right_on="image_path")` against the melted clinical table filtered to `dataset`.
-Output columns (img_path, coords*, embeddings_file, embedding_idx, dataset,
-image_shape, feature, feature_value) are exactly what `scripts/run_abmil.py`
-consumes (it selects rows per `feature`).
-
-Example:
-  uv run python scripts/build_abmil_meta.py \
-    --encode_dir /raid_encrypted/immucan/embeddings/tnocon/downstream/<RUN>/mil_embeddings \
-    --melted /raid_encrypted/immucan/embeddings/tnocon/data/clinical/melted_table_images.csv \
-    --dataset cords \
-    --out_dir /raid_encrypted/immucan/embeddings/tnocon/downstream/<RUN>/meta_tables \
-    --splits train test
+Usage:
+    uv run python scripts/downstream/build_abmil_meta.py \
+        --encode_dir /raid_.../downstream/<RUN_TAG>/mil_embeddings/zglobal \
+        --melted /raid_.../data/clinical/melted_table_images.csv \
+        --out_dir /raid_.../downstream/<RUN_TAG>/meta_tables/zglobal --splits train test
 """
 import argparse
 import os

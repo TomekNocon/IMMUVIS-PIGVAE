@@ -18,9 +18,9 @@
 # (drop to 4 if it OOMs). PCA refits at center_crop_16 on first run; give it walltime.
 #
 # Run:
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/kl/free_bits_0.5 scripts/ablation_slurm.sh
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/kl/free_bits_0.5 scripts/slurm/train.sh
 #   or: python src/train.py experiment=ablation/kl/free_bits_0.5 logger=wandb trainer=gpu paths=szary
-# Inspect: python scripts/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment ablation/kl/free_bits_0.5
+# Inspect: python scripts/diagnostics/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment ablation/kl/free_bits_0.5
 #
 # Watch: val_mse near the 16x16 AE floor (ablation/vae/deterministic_ae), smooth ep3-7 (no spike), latent health
 #   std_mean < ~0.85 / active_dims a large fraction of 8192 / kld_per_dim_median above fb 0.5.

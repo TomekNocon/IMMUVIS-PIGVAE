@@ -4,16 +4,16 @@ Views are produced by the dataloader's own `_spatial_view` (np.rot90 counter-clo
 optional horizontal flip), applied to the real PCA-128 node features of the pipeline-figure crop.
 The highlighted cell is the one followed in the pipeline figure, tracked through every view.
 """
-import argparse, os, sys
+import rootutils
+import argparse
 import numpy as np
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 from src.data.components.graphs_datamodules import _spatial_view
-from fig_cords_crop import COLOURS, stretch
+from fig_cords_crop import COLOURS
 from fig_pipeline import node_rgb, tinted, HL, CELL
 
 ORDER = ["r0_nf", "r90_nf", "r180_nf", "r270_nf", "r0_f", "r90_f", "r180_f", "r270_f"]

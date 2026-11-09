@@ -1,14 +1,14 @@
-"""Hydra entrypoint for DECISION-level explainability on a trained gated-ABMIL head.
+"""Decision-level attribution on a trained gated-ABMIL head.
 
 Loads a saved fold checkpoint (from the downstream CV) + rebuilds the per-image z_global bags,
 then reports, per image: the gated attention over crops, Integrated-Gradients crop importance,
 and a deletion/insertion faithfulness check of the attention map. This answers "which crops
 drive the clinical decision" — the crisp, decision-level counterpart to the diffuse encoder map.
 
-Example:
-  uv run scripts/explain_abmil.py \
+Usage:
+    uv run python scripts/explain/explain_abmil.py \
     abmil_ckpt=/raid_.../results/zglobal/cords/DX.name/fold_0/epoch=...ckpt \
-    meta_dir=/raid_.../meta_tables/zglobal feature=DX.name paths=szary
+    meta_dir=/raid_.../meta_tables/zglobal feature=DX.name
 """
 
 import operator
@@ -27,7 +27,7 @@ from omegaconf import DictConfig, OmegaConf
 OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
 OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
 
-from src.downstream.abmil.data import _load_memmap, build_image_bags
+from src.downstream.abmil.data import _load_memmap
 from src.downstream.abmil.lit import AbmilLitModule
 from src.explainability import viz
 from src.explainability.abmil_attribution import abmil_attention, abmil_ig, crop_importance
@@ -95,7 +95,7 @@ def _balance_meta_df(meta_df, min_class_freq=0.05):
     return meta_df[meta_df["img_path"].isin(keep_imgs)]
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="explain/abmil")
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="explain/abmil")
 def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.out_dir, exist_ok=True)
 

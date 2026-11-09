@@ -12,8 +12,8 @@
 # Watch: val_mse minimum should HOLD to ep39 (not climb to 0.07); sigma up / mu_std down.
 # Collapse guardrail: active_dims stays a large fraction of 8192, kld_per_dim_median not -> ~0.
 #
-# Run (or via scripts/run_fb_sweep.sh):
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/kl/free_bits_0.2 scripts/ablation_slurm.sh
+# Run (or via scripts/slurm/submit_ablation.sh kl):
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/kl/free_bits_0.2 scripts/slurm/train.sh
 
 defaults:
   - override /data: imc

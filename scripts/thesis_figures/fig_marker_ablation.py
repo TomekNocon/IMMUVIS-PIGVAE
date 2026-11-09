@@ -15,15 +15,15 @@ Panels (one patient):
   (e) cohort: group effects, adenocarcinoma vs squamous, one dot per slide
 Usage: fig_marker_ablation.py [adeno_7064|squam_6577]   (default adeno_7064)
 """
+import rootutils
 import glob, sys
-from pathlib import Path
 
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 CACHE = ROOT / "figures" / "_cache"
 OUT = ROOT / "figures"
 TAG = sys.argv[1] if len(sys.argv) > 1 else "adeno_7064"

@@ -1,11 +1,9 @@
-"""
-Diagnostic inference script for PIGVAE (imc-pigvae-film branch).
+"""Inspect a trained PIGVAE checkpoint for dead or collapsed subsystems.
 
-Loads a checkpoint, runs a few validation batches, and prints a detailed report
-covering every subsystem that could be dead or collapsed:
+Loads a checkpoint, runs a few validation batches and prints a report on:
   - Latent space (mu, std, active dims, KLD per dim)
   - Node feature diversity across D4 augmentations (position-level, not mean-pooled)
-  - Raw permuter scores before Sinkhorn (are they identical for all 8 views?)
+  - Raw permuter scores (are they identical for all 8 views?)
   - Permuter predictions and confidence per augmentation slot
   - Activation stats in encoder transformer, permuter transformer, decoder
   - Equivariance proof (encoder(flip(x)) == flip(encoder(x)))
@@ -13,7 +11,7 @@ covering every subsystem that could be dead or collapsed:
   - Decoder std diagnostic (is decoder std ~ 1/sqrt(N)?)
 
 Usage:
-    python scripts/diagnose_model.py \\
+    uv run python scripts/diagnostics/diagnose_model.py \\
         --ckpt /path/to/checkpoint.ckpt \\
         [--num-batches 3] \\
         [--batch-idx 5]        # pick a specific batch instead
@@ -33,14 +31,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# ── project root setup ──────────────────────────────────────────────────────
-project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root))
-
 import rootutils
-rootutils.setup_root(str(project_root), indicator=".project-root", pythonpath=True)
 
-from omegaconf import OmegaConf, DictConfig
+project_root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from omegaconf import OmegaConf
 OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
 OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
 

@@ -9,6 +9,10 @@ pigvae (wandb run 81zasevr, "vae16-fb0.0-s0.01-FILM-start5-40ep").
 Reconstruction term = alpha_recon + beta_recon + gamma_recon (Huber + 0.1*cosine + 0.001*gradient).
 All epoch panels shade the alpha ramp. Data: wandb history -> figures/_cache/history_81zasevr.csv
 """
+import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
+
 import numpy as np, pandas as pd
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt

@@ -11,7 +11,7 @@
 # The raw-768 baseline is recipe-independent, so "does z_global clear raw" stays a valid comparison.
 #
 # Run:
-#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=ablation/input_width/pca256_zg768_single_view scripts/ablation_slurm.sh
+#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=ablation/input_width/pca256_zg768_single_view scripts/slurm/train.sh
 
 defaults:
   - override /data: imc

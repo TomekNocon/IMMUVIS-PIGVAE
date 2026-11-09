@@ -1,6 +1,6 @@
 # @package _global_
 # Render a raw IMC image or patch as a per-marker grid and a false-colour composite (no model)
-#   uv run scripts/visualize_imc.py input_path=<image.tiff | patch.npy>
+#   uv run scripts/explain/visualize_imc.py input_path=<image.tiff | patch.npy>
 
 defaults:
   - _self_

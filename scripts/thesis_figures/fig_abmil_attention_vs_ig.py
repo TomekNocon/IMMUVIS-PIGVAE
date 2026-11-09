@@ -3,13 +3,13 @@
 Reads figures/_cache/abmil_dx/abmil_img{i}.pt (attention, ig_importance, logit, label,
 faithfulness). Writes figures/fig_abmil_attention_vs_ig.{pdf,png}.
 """
-from pathlib import Path
+import rootutils
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 SRC = ROOT / "figures" / "_cache" / "abmil_dx"
 OUT = ROOT / "figures"
 

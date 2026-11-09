@@ -6,6 +6,10 @@
 All runs share the preprocessing (PCA-128 on the 16x16 grid, no whitening, no clip), free bits off.
 Data: final wandb summaries -> figures/_cache/ae_vae_axis_runs.csv.
 """
+import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
+
 import numpy as np, pandas as pd
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt

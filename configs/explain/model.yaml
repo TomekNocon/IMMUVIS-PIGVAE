@@ -1,6 +1,6 @@
 # @package _global_
 # Encoder attribution (Integrated Gradients / attention rollout) on a PIGVAE checkpoint
-#   uv run scripts/explain_model.py experiment=pigvae ckpt_path=<last.ckpt> method=encoder_ig
+#   uv run scripts/explain/explain_model.py experiment=pigvae ckpt_path=<last.ckpt> method=encoder_ig
 
 defaults:
   - _self_

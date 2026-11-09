@@ -6,14 +6,15 @@
 (c) the receptive field of a content node after l = 1..4 layers on the real 16x16 grid.
 Palette as in the architecture figure: encoder blue, CLS red.
 """
-import argparse, os, sys
+import rootutils
+import argparse
 import numpy as np
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle, FancyArrowPatch
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 from src.models.components.llama_graph_transformer import _create_neighborhood_mask
 
 INK = "#2b2b2b"

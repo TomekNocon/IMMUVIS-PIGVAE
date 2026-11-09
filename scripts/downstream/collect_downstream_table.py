@@ -1,15 +1,11 @@
-# scripts/collect_downstream_table.py
-"""Collect per-source ABMIL results into one comparison table (Stage 4).
+"""Pivot per-source ABMIL results into one comparison table (stage 4 of transfer).
 
-The feature-source sweep writes one `results/<source_tag>/results.csv` per
-per-crop feature (raw | zglobal | node_mean | node_flatten), each with columns
-`dataset, feature, accuracy, macro_f1, auc`. This pivots them into a single wide
-table indexed by (dataset, feature) with one column per source, so the deciding
-question -- does the trained encoder's z_global beat the raw-768 baseline? -- is
-a single glance across a row.
+Reads ``results/<source_tag>/results.csv`` for each per-crop feature (raw | zglobal |
+node_mean | node_flatten) and writes one wide table indexed by (dataset, feature) with a column
+per source, so encoder features can be read off against the raw-768 baseline row by row.
 
-Example:
-  uv run python scripts/collect_downstream_table.py --run_tag vae16_s0p001_2026-06-28
+Usage:
+    uv run python scripts/downstream/collect_downstream_table.py --run_tag <RUN_TAG> --metric auc
 """
 import argparse
 import glob

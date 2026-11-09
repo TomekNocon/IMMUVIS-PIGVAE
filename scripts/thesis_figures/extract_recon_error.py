@@ -9,9 +9,10 @@ Per node we accumulate:
   err_trunc = ||inv(x) - emb||^2 / 768           (PCA truncation floor: perfect decoder, same PCA)
 plus per-crop target norm vs error, and the explained-variance curves of the fitted PCAs.
 """
-import argparse, glob, sys
+import rootutils
+import argparse, glob
 import h5py, joblib, numpy as np, torch
-sys.path.insert(0, ".")
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 from src.downstream.encode import load_frozen_pigvae
 from src.data.components.graphs_datamodules import DenseGraphBatch
 

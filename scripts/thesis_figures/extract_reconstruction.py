@@ -3,9 +3,10 @@
 Input = the crop's PCA-128 node features from the pipeline cache (same projection the dataloader
 applies: zscore=False, no clip), in training node order (row-major). Deterministic (sample=False).
 """
-import argparse, sys
+import rootutils
+import argparse
 import numpy as np, torch
-sys.path.insert(0, ".")
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 from src.downstream.encode import load_frozen_pigvae
 from src.data.components.graphs_datamodules import DenseGraphBatch
 

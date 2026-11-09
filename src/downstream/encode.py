@@ -1,7 +1,7 @@
 """Frozen PIGVAE loader for the downstream evaluation pipeline.
 
 Reconstructs a `PLGraphAE` from its Hydra configs (mirroring the model-building
-half of `scripts/diagnose_model.py::load_model_and_data`, minus the dataloader),
+half of `scripts/diagnostics/diagnose_model.py::load_model_and_data`, minus the dataloader),
 loads checkpoint weights, and hands back the frozen `graph_ae` submodule.
 """
 

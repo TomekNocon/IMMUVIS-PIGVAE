@@ -12,15 +12,16 @@ For the reference run's z_global downstream (vae16_s0p01_film_2026-07-31, source
        - the out-of-fold AUC with all crops (must reproduce the reported AUC) and with empty crops
          masked out of the attention softmax (same frozen head, no retraining).
 """
-import glob, os, sys
+import rootutils
+import glob, os
 from concurrent.futures import ProcessPoolExecutor
 import numpy as np, pandas as pd, tifffile, torch
 from sklearn.model_selection import StratifiedKFold
-sys.path.insert(0, "."); sys.path.insert(0, "scripts")
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 from src.downstream.abmil.cv import _auc, zscore_stats_from_bags, apply_zscore_to_bags
 from src.downstream.abmil.data import build_image_bags
 from src.downstream.abmil.lit import AbmilLitModule
-from run_abmil import drop_nan_labels, balance_meta_df, _load_pooled_meta
+from src.downstream.abmil.data import balance_meta_df, drop_nan_labels, load_pooled_meta
 
 RUN = "/raid_encrypted/immucan/embeddings/tnocon/downstream/vae16_s0p01_film_2026-07-31"
 META, RES = f"{RUN}/meta_tables/zglobal", f"{RUN}/results/zglobal/cords"
@@ -60,7 +61,7 @@ def pad(bags, extra_mask=None):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    pooled = _load_pooled_meta(META, "cords")
+    pooled = load_pooled_meta(META, "cords")
     crops = pooled.drop_duplicates(["img_path", "coords0", "coords1"])[["img_path", "coords0", "coords1"]]
     dens_file = f"{OUT}/crop_density.csv"
     if not os.path.exists(dens_file):

@@ -4,7 +4,7 @@
 #   kept: decoder Swin bias, encoder dilated mask radius 2, hidden 384, final_norm on, z=32.
 #   NOTE: cosine ignores magnitude, so expect val_mse to be flat/slightly worse — its payoff is
 #   representational (direction) and is only judgeable via downstream transfer (not yet wired).
-# Run: sbatch --export=ALL,EXPERIMENT=ablation/decoder_context/swin_cosine scripts/ablation_slurm.sh
+# Run: sbatch --export=ALL,EXPERIMENT=ablation/decoder_context/swin_cosine scripts/slurm/train.sh
 
 defaults:
   - override /data: imc

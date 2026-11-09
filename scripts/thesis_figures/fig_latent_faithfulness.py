@@ -7,15 +7,15 @@ Writes
   figures/fig_faithfulness.{pdf,png}
 and prints the numbers quoted in the text (means, 95% bootstrap CIs, paired win rates).
 """
-import glob, sys
-from pathlib import Path
+import rootutils
+import glob
 
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 C = ROOT / "figures" / "_cache"
 LF = C / "latent_faith"
 OUT = ROOT / "figures"

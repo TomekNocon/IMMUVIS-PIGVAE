@@ -3,6 +3,10 @@
 slide -> 128x128x43 crop -> ImmuVis encoder -> 16x16x768 feature map -> PCA-128 -> 16x16 grid graph.
 Reads the npz written by extract_pipeline_data.py (szary); rendering itself runs anywhere.
 """
+import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
+
 import argparse
 import numpy as np
 import matplotlib; matplotlib.use("Agg")

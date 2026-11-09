@@ -11,7 +11,7 @@
 # needed for the equal-footing comparison); attribute with a follow-up rung only if it wins.
 #
 # Run:
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/input_width/pca256_zg768 scripts/ablation_slurm.sh
+#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/input_width/pca256_zg768 scripts/slurm/train.sh
 
 defaults:
   - override /data: imc

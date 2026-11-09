@@ -1,14 +1,14 @@
-"""Hydra entrypoint for professional IMC raw-input visualisation.
+"""Render a raw IMC image as a per-marker grid and a false-colour composite.
 
 Renders a whole-image ``.tiff`` or a pre-cut ``.npy`` patch two publication-standard ways --
 a per-marker contact sheet and a false-colour composite -- and saves PNGs to ``out_dir``. Reads
 raw pixels only (no model/checkpoint), so it runs CPU-only on szary alongside anything else.
 
-Examples:
-  uv run scripts/visualize_imc.py input_path=/raid_.../imgs/foo.tiff paths=szary
-  uv run scripts/visualize_imc.py input_path=/raid_.../foo.tiff figure=composite \
-      panel_config=/raid_.../all_panels_config2.yaml dataset=cords \
-      composite_channels=[DNA1,CD8,panCK] paths=szary
+Usage:
+    uv run python scripts/explain/visualize_imc.py input_path=/raid_.../imgs/foo.tiff
+    uv run python scripts/explain/visualize_imc.py input_path=/raid_.../foo.tiff figure=composite \
+        panel_config=/raid_.../all_panels_config2.yaml dataset=cords \
+        composite_channels=[DNA1,CD8,panCK]
 """
 
 import os
@@ -34,7 +34,7 @@ def _marker_names(cfg: DictConfig):
     return None
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="explain/visualize_imc")
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="explain/visualize_imc")
 def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.out_dir, exist_ok=True)
 

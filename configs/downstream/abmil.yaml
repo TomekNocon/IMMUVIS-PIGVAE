@@ -1,5 +1,5 @@
 # @package _global_
-# Gated-ABMIL transfer eval of one PIGVAE checkpoint (scripts/run_abmil.py)
+# Gated-ABMIL transfer eval of one PIGVAE checkpoint (scripts/downstream/run_abmil.py)
 
 defaults:
   - /paths: szary

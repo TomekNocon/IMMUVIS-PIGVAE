@@ -5,15 +5,15 @@
 The node-level maps of fig_latent_faithfulness.py are dropped (not validated, Sec. 6.5).
 Reads figures/_cache/latent_faith/example_<img>.npz. Writes figures/fig_latent_attribution_slim_<img>.{pdf,png}.
 """
+import rootutils
 import glob
-from pathlib import Path
 
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 LF = ROOT / "figures" / "_cache" / "latent_faith"
 OUT = ROOT / "figures"
 GOLD, GREY = "#a87f10", "#8a8a8a"

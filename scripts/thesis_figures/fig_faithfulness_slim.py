@@ -8,13 +8,13 @@ The node-level median curves of fig_latent_faithfulness.py (old panels d/e) are 
 Reads figures/_cache/latent_faith/{cohort,faith_nodes,example_7064}.npz.
 Writes figures/fig_faithfulness_slim.{pdf,png}.
 """
-from pathlib import Path
+import rootutils
 
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 LF = ROOT / "figures" / "_cache" / "latent_faith"
 OUT = ROOT / "figures"
 RED, GOLD, GREY = "#c8323e", "#a87f10", "#8a8a8a"

@@ -1,6 +1,6 @@
 # @package _global_
 # Decision-level attribution on a trained gated-ABMIL head
-#   uv run scripts/explain_abmil.py abmil_ckpt=<fold.ckpt> meta_dir=<meta_tables/zglobal>
+#   uv run scripts/explain/explain_abmil.py abmil_ckpt=<fold.ckpt> meta_dir=<meta_tables/zglobal>
 
 defaults:
   - _self_
