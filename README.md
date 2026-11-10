@@ -59,6 +59,7 @@ scripts/
   thesis_figures/      figure extraction (cluster) and rendering (anywhere)
   slurm/               SLURM launchers for all of the above
 external/              git submodules: ImmuVis (multiplex-image-model), DGI
+notebooks/             exploratory notebooks (outputs are stripped on commit)
 tests/                 unit tests + integration tests on real data
 ```
 
