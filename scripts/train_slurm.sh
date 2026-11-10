@@ -11,7 +11,7 @@
 
 set -e
 
-PROJECT_DIR=/home/tnocon/master_thesis/IMMUVIS-PIGVAE
+PROJECT_DIR="${SLURM_SUBMIT_DIR:-$(git rev-parse --show-toplevel)}"
 cd "$PROJECT_DIR"
 
 mkdir -p logs/slurm

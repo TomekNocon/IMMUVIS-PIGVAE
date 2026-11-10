@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-PROJECT_DIR=/home/tnocon/master_thesis/IMMUVIS-PIGVAE
+PROJECT_DIR="${SLURM_SUBMIT_DIR:-$(git rev-parse --show-toplevel)}"
 cd "$PROJECT_DIR"
 
 WALLTIME="${WALLTIME:-12:00:00}"
