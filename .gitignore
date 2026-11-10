@@ -159,15 +159,8 @@ configs/local/default.yaml
 # Aim logging
 .aim
 
-# Ignore data folder
-/data/
-# Ignore PIGVAE folder
-PIGVAE/
-# Ignore run0 folder
-run0/
-# Ignore wandb folder
+# wandb offline runs
 wandb/
-# Ignore outputs folder
 # Claude Code machine-local settings (personal permission allowlist)
 .claude/settings.local.json
 
