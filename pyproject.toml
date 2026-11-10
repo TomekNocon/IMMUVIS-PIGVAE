@@ -25,3 +25,41 @@ dependencies = [
     "ruff>=0.12.2",
     "ipykernel>=6.29.5",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["notebooks/**"]
+
+[tool.ruff.format]
+preview = true
+quote-style = "double"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "S",   # bandit (security)
+    "C4",  # flake8-comprehensions
+    "PIE", # flake8-pie
+    "PERF",
+    "RUF",
+    "TID",
+    "ISC",
+    "COM",
+    "DTZ",
+]
+ignore = [
+    "E203",  # black/ruff formatting compatibility
+    "E501",  # handled by formatter; keep long lines when needed
+    "E402",  # allow module imports not at top of file
+    "N812",  # allow lowercase module imported as non-lowercase alias
+    "COM812", # trailing comma conflicts with ruff formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S301", "S403", "S404"]
