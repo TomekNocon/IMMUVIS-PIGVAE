@@ -16,8 +16,7 @@ set -e
 # Usage: sbatch scripts/sbatch_downstream_sweep.sh <CKPT> <EXP> <TAG>
 CKPT=$1; EXP=$2; TAG=$3
 B=/raid_encrypted/immucan/embeddings/tnocon
-cd /home/tnocon/master_thesis/IMMUVIS-PIGVAE
-
+cd "${SLURM_SUBMIT_DIR:-$(git rev-parse --show-toplevel)}"
 run_one () {
   local SRC=$1 FS=$2 NA=$3
   echo "### [$SRC] ENCODE ###"

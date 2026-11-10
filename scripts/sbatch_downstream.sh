@@ -11,7 +11,7 @@ set -e
 CKPT=$1; EXP=$2; TAG=$3
 SRC=${4:-zglobal}; FS=${5:-zglobal}; NA=${6:-mean}
 B=/raid_encrypted/immucan/embeddings/tnocon
-cd /home/tnocon/master_thesis/IMMUVIS-PIGVAE
+cd "${SLURM_SUBMIT_DIR:-$(git rev-parse --show-toplevel)}"
 echo "### ENCODE ($EXP -> $TAG / $SRC) ###"
 uv run python scripts/encode_mil_embeddings.py \
   ckpt_path=$CKPT model_experiment=$EXP run_tag=$TAG \
