@@ -1,8 +1,12 @@
+"""Epoch-indexed schedules for the permuter temperature, entropy weight and KL weight."""
+
 import torch
 from omegaconf import DictConfig
 
 
 class TemperatureScheduler(torch.nn.Module):
+    """Exponential decay of the permuter temperature from ``initial_tau`` to ``final_tau``."""
+
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.initial_tau = hparams.initial_tau
@@ -10,13 +14,13 @@ class TemperatureScheduler(torch.nn.Module):
         self.num_epochs = hparams.num_epochs
 
     def forward(self, epoch: int) -> float:
-        # Exponential decay
         tau = self.initial_tau * (self.final_tau / self.initial_tau) ** (epoch / self.num_epochs)
-        tau = max(self.final_tau, tau)
-        return tau
+        return max(self.final_tau, tau)
 
 
 class EntropyWeightScheduler(torch.nn.Module):
+    """Linear or exponential schedule of the permutation-entropy loss weight."""
+
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.initial_weight = hparams.initial_weight
@@ -38,14 +42,15 @@ class EntropyWeightScheduler(torch.nn.Module):
 
 
 class KLDAlphaScheduler(torch.nn.Module):
+    """KL annealing factor: held until ``start_epoch``, then linear/exponential/constant."""
+
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.initial_alpha = hparams.initial_alpha
         self.final_alpha = hparams.final_alpha
         self.total_epochs = hparams.num_epochs
-        # Hold at initial_alpha until start_epoch, then anneal over num_epochs. Lets the
-        # KL ramp start *after* the LR warmup peak so prior pressure and peak LR don't
-        # collide (see the ep3 overshoot in ablation/resolution/grid6). Default 0 = ramp from epoch 0.
+        # Hold at initial_alpha until start_epoch, then anneal over num_epochs, so the KL ramp
+        # can start after the LR warmup peak. Default 0 ramps from epoch 0.
         self.start_epoch = int(getattr(hparams, "start_epoch", 0))
         self.mode = getattr(hparams, "mode", "linear")
 
@@ -68,6 +73,8 @@ class KLDAlphaScheduler(torch.nn.Module):
 
 
 class LinearWarmupThenConstant(torch.nn.Module):
+    """Linear ramp from ``start`` to ``end`` over ``warmup_epochs``, then constant."""
+
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.start = float(getattr(hparams, "start", 0.0))
@@ -82,13 +89,15 @@ class LinearWarmupThenConstant(torch.nn.Module):
 
 
 class LinearDecay(torch.nn.Module):
+    """Constant ``start_value``, linear decay to ``end_value`` between the two epochs."""
+
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.start_value = float(hparams.start_value)
         self.end_value = float(hparams.end_value)
         self.start_epoch = int(hparams.start_epoch)
         self.end_epoch = int(hparams.end_epoch)
-        if self.end_epoch >= self.start_epoch:
+        if self.end_epoch < self.start_epoch:
             raise ValueError("end_epoch must be >= start_epoch")
 
     def forward(self, epoch: int) -> float:

@@ -1,3 +1,5 @@
+"""Log the composed config and model parameter counts to all loggers."""
+
 from typing import Any
 
 from lightning_utilities.core.rank_zero import rank_zero_only

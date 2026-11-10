@@ -1,3 +1,5 @@
+"""Latent-space diagnostics: KL per dimension, AE-VAE spectrum and FiLM modulation."""
+
 # src/utils/inspection/latent.py
 from __future__ import annotations
 
@@ -90,9 +92,9 @@ def ae_vae_spectrum(mu: torch.Tensor, logvar: torch.Tensor) -> dict:
     sigma = (0.5 * logvar).exp()
     dim = mu.shape[-1]
 
-    mu_var = mu.var(dim=0, unbiased=False)        # between-code variance (signal/rate)
-    sigma_sq = sigma.pow(2).mean(dim=0)           # within-code variance (noise)
-    agg_var = mu_var + sigma_sq                   # aggregate-posterior diagonal (prior -> 1)
+    mu_var = mu.var(dim=0, unbiased=False)  # between-code variance (signal/rate)
+    sigma_sq = sigma.pow(2).mean(dim=0)  # within-code variance (noise)
+    agg_var = mu_var + sigma_sq  # aggregate-posterior diagonal (prior -> 1)
     kld_per_dim = 0.5 * (mu.pow(2) + sigma.pow(2) - 1.0 - logvar).mean(dim=0)
 
     sigma_rms = sigma_sq.mean().sqrt()

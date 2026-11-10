@@ -1,3 +1,5 @@
+"""Matplotlib figures logged to Weights & Biases during training."""
+
 import math
 from collections import defaultdict
 
@@ -5,7 +7,6 @@ import matplotlib.figure as figure
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import torch
 from matplotlib.patches import Rectangle
 from sklearn.cluster import KMeans
@@ -47,15 +48,6 @@ def restore_tensor(
     return x_reconstructed
 
 
-# def plot_images(images: np.array, n_images: int) -> plt.Figure:
-#     fig, axes = plt.subplots(1, n_images, figsize=(15, 6))
-#     for idx, ax in enumerate(axes.flat):
-#         ax.imshow(images[idx], cmap="gray")
-#         ax.set_title(f"Image {idx}")
-#         ax.axis("off")
-#     return fig
-
-
 def reshape_feature_map(features: torch.Tensor, num_example: int) -> torch.Tensor:
     batch_size, num_nodes, _ = features.shape
     grid_size = int(math.sqrt(num_nodes))
@@ -72,7 +64,6 @@ def plot_images_all_perm(images: np.ndarray, n_rows: int, n_cols: int) -> figure
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
     axes = axes.flatten()  # Flatten in case of multiple rows
-    # new_images = reshape_images_array(images, n_rows, n_cols)
 
     for idx, img in enumerate(images):
         ax = axes[idx]
@@ -84,7 +75,6 @@ def plot_images_all_perm(images: np.ndarray, n_rows: int, n_cols: int) -> figure
 
 
 def plot_barchart_from_dict(data: dict[str, float], title: str) -> figure.Figure:
-    # Plotting
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.bar(list(data.keys()), list(data.values()), color="skyblue")
     ax.set_xlabel("Keys")
@@ -95,7 +85,6 @@ def plot_barchart_from_dict(data: dict[str, float], title: str) -> figure.Figure
 
 
 def plot_pca(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int) -> figure.Figure:
-    # new_images = reshape_images_array(images, n_rows, n_cols)
     counter: defaultdict[int, int] = defaultdict(int)
     # Build label list (string labels with running index per class)
     base_labels = []
@@ -158,8 +147,9 @@ def plot_pca(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int) 
 
 
 def plot_pca_plotly(images: np.ndarray, targets: np.ndarray, n_rows: int, n_cols: int):
-    # Reshape images into grid format (assuming you already have this helper)
-    # new_images = reshape_images_array(images, n_rows, n_cols)
+    """Interactive (plotly) version of :func:`plot_pca`."""
+    import plotly.express as px
+
     counter: defaultdict[int, int] = defaultdict(int)
     rotations = [
         "identity",
@@ -279,21 +269,17 @@ def plot_inter_silhouette(images: np.ndarray, k: int) -> figure.Figure:
     return fig
 
 
-# Option 2: Card-like appearance with shadows
 def plot_feature_map(
     features: torch.Tensor, num_example: int, vmin: float | None = None, vmax: float | None = None
 ) -> list[figure.Figure]:
-    """
-    Visualize 5D tensor data: (4, 8, 512, 13, 13)
-    Shows first 2 channels for all 4 images and 8 transformations
+    """One figure per channel (first 2): a ``num_example x 8`` grid of node-feature maps.
 
     Args:
-        tensor_data: 5D tensor of shape (4, 8, 512, 13, 13)
-        num_example: number of examples to show
-        vmin: minimum value for color scale (optional, computed if not provided)
-        vmax: maximum value for color scale (optional, computed if not provided)
+        features: ``[num_example * 8, N, D]`` node features (views grouped per example).
+        num_example: Number of examples (rows).
+        vmin: Lower colour limit (default: per-channel minimum).
+        vmax: Upper colour limit (default: per-channel maximum).
     """
-    # Create figure for each channel (2 channels total)
 
     tensor_data = reshape_feature_map(features, num_example)
     # Matplotlib cannot convert BFloat16 tensors to NumPy (mixed-precision training).

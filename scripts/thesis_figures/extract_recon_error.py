@@ -33,15 +33,12 @@ from omegaconf import OmegaConf
 from figlib import paths
 from src.data.components.graphs_datamodules import DenseGraphBatch, PCALayer
 from src.downstream.encode import load_frozen_pigvae
+from src.utils.resolvers import register_resolvers
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MAGNITUDE_BINS = np.linspace(0, 3, 31)
 
-for _name, _fn in [
-    ("multiply", lambda x, y: int(x) * int(y)),
-    ("divide", lambda x, y: int(x) // int(y)),
-]:
-    OmegaConf.register_new_resolver(_name, _fn, replace=True)
+register_resolvers()
 
 
 @torch.no_grad()

@@ -1,46 +1,68 @@
+"""Bags of crop embeddings per image, and image-level filtering of the metadata table."""
+
 import os
 
-import numpy as np, torch
+import numpy as np
 import pandas as pd
+import torch
 from torch.utils.data import Dataset
 
-class MILDataset(Dataset):
-    def __init__(self, bags, labels): self.bags, self.labels = bags, labels
-    def __len__(self): return len(self.bags)
-    def __getitem__(self, i): return self.bags[i], int(self.labels[i])
+_MEMMAP_CACHE: dict[str, np.ndarray] = {}
 
-def mil_collate(batch):
-    bags, labels = zip(*batch)
-    max_s = max(b.shape[0] for b in bags); d = bags[0].shape[1]
-    out = torch.zeros(len(bags), max_s, d); mask = torch.zeros(len(bags), max_s, dtype=torch.bool)
-    for i, b in enumerate(bags):
-        s = b.shape[0]; out[i, :s] = torch.from_numpy(np.asarray(b, "float32")); mask[i, s:] = True
+
+class MILDataset(Dataset):
+    """``(bag [S, D], label)`` pairs."""
+
+    def __init__(self, bags: list[np.ndarray], labels: torch.Tensor):
+        self.bags, self.labels = bags, labels
+
+    def __len__(self) -> int:
+        return len(self.bags)
+
+    def __getitem__(self, i: int) -> tuple[np.ndarray, int]:
+        return self.bags[i], int(self.labels[i])
+
+
+def mil_collate(
+    batch: list[tuple[np.ndarray, int]],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Zero-pad bags to the longest one; ``mask`` is True at the padding positions."""
+    bags, labels = zip(*batch, strict=True)
+    max_size, dim = max(b.shape[0] for b in bags), bags[0].shape[1]
+    out = torch.zeros(len(bags), max_size, dim)
+    mask = torch.zeros(len(bags), max_size, dtype=torch.bool)
+    for i, bag in enumerate(bags):
+        size = bag.shape[0]
+        out[i, :size] = torch.from_numpy(np.asarray(bag, "float32"))
+        mask[i, size:] = True
     return out, mask, torch.tensor(labels, dtype=torch.long)
 
 
-_MEMMAP_CACHE = {}
-def _load_memmap(path):
-    a = _MEMMAP_CACHE.get(path)
-    if a is None:
-        a = np.load(path, mmap_mode="r"); _MEMMAP_CACHE[path] = a
-    return a
+def _load_memmap(path: str) -> np.ndarray:
+    if path not in _MEMMAP_CACHE:
+        _MEMMAP_CACHE[path] = np.load(path, mmap_mode="r")
+    return _MEMMAP_CACHE[path]
 
-def build_image_bags(meta_df, class_to_idx):
+
+def build_image_bags(
+    meta_df: pd.DataFrame, class_to_idx: dict[str, int]
+) -> tuple[list[np.ndarray], torch.Tensor]:
+    """One bag per image (``img_path``) with its label; unlabelled/unknown classes are skipped."""
     bags, labels = [], []
-    for _img, g in meta_df.groupby("img_path", sort=False):
-        raw = g["feature_value"].iloc[0]
-        if pd.isna(raw): continue
-        lab = class_to_idx.get(str(raw))
-        if lab is None: continue
-        rows = []
-        for ef, gg in g.groupby("embeddings_file"):
-            rows.append(_load_memmap(ef)[gg["embedding_idx"].values])
-        bags.append(np.concatenate(rows, axis=0)); labels.append(lab)
+    for _img, group in meta_df.groupby("img_path", sort=False):
+        raw = group["feature_value"].iloc[0]
+        if pd.isna(raw):
+            continue
+        label = class_to_idx.get(str(raw))
+        if label is None:
+            continue
+        rows = [
+            _load_memmap(file)[rows_of_file["embedding_idx"].values]
+            for file, rows_of_file in group.groupby("embeddings_file")
+        ]
+        bags.append(np.concatenate(rows, axis=0))
+        labels.append(label)
     return bags, torch.tensor(labels, dtype=torch.long)
-
-
-# Image-level filtering on the pooled (train+test) meta table, applied per dataset x feature
-# before building bags (mirrors gated_abmil's run_abmil.drop_nan_labels / balance_meta_df).
 
 
 def drop_nan_labels(meta_df: pd.DataFrame) -> pd.DataFrame:
@@ -72,9 +94,8 @@ def load_pooled_meta(meta_dir: str, dataset: str) -> pd.DataFrame:
     if not frames:
         raise FileNotFoundError(f"no {dataset}_{{train,test}}_metadata.csv under {meta_dir}")
     pooled = pd.concat(frames, ignore_index=True)
-    # The encode stage writes only [img_path, coords*, embeddings_file, embedding_idx];
-    # `feature_value` (the clinical label) must be joined in as a separate manual step.
-    # Fail loud here rather than KeyError-ing deep in drop_nan_labels.
+    # The encode stage writes [img_path, coords*, embeddings_file, embedding_idx]; the clinical
+    # label (`feature_value`) is joined in by build_meta, so fail early if it is missing.
     if "feature_value" not in pooled.columns:
         raise KeyError(
             f"{dataset} metadata under {meta_dir} has no 'feature_value' column -- join "

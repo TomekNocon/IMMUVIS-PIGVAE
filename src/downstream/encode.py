@@ -15,17 +15,14 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
 from src.downstream.memmap_writer import MemmapWriter
+from src.utils.resolvers import register_resolvers
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _build_pl_module(experiment: str, paths_name: str = "szary"):
     configs = _PROJECT_ROOT / "configs"
-    for name, fn in [("multiply", lambda x, y: int(x) * int(y)), ("divide", lambda x, y: int(x) // int(y))]:
-        try:
-            OmegaConf.register_new_resolver(name, fn)
-        except Exception:
-            pass
+    register_resolvers()
     model_cfg = OmegaConf.load(configs / "model" / "model.yaml")
     exp_cfg = OmegaConf.load(configs / "experiment" / f"{experiment}.yaml")
     if "model" in exp_cfg:
@@ -55,7 +52,9 @@ def _build_pl_module(experiment: str, paths_name: str = "szary"):
     )
 
 
-def load_frozen_pigvae(ckpt_path: str, experiment: str, paths_name: str = "szary") -> torch.nn.Module:
+def load_frozen_pigvae(
+    ckpt_path: str, experiment: str, paths_name: str = "szary"
+) -> torch.nn.Module:
     """Load a PIGVAE checkpoint and return its frozen `graph_ae` submodule.
 
     The encoder is put in `.eval()` with `requires_grad_(False)` on all
@@ -120,12 +119,14 @@ def source_subdir(feature_source: str, node_agg: str = "mean") -> str:
     if feature_source == "zglobal":
         return "zglobal"
     if feature_source == "dgi":
-        return "dgi"          # DGI baseline: mean-readout summary (gae must be a DGILitModule)
+        return "dgi"  # DGI baseline: mean-readout summary (gae must be a DGILitModule)
     if feature_source == "node":
         if node_agg not in ("mean", "flatten"):
             raise ValueError(f"node_agg must be 'mean' or 'flatten', got {node_agg!r}")
         return f"node_{node_agg}"
-    raise ValueError(f"feature_source must be 'raw', 'zglobal', 'dgi', or 'node', got {feature_source!r}")
+    raise ValueError(
+        f"feature_source must be 'raw', 'zglobal', 'dgi', or 'node', got {feature_source!r}"
+    )
 
 
 def patch_to_nodes(patch: np.ndarray) -> torch.Tensor:
@@ -186,7 +187,7 @@ def encode_patches(
         pca = pca.to(device)
 
     nodes = torch.stack([patch_to_nodes(p) for p in patches], dim=0).to(device)  # [B,256,768]
-    nodes = pca(nodes)                                                           # [B,256,128]
+    nodes = pca(nodes)  # [B,256,128]
 
     if feature_source == "dgi":
         # DGI baseline: `gae` is a DGILitModule; the crop feature is its mean-readout summary.
@@ -201,13 +202,15 @@ def encode_patches(
         out = z_global
     elif feature_source == "node":
         if node_agg == "mean":
-            out = z_nodes.mean(dim=1)                     # [B, node_z_dim]
+            out = z_nodes.mean(dim=1)  # [B, node_z_dim]
         elif node_agg == "flatten":
-            out = z_nodes.reshape(z_nodes.shape[0], -1)   # [B, 256*node_z_dim]
+            out = z_nodes.reshape(z_nodes.shape[0], -1)  # [B, 256*node_z_dim]
         else:
             raise ValueError(f"node_agg must be 'mean' or 'flatten', got {node_agg!r}")
     else:
-        raise ValueError(f"feature_source must be 'raw', 'zglobal', or 'node', got {feature_source!r}")
+        raise ValueError(
+            f"feature_source must be 'raw', 'zglobal', or 'node', got {feature_source!r}"
+        )
     return out.detach().cpu().float().numpy()
 
 
@@ -238,15 +241,20 @@ def encode_h5(
         paths = [p.decode() if isinstance(p, bytes) else str(p) for p in f["paths"][:]]
         pos = f["positions"][:]
         # probe dim with one patch (D depends on feature_source/node_agg, never hardcoded)
-        d = encode_patches(gae, pca, f["embeddings"][0:1], device, feature_source, node_agg).shape[1]
+        d = encode_patches(gae, pca, f["embeddings"][0:1], device, feature_source, node_agg).shape[
+            1
+        ]
         writer = MemmapWriter(out_emb, n_rows=n, dim=d)
         for s in range(0, n, batch_size):
             e = min(s + batch_size, n)
-            writer.write(s, encode_patches(gae, pca, f["embeddings"][s:e], device, feature_source, node_agg))
+            writer.write(
+                s, encode_patches(gae, pca, f["embeddings"][s:e], device, feature_source, node_agg)
+            )
         writer.close()
     pd.DataFrame({
         "img_path": paths,
-        "coords0": pos[:, 0], "coords1": pos[:, 1],
+        "coords0": pos[:, 0],
+        "coords1": pos[:, 1],
         "embeddings_file": out_emb,
         "embedding_idx": range(n),
     }).to_csv(out_meta, index=False)

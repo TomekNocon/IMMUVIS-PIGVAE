@@ -1,23 +1,25 @@
+"""Rotary position embeddings (RoPE).
+
+Vendored from lucidrains/rotary-embedding-torch
+(https://github.com/lucidrains/rotary-embedding-torch), plus a LLaMA-style variant.
+"""
+
 from __future__ import annotations
 
 from math import pi
 from typing import Literal
 
 import torch
-
-# from torch.amp import autocast
 import torch.nn as nn
 from einops import rearrange, repeat
 from torch import Tensor, broadcast_tensors, einsum
 
-# helper functions
-
-# https://github.com/lucidrains/rotary-embedding-torch/blob/main/rotary_embedding_torch/rotary_embedding_torch.py
-
 
 class BaseRotaryEmbedding(nn.Module):
+    """Interface: rotate query or key tensors along the sequence dimension."""
+
     def rotate_queries_or_keys(self, x, seq_dim=None, offset=0, scale=None):
-        pass
+        raise NotImplementedError
 
     def forward(self, x: Tensor, seq_len: int | None = None, offset=0):
         pass

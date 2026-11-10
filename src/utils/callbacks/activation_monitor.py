@@ -1,3 +1,5 @@
+"""Callback logging activation statistics of selected modules during training."""
+
 from __future__ import annotations
 
 from contextlib import suppress

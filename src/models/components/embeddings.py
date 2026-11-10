@@ -1,3 +1,5 @@
+"""Positional and token embeddings."""
+
 import math
 
 import torch
@@ -7,9 +9,8 @@ import torch.nn as nn
 class PositionalEncoding(torch.nn.Module):
     """2D sinusoidal positional encoding for grid-structured data.
 
-    Splits d_hid in half: first half encodes the row, second half encodes the
-    column.  For non-square grids, pass grid_h and grid_w explicitly.
-    Falls back to 1D encoding when grid_size is not set (grid_size=0).
+    Splits ``d_hid`` in half: the first half encodes the row, the second the column.
+    Falls back to a 1D encoding over ``n_position`` positions when ``grid_size=0``.
     """
 
     def __init__(self, d_hid: int, grid_size: int = 7, n_position: int = 200):
@@ -68,9 +69,7 @@ class PositionalEncoding(torch.nn.Module):
     @staticmethod
     def _build_1d_table(n_position: int, d_hid: int) -> torch.Tensor:
         position = torch.arange(0, n_position, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, d_hid, 2).float() * (-math.log(10000.0) / d_hid)
-        )
+        div_term = torch.exp(torch.arange(0, d_hid, 2).float() * (-math.log(10000.0) / d_hid))
         table = torch.zeros(n_position, d_hid)
         table[:, 0::2] = torch.sin(position * div_term)
         table[:, 1::2] = torch.cos(position * div_term)
@@ -83,6 +82,8 @@ class PositionalEncoding(torch.nn.Module):
 
 
 class EmbeddingLayer(nn.Module):
+    """Learned token + absolute position embeddings for integer sequences."""
+
     def __init__(self, vocab_size: int, embed_dim: int, max_len: int):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, embed_dim)

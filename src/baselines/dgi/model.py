@@ -24,12 +24,14 @@ import torch.nn as nn
 
 # Reuse the reference DGI network from the submodule (no copy): put its flat package dir on
 # sys.path so `from models.dgi import DGI` (which does `from layers import ...`) resolves.
-_DGI_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))))), "external/dgi")
+_DGI_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+    "external/dgi",
+)
 if _DGI_DIR not in sys.path:
     sys.path.insert(0, _DGI_DIR)
 
-from models.dgi import DGI  # noqa: E402 (submodule import after sys.path tweak)
+from models.dgi import DGI
 
 
 def grid_adjacency(grid_size: int, normalize: bool = True) -> torch.Tensor:
@@ -75,8 +77,9 @@ class DGILitModule(L.LightningModule):
     for ABMIL. ``mi_loss(x)`` is the DGI mutual-information (BCE) objective.
     """
 
-    def __init__(self, n_in: int, n_h: int, grid_size: int, lr: float = 1e-3,
-                 activation: str = "prelu"):
+    def __init__(
+        self, n_in: int, n_h: int, grid_size: int, lr: float = 1e-3, activation: str = "prelu"
+    ):
         super().__init__()
         self.save_hyperparameters()
         self.dgi = DGI(n_in, n_h, activation)

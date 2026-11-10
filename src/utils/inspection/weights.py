@@ -1,3 +1,5 @@
+"""Per-section weight-norm and spectral diagnostics of a model."""
+
 # src/utils/inspection/weights.py
 from __future__ import annotations
 

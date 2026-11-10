@@ -1,3 +1,5 @@
+"""LightningDataModule for IMC crop embeddings stored as per-dataset HDF5 files."""
+
 from pathlib import Path
 from typing import Any
 
@@ -31,56 +33,22 @@ def resolve_imc_h5(data_dir: str | Path, imc_root: str, dataset_name: str, split
 
 
 class IMCDataModule(LightningDataModule):
-    """`LightningDataModule` for the IMC embeddings dataset.
+    """IMC crop embeddings as node grids, with D4 views and PCA applied at collation.
 
-    A `LightningDataModule` implements 7 key methods:
-
-    ```python
-        def prepare_data(self):
-        # Things to do on 1 GPU/TPU (not on every GPU/TPU in DDP).
-        # Download data, pre-process, split, save to disk, etc...
-
-        def setup(self, stage):
-        # Things to do on every process in DDP.
-        # Load data, set variables, etc...
-
-        def train_dataloader(self):
-        # return train dataloader
-
-        def val_dataloader(self):
-        # return validation dataloader
-
-        def test_dataloader(self):
-        # return test dataloader
-
-        def predict_dataloader(self):
-        # return predict dataloader
-
-        def teardown(self, stage):
-        # Called on every process in DDP.
-        # Clean up after fit or test.
-    ```
-
-    This allows you to share a full dataset without explaining how to download,
-    split, transform and process the data.
-
-    Read the docs:
-        https://lightning.ai/docs/pytorch/latest/data/datamodule.html
+    Each sample is a ``[C, H, W]`` embedding crop, centre-cropped to ``grid_size x grid_size``
+    nodes and expanded into ``num_aug_per_sample`` D4 views; the collator projects the node
+    features with the fitted PCA (``PCALayer``). Train and validation come from the ``train``
+    and ``test`` HDF5 files of every dataset in ``hparams.imc_dataset_names``.
     """
 
     def __init__(self, hparams: DictConfig) -> None:
-        """Initialize a `IMCDataModule`.
+        """Build the transforms; data is loaded lazily in :meth:`setup`.
 
-        :param data_dir: The data directory. Defaults to `"data/"`.
-        :param train_val_test_split: The train, validation and test split. Defaults to `(55_000, 5_000, 10_000)`.
-        :param batch_size: The batch size. Defaults to `64`.
-        :param num_workers: The number of workers. Defaults to `0`.
-        :param pin_memory: Whether to pin memory. Defaults to `False`.
+        Args:
+            hparams: The ``data.hparams`` config (paths, split sizes, grid/crop sizes, PCA
+                settings, batch size and loader options).
         """
         super().__init__()
-
-        # this line allows to access init params with 'self.hparams' attribute
-        # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False)
 
         self.base_transforms = IMCBaseDictTransform(
@@ -141,7 +109,8 @@ class IMCDataModule(LightningDataModule):
 
     def _resolve(self, split: str) -> list[Path]:
         return [
-            resolve_imc_h5(self.data_dir, self.imc_root, name, split) for name in self._active_names()
+            resolve_imc_h5(self.data_dir, self.imc_root, name, split)
+            for name in self._active_names()
         ]
 
     def _load_datasets(self, paths: list[Path], transform: DualOutputTransform) -> Dataset:
@@ -159,13 +128,16 @@ class IMCDataModule(LightningDataModule):
     def _pca_path(self) -> Path:
         return (
             Path(self.data_dir)
-            / self.imc_root / self.imc_dataset_names[0]
+            / self.imc_root
+            / self.imc_dataset_names[0]
             / f"pca_model_{self.num_pca_components}_center_crop_{self.center_crop_size}.pkl"
         )
+
     def _statistics_path(self) -> Path:
         return (
             Path(self.data_dir)
-            / self.imc_root / self.imc_dataset_names[0]
+            / self.imc_root
+            / self.imc_dataset_names[0]
             / f"imc_statistics_{self.num_pca_components}_center_crop_{self.center_crop_size}.pt"
         )
 
@@ -248,7 +220,6 @@ class IMCDataModule(LightningDataModule):
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
         # Divide batch size by the number of devices.
-        # TODO: do the transforms only for train and validation
         if self.trainer is not None:
             if self.batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(
@@ -270,7 +241,6 @@ class IMCDataModule(LightningDataModule):
                 lengths=[train_ratio, size_trainset - train_ratio],
                 generator=torch.Generator().manual_seed(42),
             )
-            # dataset = ConcatDataset(datasets=[trainset, testset])
             self.data_val, self.data_test, _ = random_split(
                 dataset=testset,
                 lengths=[val_ratio, test_ratio, size_testset - val_ratio - test_ratio],
@@ -314,25 +284,6 @@ class IMCDataModule(LightningDataModule):
 
         :return: The validation dataloader.
         """
-        # TODO: "Using train dataloader for validation."
-        # if self.data_train is None:
-        #     raise RuntimeError(
-        #         "Expected self.data_train to be set in setup() before calling train_dataloader().",
-        #     )
-        # train_dataset = GridGraphDataset(
-        #     grid_size=self.grid_size, dataset=self.data_train, channels=list(range(4))
-        # )
-
-        # return DenseGraphDataLoader(
-        #     dataset=train_dataset,
-        #     batch_size=self.batch_size_per_device,
-        #     num_workers=self.num_workers,
-        #     pin_memory=self.pin_memory,
-        #     persistent_workers=self.num_workers > 0,
-        #     collate_fn=self._get_collate_fn(),
-        #     shuffle=False,
-        # )
-
         if self.data_val is None:
             raise RuntimeError(
                 "Expected self.data_val to be set in setup() before calling val_dataloader().",

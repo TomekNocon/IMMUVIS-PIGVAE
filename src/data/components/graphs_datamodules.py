@@ -1,3 +1,5 @@
+"""Datasets, D4 views, PCA projection and collation of node-grid batches (``DenseGraphBatch``)."""
+
 from __future__ import annotations
 
 import math
@@ -149,11 +151,8 @@ class PatchAugmentations(nn.Module):
         super().__init__()
         self.prob = prob
         self.is_validation = is_validation
-        # How many of the (up to NUM_PERM=8) D4 augmentation views to emit per crop.
-        # Default = all 8 (unchanged). Set to 1 to feed single, distinct crops — required
-        # for the drop-contrastive run: the 8 D4 views are node permutations -> identical
-        # z_global (permutation-invariant encoder), so they would (a) inflate the effective
-        # batch 8x and (b) become false negatives in the drop NT-Xent.
+        # How many of the (up to NUM_PERM=8) D4 views to emit per crop. Default: all 8. With 1,
+        # every sample is a single distinct crop (the single-view ablation).
         self.num_views = self.NUM_PERM if num_views is None else int(num_views)
         num_nodes_per_dim = (
             size // patch_size if center_crop_size is None else center_crop_size // patch_size
@@ -182,22 +181,14 @@ class PatchAugmentations(nn.Module):
             if len(aug_list) >= self.num_views:  # emit only the first num_views D4 views
                 break
 
-            # transformed_grid = self.apply_transform(grid, transform_key)
-            transformed_grid = grid
-            flat_idx = transformed_grid.flatten()
-
-            aug_list.append(patch_embedding)  # or patch_embedding if already Tensor
-            argsort_list.append(torch.argsort(flat_idx))
+            # The views arrive already transformed, so the node order is the identity.
+            aug_list.append(patch_embedding)
+            argsort_list.append(torch.argsort(grid.flatten()))
 
         aug_tensor = torch.stack(aug_list, dim=0).contiguous()
         argsort_tensor = torch.stack(argsort_list, dim=0).contiguous()
 
-        if self.is_validation:
-            perm = torch.arange(self.num_views, device=device)
-            return aug_tensor, argsort_tensor, perm
-
-        # perm = torch.randperm(self.num_views, device=device)
-        perm = torch.arange(self.num_views, device=device)
+        perm = torch.arange(self.num_views, device=device)  # views keep their D4 order
         return aug_tensor, argsort_tensor, perm
 
     @staticmethod
@@ -227,6 +218,7 @@ class PatchAugmentations(nn.Module):
 
 class IMCBaseDictTransform(nn.Module):
     keys: ClassVar[tuple[str, ...]] = IMC_GRAPH_VIEW_KEYS
+
     def __init__(
         self,
         exclude_metadata: list[str] | None = None,
@@ -275,17 +267,12 @@ class IMCBaseDictTransform(nn.Module):
                 embedding = embedding.squeeze(0)
                 c, _, _ = embedding.shape
 
-                # if self.center_crop_size:
-                #     center_crop = T.CenterCrop((self.center_crop_size, self.center_crop_size))
-                #     embedding = center_crop(embedding)
-                #     c, _, _ = embedding.shape  # Update dimensions after crop
-
                 if self.clip_percentiles and self.clip_type != "none":
                     embedding = self._clip_by_percentile(
                         embedding, lower=self.clip_lower, upper=self.clip_upper, mode=self.clip_type
                     )
 
-                if self.normalize:  # and mean is not None and std is not None:
+                if self.normalize:
                     if self.norm_type == "channel_wise":
                         # Normalize each channel independently (preserves relative structure)
                         # Shape: [C, H, W]
@@ -294,8 +281,7 @@ class IMCBaseDictTransform(nn.Module):
                         # Normalize all features together
                         embedding = self._normalize_global(embedding)
 
-                # embedding = torch.arcsinh(embedding / 5)
-                # Reshape to [N, C] where N = H*W
+                # [C, H, W] -> [N, C] with N = H * W (row-major)
                 embedding = embedding.reshape(c, -1).T
 
             data[key] = embedding
@@ -440,7 +426,6 @@ class GridGraphDataset(Dataset):
         true_grid_size = int(math.sqrt(augmented.shape[1]))
         true_grid_size = min(true_grid_size, self.grid_size)
         g = nx.grid_graph((true_grid_size, true_grid_size))
-        # augmented = augmented[:, :, self.channels]
         target = -1
         return (g, augmented, argsort_augmented, perm, target, metadata, paths, positions)
 
@@ -524,7 +509,9 @@ class DenseGraphBatch:
             graph.add_nodes_from(list(range(num_nodes, max_num_nodes)))
             node_features.append(augmented_embedding[perm].squeeze(1))
             argsort_augmented_indices.append(argsort_augmented[perm].squeeze(1))
-            perms.append(perm.reshape(-1))  # keep 1-D; squeeze(0) collapsed a single-view [1] perm to a scalar
+            perms.append(
+                perm.reshape(-1)
+            )  # keep 1-D; squeeze(0) collapsed a single-view [1] perm to a scalar
             mask.append((torch.arange(max_num_nodes) < num_nodes).unsqueeze(0))
             metadata_list.append(metadata_item)
             paths_list.append(paths_item)
@@ -650,7 +637,7 @@ class WelfordOnline:
         """
         x = x.to(torch.float64)
         batch_n = x.size(0)
-        
+
         # Batch-wise statistics
         batch_mean = x.mean(dim=0)
         # Sum of squares of deviations from the batch mean
@@ -663,18 +650,18 @@ class WelfordOnline:
         else:
             total_n = self.count + batch_n
             delta = batch_mean - self.mean
-            
+
             # Welford/Chan update formula for merging two sets
             self.mean += delta * (batch_n / total_n)
             self.m2 += batch_m2 + (delta**2) * (self.count * batch_n / total_n)
-            
+
             self.count = total_n
 
     def finalize(self):
         if self.count < 1:
             return self.mean.float(), torch.ones_like(self.mean).float()
-        
+
         variance = self.m2 / self.count
         std = torch.sqrt(torch.maximum(variance, torch.tensor(1e-8)))
-        
+
         return self.mean.float(), std.float()

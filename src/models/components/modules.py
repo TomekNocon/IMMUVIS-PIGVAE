@@ -1,4 +1,4 @@
-from typing import Any
+"""PIGVAE building blocks: the graph encoder/decoder, node bottleneck, FiLM and the D4 permuter."""
 
 import networkx as nx
 import torch
@@ -8,8 +8,6 @@ from omegaconf import DictConfig
 
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.models.components.embeddings import PositionalEncoding
-
-# from src.models.components.custom_graph_transformer import Transformer
 from src.models.components.llama_graph_transformer import Transformer
 from src.models.components.rotary_embedding import LLamaRotaryEmbedding
 from src.models.components.spectral_embeddings import SklearnSpectralEmbedding
@@ -29,22 +27,22 @@ class NodeStatsProjection(nn.Module):
 
     def forward(self, node_features: torch.Tensor) -> torch.Tensor:
         # node_features: [B, N, D]
-        mean = node_features.mean(dim=1)                      # [B, D]
-        var  = node_features.var(dim=1, unbiased=False)       # [B, D]
-        max_ = node_features.max(dim=1).values                # [B, D]
-        stats = torch.cat([mean, var, max_], dim=-1)          # [B, 3D]
-        return self.proj(stats)                               # [B, D]
+        mean = node_features.mean(dim=1)  # [B, D]
+        var = node_features.var(dim=1, unbiased=False)  # [B, D]
+        max_ = node_features.max(dim=1).values  # [B, D]
+        stats = torch.cat([mean, var, max_], dim=-1)  # [B, 3D]
+        return self.proj(stats)  # [B, D]
 
 
 class StructuralCorrection(nn.Module):
     """Residual correction to CLS graph_emb from grid-topology structural features.
 
-    Supports three composable components (Ideas 3, 4, 6 from latent_enrichment_ideas.md):
-      use_hadamard  (Idea 6): mean of h_i ⊙ h_j over grid edges — zero-param, fast
-      use_mlp_edges (Idea 3): mean of MLP(concat(h_i, h_j)) — learns cross-dim interactions
-      use_spectrum  (Idea 4): top-k eigenvalues of content-weighted Laplacian — global structure
+    Three composable components:
+      use_hadamard:  mean of h_i * h_j over grid edges (parameter-free).
+      use_mlp_edges: mean of MLP(concat(h_i, h_j)) (learns cross-dimension interactions).
+      use_spectrum:  smallest eigenvalues of the content-weighted grid Laplacian.
 
-    All components use a precomputed edge_index buffer (fixed 6×6 grid topology).
+    All components use a precomputed ``edge_index`` buffer (fixed grid topology).
     DenseGraphBatch.edge_features is never read. The final projection is zero-initialized
     so training begins identical to the baseline regardless of which flags are on.
     """
@@ -64,16 +62,16 @@ class StructuralCorrection(nn.Module):
         self.use_spectrum = use_spectrum
         self.n_spectral = n_spectral
 
-        G = nx.grid_2d_graph(grid_size, grid_size)
-        node_to_idx = {n: i for i, n in enumerate(G.nodes())}
+        grid = nx.grid_2d_graph(grid_size, grid_size)
+        node_to_idx = {n: i for i, n in enumerate(grid.nodes())}
         edge_index = torch.tensor(
-            [(node_to_idx[u], node_to_idx[v]) for u, v in G.edges()], dtype=torch.long
+            [(node_to_idx[u], node_to_idx[v]) for u, v in grid.edges()], dtype=torch.long
         )
         self.register_buffer("edge_index", edge_index)  # [E, 2]
 
         if use_spectrum:
-            A = torch.tensor(nx.to_numpy_array(G), dtype=torch.float32)
-            self.register_buffer("A_grid", A)  # [N, N]
+            adjacency = torch.tensor(nx.to_numpy_array(grid), dtype=torch.float32)
+            self.register_buffer("A_grid", adjacency)  # [N, N]
 
         if use_mlp_edges:
             self.edge_mlp = nn.Sequential(
@@ -81,10 +79,13 @@ class StructuralCorrection(nn.Module):
                 nn.GELU(),
             )
 
-        in_dim = (hidden_dim if use_hadamard else 0) + \
-                 (hidden_dim if use_mlp_edges else 0) + \
-                 (n_spectral if use_spectrum else 0)
-        assert in_dim > 0, "Enable at least one of use_hadamard, use_mlp_edges, use_spectrum"
+        in_dim = (
+            (hidden_dim if use_hadamard else 0)
+            + (hidden_dim if use_mlp_edges else 0)
+            + (n_spectral if use_spectrum else 0)
+        )
+        if in_dim == 0:
+            raise ValueError("Enable at least one of use_hadamard, use_mlp_edges, use_spectrum")
 
         self.proj = nn.Linear(in_dim, hidden_dim, bias=False)
         nn.init.zeros_(self.proj.weight)
@@ -97,25 +98,22 @@ class StructuralCorrection(nn.Module):
         parts = []
 
         if self.use_hadamard:
-            parts.append((h_i * h_j).mean(dim=1))          # [B, D]
+            parts.append((h_i * h_j).mean(dim=1))  # [B, D]
 
         if self.use_mlp_edges:
-            parts.append(
-                self.edge_mlp(torch.cat([h_i, h_j], dim=-1)).mean(dim=1)  # [B, D]
-            )
+            parts.append(self.edge_mlp(torch.cat([h_i, h_j], dim=-1)).mean(dim=1))  # [B, D]
 
         if self.use_spectrum:
             h_norm = F.normalize(node_features, dim=-1)
-            sim = torch.bmm(h_norm, h_norm.transpose(1, 2))           # [B, N, N]
-            W = F.relu(sim) * self.A_grid.unsqueeze(0)                 # [B, N, N]
-            D_w = torch.diag_embed(W.sum(dim=-1))
-            L_w = D_w - W
-            N = node_features.shape[1]
-            L_w = L_w + 1e-4 * torch.eye(N, device=L_w.device)
-            eigenvalues = torch.linalg.eigvalsh(L_w)                   # [B, N]
-            parts.append(eigenvalues[:, :self.n_spectral])             # [B, n_spectral]
+            sim = torch.bmm(h_norm, h_norm.transpose(1, 2))  # [B, N, N]
+            weights = F.relu(sim) * self.A_grid.unsqueeze(0)  # [B, N, N]
+            laplacian = torch.diag_embed(weights.sum(dim=-1)) - weights
+            num_nodes = node_features.shape[1]
+            laplacian = laplacian + 1e-4 * torch.eye(num_nodes, device=laplacian.device)
+            eigenvalues = torch.linalg.eigvalsh(laplacian)  # [B, N]
+            parts.append(eigenvalues[:, : self.n_spectral])  # [B, n_spectral]
 
-        return self.proj(torch.cat(parts, dim=-1))                     # [B, hidden_dim]
+        return self.proj(torch.cat(parts, dim=-1))  # [B, hidden_dim]
 
 
 class PMAReadout(nn.Module):
@@ -144,10 +142,9 @@ class PMAReadout(nn.Module):
 
     def forward(self, node_features: torch.Tensor) -> torch.Tensor:
         # node_features: [B, N, D]
-        B = node_features.shape[0]
-        seeds = self.seeds.unsqueeze(0).expand(B, -1, -1)                           # [B, K, D]
-        pooled, _ = self.cross_attn(query=seeds, key=node_features, value=node_features)  # [B, K, D]
-        return self.proj(pooled.flatten(1))                                          # [B, D]
+        seeds = self.seeds.unsqueeze(0).expand(node_features.shape[0], -1, -1)  # [B, K, D]
+        pooled, _ = self.cross_attn(query=seeds, key=node_features, value=node_features)
+        return self.proj(pooled.flatten(1))  # [B, D]
 
 
 class NodeBottleneckEncoder(nn.Module):
@@ -177,7 +174,7 @@ class NodeBottleneckEncoder(nn.Module):
         if not self.vae:
             return out, None, None
 
-        mu, logvar = out.chunk(2, dim=-1)           # [B, N, node_z_dim] each
+        mu, logvar = out.chunk(2, dim=-1)  # [B, N, node_z_dim] each
         logvar = torch.clamp(logvar, -10, 10)
 
         # Deterministic at eval/inference: z = mu (lower-variance metrics). Only
@@ -193,12 +190,19 @@ class NodeBottleneckEncoder(nn.Module):
         base_bs = node_features.shape[0] // self.num_permutations
         eps_base = torch.randn_like(std[:base_bs])  # [B/K, N, node_z_dim]
         eps = eps_base.unsqueeze(0).repeat(self.num_permutations, 1, 1, 1)
-        eps = eps.view(-1, *eps_base.shape[1:])     # [B, N, node_z_dim]
+        eps = eps.view(-1, *eps_base.shape[1:])  # [B, N, node_z_dim]
 
         return mu + eps * std, mu, logvar
 
 
 class GraphAE(torch.nn.Module):
+    """PIGVAE autoencoder: encoder -> per-node bottleneck -> FiLM-conditioned decoder.
+
+    The CLS summary (``z_global``) conditions the decoder via FiLM; the per-node latents
+    (``z_nodes``) are decoded back to node features. The permuter is kept in the module tree so
+    checkpoints load strictly, but the IMC model trains on fixed D4 views and does not call it.
+    """
+
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.input_size = hparams.input_size
@@ -221,8 +225,8 @@ class GraphAE(torch.nn.Module):
             edge_features=graph.edge_features,
             mask=graph.mask,
         )
-        z_nodes, mu, logvar = self.node_bottleneck(node_features, sample=sample)  # [B, N, node_z_dim]
-        z_global = F.layer_norm(graph_emb, graph_emb.shape[-1:])   # [B, D] — CLS for FiLM
+        z_nodes, mu, logvar = self.node_bottleneck(node_features, sample=sample)  # [B, N, z]
+        z_global = F.layer_norm(graph_emb, graph_emb.shape[-1:])  # [B, D], CLS for FiLM
         return z_nodes, z_global, node_features, mu, logvar
 
     def decode(
@@ -248,6 +252,8 @@ class GraphAE(torch.nn.Module):
 
 
 class GraphEncoder(torch.nn.Module):
+    """Local-attention transformer over the grid nodes with a CLS (or PMA) graph readout."""
+
     def __init__(self, hparams: DictConfig):
         super().__init__()
 
@@ -286,9 +292,9 @@ class GraphEncoder(torch.nn.Module):
         self.fc_in = nn.Linear(hparams.graph_encoder_hidden_dim, hparams.graph_encoder_hidden_dim)
         self.output_norm = nn.LayerNorm(hparams.graph_encoder_hidden_dim, elementwise_affine=False)
         self.stats_correction = NodeStatsProjection(hparams.graph_encoder_hidden_dim)
-        use_hadamard  = getattr(hparams, "use_hadamard",  False)
+        use_hadamard = getattr(hparams, "use_hadamard", False)
         use_mlp_edges = getattr(hparams, "use_mlp_edges", False)
-        use_spectrum  = getattr(hparams, "use_spectrum",  False)
+        use_spectrum = getattr(hparams, "use_spectrum", False)
         if use_hadamard or use_mlp_edges or use_spectrum:
             self.structural_correction = StructuralCorrection(
                 hidden_dim=hparams.graph_encoder_hidden_dim,
@@ -323,7 +329,7 @@ class GraphEncoder(torch.nn.Module):
         node_features, edge_features, mask = self.add_emb_node_and_feature(
             node_features, edge_features, mask
         )
-        x = self.dropout(F.silu(self.fc_in(node_features))) # altenatives are silu - but works worse with negative values or no activation
+        x = self.dropout(F.silu(self.fc_in(node_features)))
         return x, mask
 
     def read_out_message_matrix(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -340,8 +346,8 @@ class GraphEncoder(torch.nn.Module):
         if self.project:
             node_features = self.projection_in(node_features)
         if self.use_pma:
-            # No CLS in sequence — transformer sees only the 36 content nodes.
-            # is_encoder=False gives a plain symmetric 6×6 neighborhood mask for N=36.
+            # No CLS in the sequence: the transformer sees only the content nodes, and
+            # is_encoder=False gives the plain symmetric neighbourhood mask.
             x = self.dropout(F.silu(self.fc_in(node_features)))
             x = self.graph_transformer(x, mask=None, is_encoder=False)
             node_features = self.output_norm(x)
@@ -399,6 +405,8 @@ class FiLMConditioner(nn.Module):
 
 
 class GraphDecoder(torch.nn.Module):
+    """Transformer decoder from per-node latents, FiLM-conditioned on the global latent."""
+
     def __init__(self, hparams: DictConfig):
         super().__init__()
         grid_size = getattr(hparams, "grid_size", 6)
@@ -456,234 +464,25 @@ class GraphDecoder(torch.nn.Module):
         z_global: torch.Tensor,
         mask: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        B, N, _ = z_nodes.shape
+        batch_size, num_nodes, _ = z_nodes.shape
         x = self.dropout(self.fc_in(z_nodes))  # [B, N, hidden_dim]
-        if self.use_pos_emb:  # absolute 2D PE — skipped when a relative-position bias is used
-            x = x + self.positional_embedding(B, N)
+        if self.use_pos_emb:  # absolute 2D PE, skipped when a relative-position bias is used
+            x = x + self.positional_embedding(batch_size, num_nodes)
         film_params = self.film(z_global) if self.use_film else None
-        # Full attention over the 36 nodes; positional signal from PE or the per-head pos_bias.
+        # Full attention over the nodes; position comes from the PE or the per-head pos_bias.
         x = self.graph_transformer(x, mask=mask, is_encoder=False, film_params=film_params)
         if self.project:
             x = self.node_fc_out(x)
         return x, torch.empty(0, device=x.device)
 
 
-# class Permuter(torch.nn.Module):
-#     def __init__(self, hparams: DictConfig):
-#         super().__init__()
-#         self.scoring_fc = nn.Sequential(
-#             nn.Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(hparams.graph_decoder_hidden_dim, hparams.graph_decoder_hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(hparams.graph_decoder_hidden_dim, 1),
-#         )
-#         self.perm_context = nn.Sequential(
-#             nn.Linear(hparams.grid_size**2, hparams.emb_dim),
-#             nn.LayerNorm(hparams.emb_dim),
-#             nn.ReLU(),
-#         )
-#         self.break_symmetry_scale = hparams.break_symmetry_scale
-
-#     def score(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-#         scores = self.scoring_fc(x)
-
-#         if mask.sum() == 0:
-#             fill_value = -1e6
-#         else:
-#             fill_value = scores.min().item() - 1
-
-#         scores = scores.masked_fill(mask.unsqueeze(-1) == 0, fill_value)
-#         return scores
-
-#     def soft_sort(self, scores: torch.Tensor, hard: bool, tau: float) -> torch.Tensor:
-#         scores_sorted = scores.sort(descending=True, dim=1)[0]
-#         pairwise_diff = (scores.transpose(1, 2) - scores_sorted).abs().neg() / tau
-#         perm = pairwise_diff.softmax(-1)
-#         if hard:
-#             perm_ = torch.zeros_like(perm, device=perm.device)
-#             perm_.scatter_(-1, perm.topk(1, -1)[1], value=1)
-#             perm = (perm_ - perm).detach() + perm
-#         return perm
-
-#     def mask_perm(self, perm: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-#         batch_size, num_nodes = mask.size(0), mask.size(1)
-#         eye = torch.eye(num_nodes, num_nodes).unsqueeze(0).expand(batch_size, -1, -1).type_as(perm)
-
-#         mask = mask.unsqueeze(-1).expand(-1, -1, num_nodes)
-#         perm = torch.where(mask, perm, eye)
-#         return perm
-
-#     def forward(
-#         self,
-#         node_features: torch.Tensor,
-#         tau: float,
-#         mask: torch.Tensor,
-#         hard: bool = False,
-#     ) -> tuple[torch.Tensor, Any, None]:
-#         # add noise to break symmetry
-#         device = node_features.device
-#         node_features = node_features + torch.randn_like(node_features) * self.break_symmetry_scale
-#         mask = mask.to(device)
-#         scores = self.score(node_features, mask)
-#         context = scores.squeeze(-1)
-#         context = self.perm_context(context)
-
-#         perm = self.soft_sort(scores, hard, tau)
-#         perm = perm.transpose(2, 1)
-#         perm = self.mask_perm(perm, mask)
-#         return perm, context, None
-
-#     @staticmethod
-#     def permute_node_features(node_features: torch.Tensor, perm: torch.Tensor) -> torch.Tensor:
-#         node_features = torch.matmul(perm, node_features)
-#         return node_features
-
-#     @staticmethod
-#     def permute_edge_features(edge_features: torch.Tensor, perm: torch.Tensor) -> torch.Tensor:
-#         edge_features = torch.matmul(perm.unsqueeze(1), edge_features)
-#         edge_features = torch.matmul(perm.unsqueeze(1), edge_features.permute(0, 2, 1, 3))
-#         edge_features = edge_features.permute(0, 2, 1, 3)
-#         return edge_features
-
-#     @staticmethod
-#     def permute_graph(graph: DenseGraphBatch, perm: torch.Tensor) -> DenseGraphBatch:
-#         graph.node_features = Permuter.permute_node_features(graph.node_features, perm)
-#         graph.edge_features = Permuter.permute_edge_features(graph.edge_features, perm)
-#         return graph
-
-
-# class SimplePermuter(torch.nn.Module):
-#     def __init__(self, hparams: DictConfig):
-#         super().__init__()
-#         self.turn_off = hparams.turn_off
-#         self.use_ce = hparams.use_ce
-#         # self.use_context = hparams.use_context
-#         self.scoring_fc = torch.nn.Linear(
-#             hparams.graph_decoder_hidden_dim, hparams.num_permutations
-#         )
-#         # self.layer_norm = torch.nn.LayerNorm(hparams.graph_decoder_hidden_dim)
-#         self.graph_transformer = Transformer(
-#             hidden_dim=hparams.graph_decoder_hidden_dim,
-#             num_heads=hparams.graph_decoder_num_heads,
-#             ppf_hidden_dim=hparams.graph_decoder_ppf_hidden_dim,
-#             num_layers=2,
-#             dropout=hparams.dropout,
-#             rope=LLamaRotaryEmbedding(hparams.head_dim),
-#         )
-#         self.perm_node = nn.Parameter(
-#             torch.randn(1, 1, hparams.graph_decoder_hidden_dim)
-#         )
-#         # nn.init.trunc_normal_(self.perm_node, std=0.02)
-#         self.spectral_embeddings = SklearnSpectralEmbedding(
-#             hparams.n_components,
-#             hparams.graph_decoder_hidden_dim,
-#             hparams.grid_size,
-#         )
-#         self.perm_context = torch.nn.Linear(hparams.num_permutations, hparams.emb_dim)
-#         predefined_permutations = self.create_predefine_permutations(hparams.grid_size)
-#         # Predefined permutation matrices (B, num_permutations, N, N)
-#         self.register_buffer("predefined_permutations", predefined_permutations)
-#         self.break_symmetry_scale = hparams.break_symmetry_scale
-
-#     def forward(
-#         self,
-#         node_features: torch.Tensor,
-#         tau: float,
-#         mask: torch.Tensor,
-#         hard: bool = False,
-#         labels: Optional[torch.Tensor] = None,
-#     ) -> Tuple[Optional[torch.Tensor], Any, Optional[torch.Tensor]]:
-#         # Add noise to break symmetry
-
-#         device = node_features.device
-#         batch_size = node_features.shape[0] // 8
-
-#         if self.turn_off:
-#             perm = self.predefined_permutations.repeat_interleave(batch_size, dim=0)
-#             return perm, None, None, None
-#         # TODO: Think if I need to add this break symmetry scale
-#         node_features = (
-#             node_features + torch.randn_like(node_features) * self.break_symmetry_scale
-#         )
-#         node_features = self.spectral_embeddings(node_features)
-#         cls_tokens = self.perm_node.expand(batch_size * 8, -1, -1)
-#         node_features = torch.cat([cls_tokens, node_features], dim=1)  # (B, N+1, D)
-#         node_features = self.graph_transformer(
-#             node_features, mask=None, is_encoder=True
-#         )
-#         # Score each permutation option
-#         cls_out = node_features[:, 0, :]
-#         # cls_out = self.layer_norm(cls_out)
-#         scores = self.scoring_fc(cls_out)  # (B, num_permutations)
-#         context = None
-#         # if self.use_context:
-#         #     context = self.perm_context(scores)
-
-#         # 5) optionally supervise with cross-entropy
-#         ce_loss = None
-#         if self.use_ce and labels:
-#             labels = labels.to(device)
-#             ce_loss = F.cross_entropy(scores, labels)
-
-#         probs, soft_probs = softmax_head(scores, tau)
-#         # context = self.perm_context(probs)                            # (B*8, emb_dim)
-
-#         perms_buffer = self.predefined_permutations.to(device)  # (P, N, N)
-#         # Shape: (B, N, N) = (B, num_permutations, N, N) * (B, num_permutations, 1, 1)
-#         # Expand probs to (B, num_permutations, 1, 1) to match (num_permutations, N, N)
-#         probs_expanded = probs.unsqueeze(-1).unsqueeze(
-#             -1
-#         )  # (B, num_permutations, 1, 1)                    # (B*8, P, 1, 1)
-#         perm = torch.sum(probs_expanded * perms_buffer, dim=1)  # (B, N, N)
-#         return perm, context, soft_probs, ce_loss
-
-#     def _permutation_matrix_90(self, n: int) -> torch.Tensor:
-#         indices = torch.arange(n * n).reshape(n, n)
-#         rotated_indices = indices.rot90(-1).reshape(-1)
-#         perm = torch.eye(n * n, dtype=torch.float32)[rotated_indices]
-#         return perm
-
-#     def _y_axis_reflection_matrix(self, n: int) -> torch.Tensor:
-#         indices = torch.arange(n * n).reshape(n, n)
-#         reflected_indices = indices.flip(1).reshape(-1)
-#         perm = torch.eye(n * n, dtype=torch.float32)[reflected_indices]
-#         return perm
-
-#     def create_predefine_permutations(self, n: int) -> torch.Tensor:
-#         perm = torch.eye(n * n, dtype=torch.float32)
-#         perm_90 = self._permutation_matrix_90(n)
-#         perm_180 = torch.matmul(perm_90, perm_90)
-#         perm_270 = torch.matmul(perm_180, perm_90)
-
-#         perm_y_reflection = self._y_axis_reflection_matrix(n)
-#         perm_y_reflection_90 = torch.matmul(perm_y_reflection, perm_90)
-#         perm_y_reflection_180 = torch.matmul(perm_y_reflection, perm_180)
-#         perm_y_reflection_270 = torch.matmul(perm_y_reflection, perm_270)
-
-#         # TODO: If I shuffle the train set with every epoch can I have fix this list if I have no labels?
-#         permutations = torch.stack(
-#             [
-#                 perm,
-#                 perm_90,
-#                 perm_180,
-#                 perm_270,
-#                 perm_y_reflection,
-#                 perm_y_reflection_90,
-#                 perm_y_reflection_180,
-#                 perm_y_reflection_270,
-#             ]
-#         )
-#         return permutations
-
-#     @staticmethod
-#     def permute_node_features(
-#         node_features: torch.Tensor, perm: torch.Tensor
-#     ) -> torch.Tensor:
-#         """Apply the permutation to node features."""
-#         return torch.matmul(perm, node_features)
-
 class SimplePermuter(torch.nn.Module):
+    """Predicts which of the 8 D4 transforms produced each view and returns its permutation.
+
+    With ``turn_off`` the oracle permutation (known from the batch layout) is returned and the
+    learned branch only runs in "shadow" mode so its scores can still be trained.
+    """
+
     def __init__(self, hparams: DictConfig):
         super().__init__()
         self.turn_off = hparams.turn_off
@@ -717,18 +516,14 @@ class SimplePermuter(torch.nn.Module):
         self.break_symmetry_scale = hparams.break_symmetry_scale
 
         self.register_buffer(
-            "perm_matrices",
-            self._precompute_permutation_matrices(hparams.grid_size)
+            "perm_matrices", self._precompute_permutation_matrices(hparams.grid_size)
         )
 
     def _precompute_permutation_matrices(self, grid_size: int) -> torch.Tensor:
         """Precompute all 8 D4 permutation matrices once at init."""
         n = grid_size
         n_nodes = n * n
-        matrices = []
-
-        # Identity
-        matrices.append(torch.eye(n_nodes))
+        matrices = [torch.eye(n_nodes)]  # identity
 
         # Rotations: 90, 180, 270 CW
         for k in range(1, 4):
@@ -779,13 +574,13 @@ class SimplePermuter(torch.nn.Module):
 
             # (num_ccw_90_rotations, do_y_flip) for each augmentation in data order
             aug_params = [
-                (0, True),   # r0_f
+                (0, True),  # r0_f
                 (0, False),  # r0_nf  (identity)
-                (2, True),   # r180_f
+                (2, True),  # r180_f
                 (2, False),  # r180_nf
-                (3, True),   # r270_f
+                (3, True),  # r270_f
                 (3, False),  # r270_nf
-                (1, True),   # r90_f
+                (1, True),  # r90_f
                 (1, False),  # r90_nf
             ]
 
@@ -810,7 +605,9 @@ class SimplePermuter(torch.nn.Module):
             # normalises x to unit scale, so noise added before is wiped out.
             shadow_features = self.spectral_embeddings(node_features)
             if self.break_symmetry_scale > 0:
-                shadow_features = shadow_features + torch.randn_like(shadow_features) * self.break_symmetry_scale
+                shadow_features = (
+                    shadow_features + torch.randn_like(shadow_features) * self.break_symmetry_scale
+                )
             cls_tokens = self.perm_node.expand(total_batch, -1, -1)
             shadow_features = torch.cat([cls_tokens, shadow_features], dim=1)
             shadow_features = self.graph_transformer(shadow_features, mask=mask, is_encoder=False)
@@ -821,12 +618,14 @@ class SimplePermuter(torch.nn.Module):
         # Noise added AFTER spectral_embeddings so content_norm cannot cancel it.
         node_features = self.spectral_embeddings(node_features)
         if self.break_symmetry_scale > 0:
-            node_features = node_features + torch.randn_like(node_features) * self.break_symmetry_scale
+            node_features = (
+                node_features + torch.randn_like(node_features) * self.break_symmetry_scale
+            )
 
         cls_tokens = self.perm_node.expand(total_batch, -1, -1)
         node_features = torch.cat([cls_tokens, node_features], dim=1)
 
-        node_features = self.graph_transformer(node_features, mask=mask, is_encoder=False) # does not matter I pass mask so 1 will be added
+        node_features = self.graph_transformer(node_features, mask=mask, is_encoder=False)
 
         cls_out = node_features[:, 0, :]
         scores = self.scoring_fc(cls_out)
@@ -835,7 +634,9 @@ class SimplePermuter(torch.nn.Module):
         if self.use_ce:
             # Ground truth labels are implicit in the batch layout:
             # rows 0..B-1 = class 0, B..2B-1 = class 1, ..., 7B..8B-1 = class 7.
-            labels = torch.arange(self.num_permutations, device=device).repeat_interleave(batch_size)
+            labels = torch.arange(self.num_permutations, device=device).repeat_interleave(
+                batch_size
+            )
             ce_loss = F.cross_entropy(scores, labels)
 
         probs, soft_probs = sinkhorn_head(scores, tau, num_views=self.num_views)
@@ -852,7 +653,7 @@ class SimplePermuter(torch.nn.Module):
             perm: (B, n_nodes, n_nodes)
         """
         # probs: (B, 8), perm_matrices: (8, N, N) -> (B, N, N)
-        return torch.einsum('bp,pnm->bnm', probs, self.perm_matrices)
+        return torch.einsum("bp,pnm->bnm", probs, self.perm_matrices)
 
     @staticmethod
     def permute_node_features(node_features: torch.Tensor, perm: torch.Tensor) -> torch.Tensor:
@@ -860,80 +661,10 @@ class SimplePermuter(torch.nn.Module):
         return torch.matmul(perm, node_features)
 
 
-class BottleNeckEncoder(torch.nn.Module):
-    def __init__(self, hparams: DictConfig):
-        super().__init__()
-        self.d_in = hparams.graph_encoder_hidden_dim
-        self.d_out = hparams.emb_dim
-        self.vae = hparams.vae
-        self.num_permutations = hparams.num_permutations
-        self.activation = {
-            "relu": torch.nn.ReLU(),
-            "gelu": torch.nn.GELU(),
-            "silu": torch.nn.SiLU(),
-            "gelu2": torch.nn.GELU(approximate="tanh"),
-            "leaky_relu": torch.nn.LeakyReLU(negative_slope=0.01),
-        }[hparams.activation.lower()]
-        # Hidden layer THEN projection to mu/logvar
-        self.fc_hidden = nn.Linear(self.d_in, self.d_in)
-        if self.vae:
-            self.w = nn.Linear(self.d_in, 2 * self.d_out)
-        else:
-            self.w = nn.Linear(self.d_in, self.d_out)
-
-    def forward(
-        self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
-        # Correct order: Linear → Activation → Linear (preserves full input info)
-        x = self.w(self.activation(self.fc_hidden(x)))
-        if self.vae:
-            batch_size = x.shape[0] // self.num_permutations
-            mu = x[:, : self.d_out]
-            logvar = x[:, self.d_out :]
-            logvar = torch.clamp(logvar, -10, 10)  # prevents std explosion
-            std = torch.exp(0.5 * logvar)
-            batch_std = std[:batch_size, :]
-            batch_eps = torch.randn_like(batch_std)
-            eps = (
-                batch_eps
-                .unsqueeze(0)
-                .repeat(self.num_permutations, 1, 1)
-                .view(-1, batch_eps.shape[1])
-            )
-            x = mu + eps * std
-            return x, mu, logvar
-        else:
-            return x, None, None
-
-
-class BottleNeckDecoder(torch.nn.Module):
-    def __init__(self, hparams: DictConfig):
-        super().__init__()
-        self.d_in = hparams.emb_dim
-        self.d_out = hparams.graph_decoder_hidden_dim
-        self.w = nn.Linear(self.d_in, self.d_out)
-        # Normalise z after projection so it arrives at the decoder with std~1,
-        # preventing it from drowning out the positional embeddings when broadcast.
-        self.norm = nn.LayerNorm(self.d_out)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.norm(self.w(x))
-
-
-# def softmax_head(scores: torch.Tensor, tau: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-#     # Softmax over scores to get probabilities for each permutation
-#     soft_probs = torch.softmax(scores / tau, dim=-1)  # (B, num_permutations)
-#     # Hard selection using Gumbel-Softmax (discrete but differentiable)
-#     one_hot = torch.zeros_like(soft_probs)
-#     one_hot.scatter_(1, soft_probs.argmax(dim=-1, keepdim=True), 1.0)
-#     probs = (one_hot - soft_probs).detach() + soft_probs
-
-#     return probs, soft_probs
-
-
 def softmax_head(
     scores: torch.Tensor, tau: float, training: bool = True
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Gumbel-perturbed softmax with a straight-through hard one-hot (independent per view)."""
     if training:
         # Sample Gumbel noise: -log(-log(U))
         unif = torch.clamp(torch.rand_like(scores), min=1e-20, max=1 - 1e-20)
@@ -951,9 +682,7 @@ def softmax_head(
     return probs, soft_probs
 
 
-def sinkhorn_normalization(
-    log_alpha: torch.Tensor, n_iters: int = 20
-) -> torch.Tensor:
+def sinkhorn_normalization(log_alpha: torch.Tensor, n_iters: int = 20) -> torch.Tensor:
     """Sinkhorn-Knopp iterations on a log-domain [B, n_views, n_classes] tensor.
 
     Produces a doubly-stochastic matrix: each view sums to 1 across classes
@@ -990,13 +719,13 @@ def sinkhorn_head(
         soft_probs: [num_views * B, num_classes]  soft doubly-stochastic probs
     """
     total_batch, num_classes = scores.shape
-    B = total_batch // num_views
+    batch_size = total_batch // num_views
 
     # Fall back to independent softmax when the batch isn't a clean multiple of
     # num_views (e.g. single-image inference, or odd batch sizes at epoch end).
     # Sinkhorn is a training-time diversity enforcer; the learned scores are still
     # meaningful for argmax prediction without it.
-    if B == 0 or total_batch % num_views != 0:
+    if batch_size == 0 or total_batch % num_views != 0:
         soft_probs = torch.softmax(scores / tau, dim=-1)
         one_hot = torch.zeros_like(soft_probs).scatter_(
             1, soft_probs.argmax(dim=-1, keepdim=True), 1.0
@@ -1005,7 +734,7 @@ def sinkhorn_head(
         return probs, soft_probs
 
     # Reshape to [B, num_views, num_classes] — group views per image
-    log_alpha = scores.view(num_views, B, num_classes).permute(1, 0, 2) / tau
+    log_alpha = scores.view(num_views, batch_size, num_classes).permute(1, 0, 2) / tau
 
     # Doubly-stochastic assignment via Sinkhorn
     assignment = sinkhorn_normalization(log_alpha, n_iters=n_iters)  # [B, V, C]
@@ -1014,18 +743,14 @@ def sinkhorn_head(
     soft_probs = assignment.permute(1, 0, 2).reshape(total_batch, num_classes)
 
     # Straight-through: forward = argmax one-hot, backward = soft_probs
-    one_hot = torch.zeros_like(soft_probs).scatter_(
-        1, soft_probs.argmax(dim=-1, keepdim=True), 1.0
-    )
+    one_hot = torch.zeros_like(soft_probs).scatter_(1, soft_probs.argmax(dim=-1, keepdim=True), 1.0)
     probs = (one_hot - soft_probs).detach() + soft_probs
 
     return probs, soft_probs
 
 
-def gumbel_softmax_head(
-    scores: torch.Tensor, tau: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    # First compute soft probabilities
+def gumbel_softmax_head(scores: torch.Tensor, tau: float) -> tuple[torch.Tensor, torch.Tensor]:
+    """``F.gumbel_softmax`` with a straight-through hard one-hot."""
     soft_probs = F.gumbel_softmax(scores, tau=tau, hard=False, dim=-1)
 
     # Then derive hard probabilities from soft_probs

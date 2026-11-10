@@ -1,3 +1,5 @@
+"""Collect activation statistics with forward hooks."""
+
 # src/utils/inspection/activations.py
 from __future__ import annotations
 
@@ -33,10 +35,9 @@ def collect_activation_stats(
                 dim_mag = tf.abs().mean(dim=(0, 1))
                 k = min(top_k_dims, dim_mag.numel())
                 vals, idx = torch.topk(dim_mag, k)
-                entry["top_dims_by_mean_abs"] = list(
-                    zip(idx.tolist(), vals.tolist(), strict=True)
-                )
+                entry["top_dims_by_mean_abs"] = list(zip(idx.tolist(), vals.tolist(), strict=True))
             out[name] = entry
+
         return hook
 
     for name, module in model.named_modules():

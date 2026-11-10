@@ -1,12 +1,12 @@
+"""Reconstruction-error diagnostics in PCA and image space, per D4 view."""
+
 # src/utils/inspection/reconstruction.py
 from __future__ import annotations
 
 import torch
 
 
-def reconstruction_diagnostics(
-    pred: torch.Tensor, true: torch.Tensor, num_views: int = 8
-) -> dict:
+def reconstruction_diagnostics(pred: torch.Tensor, true: torch.Tensor, num_views: int = 8) -> dict:
     """Where reconstruction struggles: per-channel R²/MSE, per-position, per-view, vs magnitude.
 
     pred, true: [B, N, C].
@@ -16,17 +16,17 @@ def reconstruction_diagnostics(
     b, n, c = true.shape
     se = (pred - true).pow(2)
 
-    mse_ch = se.mean(dim=(0, 1))                              # [C]
+    mse_ch = se.mean(dim=(0, 1))  # [C]
     var_ch = true.var(dim=(0, 1), unbiased=False).clamp_min(1e-12)
     r2_ch = 1.0 - mse_ch / var_ch
-    mse_pos = se.mean(dim=(0, 2))                             # [N]
+    mse_pos = se.mean(dim=(0, 2))  # [N]
 
     per_view = None
     if b % num_views == 0 and num_views > 0:
         bv = b // num_views
         per_view = se.view(num_views, bv, n, c).mean(dim=(1, 2, 3)).tolist()
 
-    node_mag = true.norm(dim=-1).reshape(-1)                 # [B*N]
+    node_mag = true.norm(dim=-1).reshape(-1)  # [B*N]
     node_err = se.mean(dim=-1).reshape(-1)
     edges = torch.quantile(
         node_mag, torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0], device=node_mag.device)
@@ -36,7 +36,8 @@ def reconstruction_diagnostics(
         lo, hi = edges[i], edges[i + 1]
         m = (node_mag >= lo) & (node_mag <= hi) if i == 3 else (node_mag >= lo) & (node_mag < hi)
         bins.append({
-            "mag_lo": lo.item(), "mag_hi": hi.item(),
+            "mag_lo": lo.item(),
+            "mag_hi": hi.item(),
             "mean_err": node_err[m].mean().item() if m.any() else 0.0,
             "count": int(m.sum().item()),
         })
@@ -70,7 +71,7 @@ def image_space_reconstruction(
     pred = pred.detach().float()
     target = target.detach().float()
     pca_layer = pca_layer.to(pred.device)
-    img_pred = pca_layer.inverse(pred)      # [B, N, D_orig]
+    img_pred = pca_layer.inverse(pred)  # [B, N, D_orig]
     img_true = pca_layer.inverse(target)
     se = (img_pred - img_true).pow(2)
     var_ch = img_true.var(dim=(0, 1), unbiased=False).clamp_min(1e-12)

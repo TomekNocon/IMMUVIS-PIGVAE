@@ -1,3 +1,5 @@
+"""Task wrapper, optional extras and metric lookup for the Hydra entry points."""
+
 import math
 import warnings
 from collections.abc import Callable

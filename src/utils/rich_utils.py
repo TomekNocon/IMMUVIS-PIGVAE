@@ -1,3 +1,5 @@
+"""Rich printing of the config tree and interactive tag enforcement."""
+
 from collections.abc import Sequence
 from pathlib import Path
 

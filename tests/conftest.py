@@ -1,12 +1,5 @@
 """This file prepares config fixtures for other tests."""
 
-import operator
-
-from omegaconf import OmegaConf
-
-OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
-OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
-
 from pathlib import Path
 
 import pytest
@@ -14,6 +7,12 @@ import rootutils
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, open_dict
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.utils.resolvers import register_resolvers
+
+register_resolvers()
 
 
 @pytest.fixture(scope="package")

@@ -8,7 +8,7 @@ dependencies = [
     "h5py>=3.11.0",
     "networkx>=3.2.1",
     "pandas>=2.2.3",
-    "torch>=2.0.0",
+    "torch>=2.3.0",
     "torchvision>=0.15.0",
     "lightning>=2.0.0",
     "torchmetrics>=0.11.4",
@@ -41,10 +41,7 @@ dependencies = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-exclude = [
-    "notebooks/**",
-    "src/models/components/metrics/**",
-]
+exclude = ["notebooks/**"]
 
 [tool.ruff.format]
 preview = true
@@ -83,6 +80,10 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["src", "figlib"]
 
+[tool.ruff.lint.pep8-naming]
+# Single-letter tensor dimensions (batch, nodes, channels, height, width, ...) are ML notation.
+extend-ignore-names = ["A", "B", "C", "D", "H", "K", "L", "N", "W", "X"]
+
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
@@ -90,10 +91,7 @@ warn_unused_ignores = true
 check_untyped_defs = false
 no_implicit_optional = false
 disallow_untyped_defs = false
-exclude = [
-    "^notebooks/",
-    "^src/models/components/metrics/",
-]
+exclude = ["^notebooks/"]
 
 [dependency-groups]
 dev = [

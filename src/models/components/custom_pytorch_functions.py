@@ -1,10 +1,10 @@
+"""Reference attention and normalisation layers used by the graph transformer."""
+
 import math
 
 import torch
 
 
-# Efficient implementation equivalent to the following:
-# https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
 def scaled_dot_product_attention(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -15,6 +15,7 @@ def scaled_dot_product_attention(
     scale: float | None = None,
     enable_gqa: bool = False,
 ) -> torch.Tensor:
+    """Pure-PyTorch ``F.scaled_dot_product_attention`` (same semantics, used as a fallback)."""
     query_size, key_size = query.size(-2), key.size(-2)
     scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
     attn_bias = torch.zeros(
@@ -47,15 +48,11 @@ def scaled_dot_product_attention(
 
 
 class RMSNorm(torch.nn.Module):
-    """Initialize the RMSNorm normalization layer.
+    """Root-mean-square layer norm (Zhang & Sennrich, 2019) with a learnable gain.
 
     Args:
-        dim (int): The dimension of the input tensor.
-        eps (float, optional): A small value added to the denominator for numerical stability. Default is 1e-6.
-
-    Attributes:
-        eps (float): A small value added to the denominator for numerical stability.
-        weight (nn.Parameter): Learnable scaling parameter.
+        hidden_dim: Size of the normalised (last) dimension.
+        eps: Added to the mean square for numerical stability.
     """
 
     def __init__(self, hidden_dim: int, eps: float = 1e-6):
@@ -70,5 +67,5 @@ class RMSNorm(torch.nn.Module):
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
 
-    def reset_parameters(self):
+    def reset_parameters(self) -> None:
         torch.nn.init.ones_(self.weight)

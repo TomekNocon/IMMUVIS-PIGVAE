@@ -17,7 +17,14 @@ import torch
 
 
 @torch.no_grad()
-def _curve(forward_fn, x: torch.Tensor, order: list[int], baseline: torch.Tensor, mode: str, steps: int | None) -> torch.Tensor:
+def _curve(
+    forward_fn,
+    x: torch.Tensor,
+    order: list[int],
+    baseline: torch.Tensor,
+    mode: str,
+    steps: int | None,
+) -> torch.Tensor:
     """Score at ``steps+1`` checkpoints as instances are removed/revealed in ``order``.
 
     ``steps=None`` records every instance (``S+1`` points, per-instance granularity); a smaller
@@ -43,7 +50,14 @@ def _curve(forward_fn, x: torch.Tensor, order: list[int], baseline: torch.Tensor
     return torch.tensor(scores)
 
 
-def deletion_curve(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseline: torch.Tensor | None = None, descending: bool = True, steps: int | None = None) -> torch.Tensor:
+def deletion_curve(
+    forward_fn,
+    x: torch.Tensor,
+    importance: torch.Tensor,
+    baseline: torch.Tensor | None = None,
+    descending: bool = True,
+    steps: int | None = None,
+) -> torch.Tensor:
     """Score as top-``importance`` instances are progressively removed. Returns ``[steps+1]`` (``[S+1]`` if steps=None)."""
     if baseline is None:
         baseline = torch.zeros_like(x)
@@ -51,7 +65,14 @@ def deletion_curve(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseli
     return _curve(forward_fn, x, order, baseline, "deletion", steps)
 
 
-def insertion_curve(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseline: torch.Tensor | None = None, descending: bool = True, steps: int | None = None) -> torch.Tensor:
+def insertion_curve(
+    forward_fn,
+    x: torch.Tensor,
+    importance: torch.Tensor,
+    baseline: torch.Tensor | None = None,
+    descending: bool = True,
+    steps: int | None = None,
+) -> torch.Tensor:
     """Score as top-``importance`` instances are progressively revealed. Returns ``[steps+1]`` (``[S+1]`` if steps=None)."""
     if baseline is None:
         baseline = torch.zeros_like(x)
@@ -65,7 +86,13 @@ def curve_auc(scores: torch.Tensor) -> float:
     return float(torch.trapz(scores, dx=1.0 / (n - 1)))
 
 
-def faithfulness_score(forward_fn, x: torch.Tensor, importance: torch.Tensor, baseline: torch.Tensor | None = None, steps: int | None = None) -> dict[str, float]:
+def faithfulness_score(
+    forward_fn,
+    x: torch.Tensor,
+    importance: torch.Tensor,
+    baseline: torch.Tensor | None = None,
+    steps: int | None = None,
+) -> dict[str, float]:
     """Summary: insertion AUC minus deletion AUC. Higher = more faithful importance map."""
     dele = deletion_curve(forward_fn, x, importance, baseline, steps=steps)
     ins = insertion_curve(forward_fn, x, importance, baseline, steps=steps)

@@ -1,4 +1,8 @@
+"""Callback logging permuter health (gradient flow, consistency, bijectivity)."""
+
 from __future__ import annotations
+
+from typing import ClassVar
 
 import torch
 from lightning.pytorch.callbacks import Callback
@@ -17,19 +21,23 @@ class PermutationDiagnosticsCallback(Callback):
     If is_bijective == 0 → Sinkhorn is not enforcing the bijection (bug).
     """
 
-    AUG_NAMES = [
-        "r0_f", "r0_nf", "r180_f", "r180_nf",
-        "r270_f", "r270_nf", "r90_f", "r90_nf",
+    AUG_NAMES: ClassVar[list[str]] = [
+        "r0_f",
+        "r0_nf",
+        "r180_f",
+        "r180_nf",
+        "r270_f",
+        "r270_nf",
+        "r90_f",
+        "r90_nf",
     ]
 
     @staticmethod
     def _grad_norm(module: torch.nn.Module) -> float:
         total_sq = sum(
-            p.grad.data.norm(2).item() ** 2
-            for p in module.parameters()
-            if p.grad is not None
+            p.grad.data.norm(2).item() ** 2 for p in module.parameters() if p.grad is not None
         )
-        return total_sq ** 0.5
+        return total_sq**0.5
 
     def on_after_backward(self, trainer, pl_module) -> None:
         if not trainer.is_global_zero:
@@ -38,9 +46,27 @@ class PermutationDiagnosticsCallback(Callback):
             return
 
         ae = pl_module.graph_ae
-        pl_module.log("perm_diag/permuter_grad_norm", self._grad_norm(ae.permuter), on_step=True, on_epoch=False, prog_bar=False)
-        pl_module.log("perm_diag/encoder_grad_norm",  self._grad_norm(ae.encoder),  on_step=True, on_epoch=False, prog_bar=False)
-        pl_module.log("perm_diag/decoder_grad_norm",  self._grad_norm(ae.decoder),  on_step=True, on_epoch=False, prog_bar=False)
+        pl_module.log(
+            "perm_diag/permuter_grad_norm",
+            self._grad_norm(ae.permuter),
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+        )
+        pl_module.log(
+            "perm_diag/encoder_grad_norm",
+            self._grad_norm(ae.encoder),
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+        )
+        pl_module.log(
+            "perm_diag/decoder_grad_norm",
+            self._grad_norm(ae.decoder),
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False,
+        )
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
         if not trainer.is_global_zero:
@@ -66,19 +92,36 @@ class PermutationDiagnosticsCallback(Callback):
             mode_classes.append(mode_class)
             consistency = (slot_preds == mode_class).float().mean().item()
             confidence = (
-                soft_probs[slot_idx * B : (slot_idx + 1) * B]
-                .max(dim=-1)
-                .values.mean()
-                .item()
+                soft_probs[slot_idx * B : (slot_idx + 1) * B].max(dim=-1).values.mean().item()
             )
             name = self.AUG_NAMES[slot_idx]
-            pl_module.log(f"perm_diag/{name}_class", float(mode_class), on_epoch=True, on_step=False, batch_size=1)
-            pl_module.log(f"perm_diag/{name}_consistency", consistency, on_epoch=True, on_step=False, batch_size=1)
-            pl_module.log(f"perm_diag/{name}_confidence", confidence, on_epoch=True, on_step=False, batch_size=1)
+            pl_module.log(
+                f"perm_diag/{name}_class",
+                float(mode_class),
+                on_epoch=True,
+                on_step=False,
+                batch_size=1,
+            )
+            pl_module.log(
+                f"perm_diag/{name}_consistency",
+                consistency,
+                on_epoch=True,
+                on_step=False,
+                batch_size=1,
+            )
+            pl_module.log(
+                f"perm_diag/{name}_confidence",
+                confidence,
+                on_epoch=True,
+                on_step=False,
+                batch_size=1,
+            )
 
         # Bijection: all 8 slots should map to distinct classes
         is_bijective = float(len(set(mode_classes)) == num_views)
-        pl_module.log("perm_diag/is_bijective", is_bijective, on_epoch=True, on_step=False, batch_size=1)
+        pl_module.log(
+            "perm_diag/is_bijective", is_bijective, on_epoch=True, on_step=False, batch_size=1
+        )
 
         # Mean confidence across all samples
         pl_module.log(

@@ -31,7 +31,9 @@ def capture_attention(store: list):
     """
     orig = F.scaled_dot_product_attention
 
-    def patched(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None, **kw):
+    def patched(
+        query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None, **kw
+    ):
         s = (1.0 / math.sqrt(query.shape[-1])) if scale is None else scale
         logits = (query @ key.transpose(-2, -1)) * s
         if attn_mask is not None:
@@ -41,7 +43,16 @@ def capture_attention(store: list):
                 logits = logits + attn_mask
         attn = torch.softmax(logits, dim=-1)
         store.append(torch.nan_to_num(attn.detach()))  # all-masked rows -> 0
-        return orig(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale, **kw)
+        return orig(
+            query,
+            key,
+            value,
+            attn_mask=attn_mask,
+            dropout_p=dropout_p,
+            is_causal=is_causal,
+            scale=scale,
+            **kw,
+        )
 
     F.scaled_dot_product_attention = patched
     try:
@@ -61,13 +72,19 @@ def attention_rollout(gae: torch.nn.Module, node_features: torch.Tensor) -> torc
     gae.eval()
     batch_size, num_nodes, _ = node_features.shape
     mask = torch.ones(batch_size, num_nodes, dtype=torch.bool, device=node_features.device)
-    graph = DenseGraphBatch(node_features=node_features, edge_features=torch.empty(0, device=node_features.device), mask=mask)
+    graph = DenseGraphBatch(
+        node_features=node_features,
+        edge_features=torch.empty(0, device=node_features.device),
+        mask=mask,
+    )
 
     store: list = []
     with capture_attention(store):
         gae.encode(graph, sample=False)
     if not store:
-        raise RuntimeError("no attention captured — encoder did not call scaled_dot_product_attention")
+        raise RuntimeError(
+            "no attention captured — encoder did not call scaled_dot_product_attention"
+        )
 
     # Each layer: [B, H, T, T] with T = N+1 (CLS at 0). Head-mean + residual identity.
     tokens = store[0].shape[-1]

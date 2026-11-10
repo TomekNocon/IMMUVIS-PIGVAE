@@ -1,3 +1,5 @@
+"""Tensor statistics and spectral measures (participation ratio, energy rank)."""
+
 # src/utils/inspection/stats.py
 from __future__ import annotations
 
@@ -12,7 +14,11 @@ def tensor_stats(t: torch.Tensor) -> dict:
     n = int(t.numel())
     if n == 0:
         return {"count": 0}
-    tq = t if n <= _MAX_QUANTILE_ELEMS else t[torch.randperm(n, device=t.device)[:_MAX_QUANTILE_ELEMS]]
+    tq = (
+        t
+        if n <= _MAX_QUANTILE_ELEMS
+        else t[torch.randperm(n, device=t.device)[:_MAX_QUANTILE_ELEMS]]
+    )
     q = torch.tensor([0.001, 0.01, 0.5, 0.99, 0.999], device=t.device)
     pcts = torch.quantile(tq, q).tolist()
     mean = t.mean()
@@ -25,7 +31,11 @@ def tensor_stats(t: torch.Tensor) -> dict:
         "min": t.min().item(),
         "max": t.max().item(),
         "max_abs": t.abs().max().item(),
-        "p0.1": pcts[0], "p1": pcts[1], "p50": pcts[2], "p99": pcts[3], "p99.9": pcts[4],
+        "p0.1": pcts[0],
+        "p1": pcts[1],
+        "p50": pcts[2],
+        "p99": pcts[3],
+        "p99.9": pcts[4],
         "kurtosis": kurt,
         "frac_dead": (t.abs() < 1e-6).float().mean().item(),
     }
@@ -70,7 +80,7 @@ def linear_spectral(weight: torch.Tensor) -> dict:
     elif w.ndim < 2:
         w = w.unsqueeze(0)
     sv = torch.linalg.svdvals(w)
-    pr = participation_ratio(sv ** 2)
+    pr = participation_ratio(sv**2)
     dim = min(w.shape)
     er = energy_rank(sv)
     return {

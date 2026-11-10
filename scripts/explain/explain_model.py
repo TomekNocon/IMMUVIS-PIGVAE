@@ -11,7 +11,6 @@ Usage:
         ckpt_path=/raid_.../last.ckpt method=rollout
 """
 
-import operator
 import os
 
 import rootutils
@@ -20,10 +19,11 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 import hydra
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
-OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
-OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
+from src.utils.resolvers import register_resolvers
+
+register_resolvers()
 
 from src.explainability import viz
 from src.explainability.encoder_attribution import encoder_ig, pca_to_markers

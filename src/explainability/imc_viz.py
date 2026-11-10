@@ -42,8 +42,21 @@ DEFAULT_COLOURS: list[tuple[float, float, float]] = [
 
 # Marker-name hints for auto-picking a composite when names are available (case-insensitive
 # substring match, in priority order). DNA first so it lands on the blue slot.
-_COMPOSITE_HINTS: list[str] = ["dna", "dapi", "ir19", "histone", "panck", "keratin",
-                               "cd8", "cd3", "cd68", "cd20", "sma", "vimentin", "cd31"]
+_COMPOSITE_HINTS: list[str] = [
+    "dna",
+    "dapi",
+    "ir19",
+    "histone",
+    "panck",
+    "keratin",
+    "cd8",
+    "cd3",
+    "cd68",
+    "cd20",
+    "sma",
+    "vimentin",
+    "cd31",
+]
 
 
 def _to_np(x) -> np.ndarray:
@@ -103,8 +116,10 @@ def butterworth_denoise(img: np.ndarray, cutoff_frequency_ratio: float = 0.2) ->
     from skimage.filters import butterworth
 
     img = _to_chw(img)
-    out = [butterworth(img[c], cutoff_frequency_ratio=cutoff_frequency_ratio, high_pass=False)
-           for c in range(img.shape[0])]
+    out = [
+        butterworth(img[c], cutoff_frequency_ratio=cutoff_frequency_ratio, high_pass=False)
+        for c in range(img.shape[0])
+    ]
     return np.stack(out).astype(np.float32)
 
 
@@ -123,7 +138,7 @@ def get_all_patches(img: np.ndarray, patch_size: int = 128):
         for j in range(0, W, patch_size):
             if i + patch_size > H or j + patch_size > W:
                 continue
-            patches.append(img[:, i:i + patch_size, j:j + patch_size])
+            patches.append(img[:, i : i + patch_size, j : j + patch_size])
             coords.append([(i, j), (i + patch_size, j + patch_size)])
     return patches, coords
 
@@ -162,7 +177,9 @@ def _resolve_channels(names, channels) -> list[int]:
     return out
 
 
-def default_composite_channels(marker_names=None, num_channels: int | None = None, k: int = 5) -> list[int]:
+def default_composite_channels(
+    marker_names=None, num_channels: int | None = None, k: int = 5
+) -> list[int]:
     """Pick ~``k`` channels for a false-colour composite.
 
     Prefers well-known lineage markers by name (``_COMPOSITE_HINTS``); falls back to evenly
@@ -195,14 +212,28 @@ def _add_scale_bar(ax, length_um: float, pixel_size_um: float, color="white") ->
     x0 = x1 - bar_px
     y = H * 0.94
     ax.plot([x0, x1], [y, y], color=color, lw=3, solid_capstyle="butt")
-    ax.text((x0 + x1) / 2, y - H * 0.02, f"{length_um:g} µm", color=color,
-            ha="center", va="bottom", fontsize=8)
+    ax.text(
+        (x0 + x1) / 2,
+        y - H * 0.02,
+        f"{length_um:g} µm",
+        color=color,
+        ha="center",
+        va="bottom",
+        fontsize=8,
+    )
 
 
-def plot_marker_grid(img, marker_names=None, out_path: str = "imc_grid.png", cmap: str = "magma",
-                     pctl: tuple[float, float] = (1.0, 99.0), ncols: int = 8,
-                     pixel_size_um: float | None = None, scale_bar_um: float = 100.0,
-                     title: str | None = None) -> None:
+def plot_marker_grid(
+    img,
+    marker_names=None,
+    out_path: str = "imc_grid.png",
+    cmap: str = "magma",
+    pctl: tuple[float, float] = (1.0, 99.0),
+    ncols: int = 8,
+    pixel_size_um: float | None = None,
+    scale_bar_um: float = 100.0,
+    title: str | None = None,
+) -> None:
     """Publication "contact sheet": every marker as its own labelled, percentile-contrasted panel."""
     img = _to_chw(img)
     C = img.shape[0]
@@ -215,7 +246,8 @@ def plot_marker_grid(img, marker_names=None, out_path: str = "imc_grid.png", cma
         ax = axes[c]
         ax.imshow(_percentile_clip(img[c], *pctl), cmap=cmap, interpolation="nearest")
         ax.set_title(names[c], color="white", fontsize=8, pad=2)
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
         for s in ax.spines.values():
             s.set_visible(False)
     if pixel_size_um and C:
@@ -229,8 +261,9 @@ def plot_marker_grid(img, marker_names=None, out_path: str = "imc_grid.png", cma
     plt.close(fig)
 
 
-def compose_false_colour(img, channels, colours=None, pctl: tuple[float, float] = (1.0, 99.0),
-                         blend: str = "max") -> np.ndarray:
+def compose_false_colour(
+    img, channels, colours=None, pctl: tuple[float, float] = (1.0, 99.0), blend: str = "max"
+) -> np.ndarray:
     """Blend selected channels into an ``[H, W, 3]`` RGB image in ``[0, 1]``.
 
     ``blend="max"`` keeps markers visually separable (per-pixel channel that dominates wins);
@@ -243,16 +276,24 @@ def compose_false_colour(img, channels, colours=None, pctl: tuple[float, float] 
         raise ValueError(f"need >= {len(ch)} colours for {len(ch)} channels, got {len(cols)}")
     H, W = img.shape[1:]
     rgb = np.zeros((H, W, 3), dtype=np.float32)
-    for c, col in zip(ch, cols):
+    for c, col in zip(ch, cols, strict=False):
         contrib = _percentile_clip(img[c], *pctl)[..., None] * np.asarray(col, dtype=np.float32)
         rgb = np.maximum(rgb, contrib) if blend == "max" else rgb + contrib
     return np.clip(rgb, 0.0, 1.0)
 
 
-def plot_false_colour(img, channels, colours=None, marker_names=None,
-                      out_path: str = "imc_composite.png", pctl: tuple[float, float] = (1.0, 99.0),
-                      blend: str = "max", pixel_size_um: float | None = None,
-                      scale_bar_um: float = 100.0, title: str | None = None) -> np.ndarray:
+def plot_false_colour(
+    img,
+    channels,
+    colours=None,
+    marker_names=None,
+    out_path: str = "imc_composite.png",
+    pctl: tuple[float, float] = (1.0, 99.0),
+    blend: str = "max",
+    pixel_size_um: float | None = None,
+    scale_bar_um: float = 100.0,
+    title: str | None = None,
+) -> np.ndarray:
     """Render the classic multiplexed-IF composite (markers -> colours, blended) with a legend.
 
     ``channels`` may be int indices or marker-name strings (resolved via ``marker_names``).
@@ -262,11 +303,15 @@ def plot_false_colour(img, channels, colours=None, marker_names=None,
     idx = _resolve_channels(marker_names, channels)
     cols = list(colours) if colours is not None else distinct_colours(len(idx))
     rgb = compose_false_colour(img, idx, cols, pctl=pctl, blend=blend)
-    names = ([str(marker_names[i]) for i in idx] if marker_names is not None
-             else [f"ch {i}" for i in idx])
+    names = (
+        [str(marker_names[i]) for i in idx]
+        if marker_names is not None
+        else [f"ch {i}" for i in idx]
+    )
     fig, ax = plt.subplots(figsize=(7, 7), facecolor="black")
     ax.imshow(rgb, interpolation="nearest")
-    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_yticks([])
     for s in ax.spines.values():
         s.set_visible(False)
     if pixel_size_um:
@@ -274,12 +319,18 @@ def plot_false_colour(img, channels, colours=None, marker_names=None,
     handles = [mpatches.Patch(color=cols[k], label=names[k]) for k in range(len(idx))]
     # Many markers -> compact multi-column legend placed OUTSIDE the image (right).
     many = len(idx) > 12
-    leg = ax.legend(handles=handles,
-                    loc="upper left" if many else "upper right",
-                    bbox_to_anchor=(1.01, 1.0) if many else None,
-                    ncol=2 if len(idx) > 24 else 1,
-                    framealpha=0.0 if many else 0.35, facecolor="black", edgecolor="none",
-                    fontsize=6 if many else 9, labelspacing=0.25, handlelength=1.0)
+    leg = ax.legend(
+        handles=handles,
+        loc="upper left" if many else "upper right",
+        bbox_to_anchor=(1.01, 1.0) if many else None,
+        ncol=2 if len(idx) > 24 else 1,
+        framealpha=0.0 if many else 0.35,
+        facecolor="black",
+        edgecolor="none",
+        fontsize=6 if many else 9,
+        labelspacing=0.25,
+        handlelength=1.0,
+    )
     for txt in leg.get_texts():
         txt.set_color("white")
     if title:
@@ -299,8 +350,15 @@ def _upsample_nearest(a: np.ndarray, out_hw: tuple[int, int]) -> np.ndarray:
     return a[ri][:, ci]
 
 
-def overlay_heatmap_on_rgb(rgb, heat, out_path: str, alpha: float = 0.5, title: str | None = None,
-                           pixel_size_um: float | None = None, scale_bar_um: float = 20.0) -> None:
+def overlay_heatmap_on_rgb(
+    rgb,
+    heat,
+    out_path: str,
+    alpha: float = 0.5,
+    title: str | None = None,
+    pixel_size_um: float | None = None,
+    scale_bar_um: float = 20.0,
+) -> None:
     """Overlay per-region importance ``heat`` (any 2D, e.g. 16x16) on a false-colour crop ``rgb``.
 
     ``heat`` is nearest-upsampled to the crop size, normalised, magma-blended over the tissue --
@@ -312,20 +370,29 @@ def overlay_heatmap_on_rgb(rgb, heat, out_path: str, alpha: float = 0.5, title: 
     fig, ax = plt.subplots(figsize=(5, 5), facecolor="black")
     ax.imshow(rgb, interpolation="nearest")
     ax.imshow(hm, cmap="magma", alpha=alpha, interpolation="nearest")
-    ax.set_xticks([]); ax.set_yticks([])
+    ax.set_xticks([])
+    ax.set_yticks([])
     for s in ax.spines.values():
         s.set_visible(False)
     if pixel_size_um:
         _add_scale_bar(ax, scale_bar_um, pixel_size_um)
     if title:
         ax.set_title(title, color="white", fontsize=11)
-    fig.tight_layout(); fig.savefig(out_path, dpi=200, facecolor="black", bbox_inches="tight")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, facecolor="black", bbox_inches="tight")
     plt.close(fig)
 
 
-def stitch_composite_importance(crops_rgb, coords, importance, out_path: str, alpha: float = 0.45,
-                                title: str | None = None, highlight: int | None = None,
-                                cell: int = 32) -> None:
+def stitch_composite_importance(
+    crops_rgb,
+    coords,
+    importance,
+    out_path: str,
+    alpha: float = 0.45,
+    title: str | None = None,
+    highlight: int | None = None,
+    cell: int = 32,
+) -> None:
     """Stitch false-colour crops at their tissue coords and lay a CLAM importance heatmap over them.
 
     ``crops_rgb``: list of ``[h,w,3]`` false-colour crops; ``coords``: ``[N,2]`` (row,col px);
@@ -346,12 +413,14 @@ def stitch_composite_importance(crops_rgb, coords, importance, out_path: str, al
     H, W = nr * cell, nc * cell
     bg = np.zeros((H, W, 3), dtype=np.float32)
     coarse = np.full((nr, nc), np.nan, dtype=np.float32)  # one importance value per crop
-    present = np.zeros((nr, nc), dtype=np.float32)         # 1 where the crop has real tissue
+    present = np.zeros((nr, nc), dtype=np.float32)  # 1 where the crop has real tissue
     for k in range(len(crops_rgb)):
         gy, gx = ys[c[k, 0]], xs[c[k, 1]]
-        thumb = np.stack([_upsample_nearest(_to_np(crops_rgb[k])[..., ch], (cell, cell))
-                          for ch in range(3)], axis=-1)
-        bg[gy * cell:gy * cell + cell, gx * cell:gx * cell + cell, :] = thumb
+        thumb = np.stack(
+            [_upsample_nearest(_to_np(crops_rgb[k])[..., ch], (cell, cell)) for ch in range(3)],
+            axis=-1,
+        )
+        bg[gy * cell : gy * cell + cell, gx * cell : gx * cell + cell, :] = thumb
         coarse[gy, gx] = imp[k]
         present[gy, gx] = 1.0 if float(np.mean(thumb)) > 0.02 else 0.0
 
@@ -362,26 +431,40 @@ def stitch_composite_importance(crops_rgb, coords, importance, out_path: str, al
     # no tissue, so the overlay never washes the background (both arrays interpolate together).
     filled = np.where(np.isnan(coarse), 0.0, coarse)
     alpha_arr = (np.where(np.isnan(coarse), 0.0, float(alpha)) * present).astype(np.float32)
-    im = ax.imshow(filled, cmap="jet", vmin=0.0, vmax=1.0, alpha=alpha_arr,
-                   interpolation="bilinear", extent=(0, W, H, 0), aspect="auto", zorder=2)
+    im = ax.imshow(
+        filled,
+        cmap="jet",
+        vmin=0.0,
+        vmax=1.0,
+        alpha=alpha_arr,
+        interpolation="bilinear",
+        extent=(0, W, H, 0),
+        aspect="auto",
+        zorder=2,
+    )
     if highlight is not None:
         r, cc = ys[c[highlight, 0]] * cell, xs[c[highlight, 1]] * cell
-        ax.add_patch(plt.Rectangle((cc, r), cell, cell, fill=False, edgecolor="white",
-                                   lw=2.5, zorder=3))
-    ax.set_xlim(0, W); ax.set_ylim(H, 0)
-    ax.set_xticks([]); ax.set_yticks([])
+        ax.add_patch(
+            plt.Rectangle((cc, r), cell, cell, fill=False, edgecolor="white", lw=2.5, zorder=3)
+        )
+    ax.set_xlim(0, W)
+    ax.set_ylim(H, 0)
+    ax.set_xticks([])
+    ax.set_yticks([])
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
     cbar.set_label("decision importance", color="white", fontsize=9)
     cbar.ax.yaxis.set_tick_params(color="white")
     plt.setp(cbar.ax.get_yticklabels(), color="white")
     if title:
         ax.set_title(title, color="white", fontsize=12)
-    fig.tight_layout(); fig.savefig(out_path, dpi=200, facecolor="black", bbox_inches="tight")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=200, facecolor="black", bbox_inches="tight")
     plt.close(fig)
 
 
-def plot_repr_dim_grid(rgb, maps, dims, out_path: str, alpha: float = 0.5, ncols: int = 4,
-                       title: str | None = None) -> None:
+def plot_repr_dim_grid(
+    rgb, maps, dims, out_path: str, alpha: float = 0.5, ncols: int = 4, title: str | None = None
+) -> None:
     """Grid of z_global-dimension importance maps overlaid on one false-colour crop.
 
     ``maps``: list of 2D importance arrays (e.g. 16x16), one per z_global dim in ``dims``. Each
@@ -398,15 +481,21 @@ def plot_repr_dim_grid(rgb, maps, dims, out_path: str, alpha: float = 0.5, ncols
     for i in range(n):
         ax = axes[i]
         ax.imshow(rgb, interpolation="nearest")
-        ax.imshow(_norm01(_upsample_nearest(maps[i], (H, W))), cmap="magma", alpha=alpha,
-                  interpolation="bilinear")
+        ax.imshow(
+            _norm01(_upsample_nearest(maps[i], (H, W))),
+            cmap="magma",
+            alpha=alpha,
+            interpolation="bilinear",
+        )
         ax.set_title(f"z_global[{dims[i]}]", color="white", fontsize=9, pad=2)
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
         for s in ax.spines.values():
             s.set_visible(False)
     for i in range(n, len(axes)):
         axes[i].axis("off")
     if title:
         fig.suptitle(title, color="white", fontsize=12)
-    fig.tight_layout(); fig.savefig(out_path, dpi=180, facecolor="black", bbox_inches="tight")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180, facecolor="black", bbox_inches="tight")
     plt.close(fig)

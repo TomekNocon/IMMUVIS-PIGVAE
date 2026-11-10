@@ -1,14 +1,12 @@
-import operator
+"""Hydra entry point: evaluate a checkpoint on the datamodule's test split."""
+
 from typing import Any
 
 import hydra
 import rootutils
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig, OmegaConf
-
-OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)))
-OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y))
+from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -33,9 +31,11 @@ from src.utils import (
     extras,
     instantiate_loggers,
     log_hyperparameters,
+    register_resolvers,
     task_wrapper,
 )
 
+register_resolvers()
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
@@ -78,9 +78,6 @@ def evaluate(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
 
     log.info("Starting testing!")
     trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
-
-    # for predictions use trainer.predict(...)
-    # predictions = trainer.predict(model=model, dataloaders=dataloaders, ckpt_path=cfg.ckpt_path)
 
     metric_dict = trainer.callback_metrics
 

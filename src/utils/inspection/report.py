@@ -1,3 +1,5 @@
+"""Turn inspection results into warning flags, plots and a Markdown/JSON report."""
+
 # src/utils/inspection/report.py
 from __future__ import annotations
 
@@ -19,7 +21,9 @@ def build_flags(results: dict) -> list[str]:
     flags: list[str] = []
     for name, w in results.get("weights", {}).items():
         if "gain_rms" in w and not (GAIN_RMS_LO <= w["gain_rms"] <= GAIN_RMS_HI):
-            flags.append(f"[weights] {name}: gain_rms={w['gain_rms']:.3f} outside [{GAIN_RMS_LO},{GAIN_RMS_HI}]")
+            flags.append(
+                f"[weights] {name}: gain_rms={w['gain_rms']:.3f} outside [{GAIN_RMS_LO},{GAIN_RMS_HI}]"
+            )
         if "rank_ratio" in w and w["rank_ratio"] < RANK_RATIO_FLAG:
             flags.append(f"[weights] {name}: low rank_ratio={w['rank_ratio']:.2f}")
     for name, a in results.get("activations", {}).items():
@@ -27,15 +31,21 @@ def build_flags(results: dict) -> list[str]:
             # Per-block hooks capture the PRE-final-norm residual stream, which is large by
             # design (output_init_std) and bounded at the module output by final_norm — check
             # the `...graph_transformer` (post-norm) entry before treating this as instability.
-            note = " (pre-norm residual; see post-norm graph_transformer entry)" if ".blocks." in name else ""
+            note = (
+                " (pre-norm residual; see post-norm graph_transformer entry)"
+                if ".blocks." in name
+                else ""
+            )
             flags.append(f"[activations] {name}: max_abs={a['max_abs']:.1f} > {MAX_ABS_FLAG}{note}")
     lat = results.get("latent", {})
     if lat:
         # Flag on the honest energy-rank (90% of latent variance), not the participation
         # ratio (which over-concentrates and under-reports usable rank).
         if lat.get("energy_rank90_ratio", 1.0) < RANK_RATIO_FLAG:
-            flags.append(f"[latent] energy_rank90={lat.get('energy_rank90')}/{lat.get('z_dim')} "
-                         f"holds 90% of variance (bottleneck under-used)")
+            flags.append(
+                f"[latent] energy_rank90={lat.get('energy_rank90')}/{lat.get('z_dim')} "
+                f"holds 90% of variance (bottleneck under-used)"
+            )
         if lat.get("active_dims", lat.get("z_dim", 0)) < 0.5 * lat.get("z_dim", 1):
             flags.append(f"[latent] only {lat['active_dims']}/{lat['z_dim']} active dims")
     rec = results.get("reconstruction", {})
@@ -66,6 +76,11 @@ def _save_plots(results: dict, plot_dir: Path) -> None:
         plt.close(fig)
 
 
+def _fmt(value: float | None, spec: str) -> str:
+    """Format ``value`` with ``spec``, or ``"n/a"`` when it is missing."""
+    return "n/a" if value is None else format(value, spec)
+
+
 def _render_md(results: dict, flags: list[str]) -> str:
     lines = ["# Model inspection report", ""]
     meta = results.get("meta", {})
@@ -75,42 +90,56 @@ def _render_md(results: dict, flags: list[str]) -> str:
     lines += [f"- {f}" for f in flags] if flags else ["- (none)"]
     lat = results.get("latent", {})
     if lat:
-        lines += ["", "## Latent",
-                  f"- active_dims: {lat.get('active_dims')}/{lat.get('z_dim')}",
-                  f"- **energy rank** (honest): {lat.get('energy_rank90')}/{lat.get('z_dim')} hold 90%, "
-                  f"{lat.get('energy_rank99')}/{lat.get('z_dim')} hold 99% of latent variance",
-                  f"- participation ratio (over-concentrates): {lat.get('effective_rank'):.1f}"
-                  f"/{lat.get('z_dim')}"]
+        lines += [
+            "",
+            "## Latent",
+            f"- active_dims: {lat.get('active_dims')}/{lat.get('z_dim')}",
+            f"- **energy rank** (honest): {lat.get('energy_rank90')}/{lat.get('z_dim')} hold 90%, "
+            f"{lat.get('energy_rank99')}/{lat.get('z_dim')} hold 99% of latent variance",
+            f"- participation ratio (over-concentrates): {_fmt(lat.get('effective_rank'), '.1f')}"
+            f"/{lat.get('z_dim')}",
+        ]
     film = results.get("film", {})
     if film:
-        lines += ["", "## FiLM conditioning (decoder)",
-                  f"- bound (tanh): {film.get('bound')}",
-                  f"- |gamma| max: {film.get('gamma_absmax_overall'):.3f}  "
-                  f"|beta| max: {film.get('beta_absmax_overall'):.3f}",
-                  "  (bound=True should keep both <= 1.0; >1 means the tanh bound did NOT fire)"]
+        lines += [
+            "",
+            "## FiLM conditioning (decoder)",
+            f"- bound (tanh): {film.get('bound')}",
+            f"- |gamma| max: {_fmt(film.get('gamma_absmax_overall'), '.3f')}  "
+            f"|beta| max: {_fmt(film.get('beta_absmax_overall'), '.3f')}",
+            "  (bound=True should keep both <= 1.0; >1 means the tanh bound did NOT fire)",
+        ]
     rec = results.get("reconstruction", {})
     if rec:
-        lines += ["", "## Reconstruction (PCA-coefficient space)",
-                  f"- overall_mse: {rec.get('overall_mse')}",
-                  f"- worst channels: {rec.get('worst_channels')}"]
+        lines += [
+            "",
+            "## Reconstruction (PCA-coefficient space)",
+            f"- overall_mse: {rec.get('overall_mse')}",
+            f"- worst channels: {rec.get('worst_channels')}",
+        ]
         im = rec.get("image_space")
         if im:
-            lines += ["", "## Reconstruction (image space, inverse-PCA)",
-                      f"- n_orig_channels: {im['n_orig_channels']}",
-                      f"- vs inverse(target) [model error]: mse={im['image_mse']:.5f} "
-                      f"mae={im['image_mae']:.5f} R²_mean={im['image_r2_mean']:.3f}"]
+            lines += [
+                "",
+                "## Reconstruction (image space, inverse-PCA)",
+                f"- n_orig_channels: {im['n_orig_channels']}",
+                f"- vs inverse(target) [model error]: mse={im['image_mse']:.5f} "
+                f"mae={im['image_mae']:.5f} R²_mean={im['image_r2_mean']:.3f}",
+            ]
             vi = im.get("vs_input")
             if vi:
-                lines += [f"- **vs INPUT x [full pipeline]**: mse={vi['image_mse_vs_input']:.5f} "
-                          f"mae={vi['image_mae_vs_input']:.5f} "
-                          f"R²_global={vi.get('image_r2_vs_input_global', float('nan')):.3f} "
-                          f"R²_mean={vi['image_r2_vs_input_mean']:.3f}",
-                          f"- PCA-128(+clip) floor (inverse(target) vs x): mse={vi['pca_floor_mse']:.5f} "
-                          f"R²_global={vi.get('pca_floor_r2_global', float('nan')):.3f} "
-                          f"R²_mean={vi['pca_floor_r2_mean']:.3f}",
-                          "  (R²_global = variance-weighted ≈ PCA explained-variance; "
-                          "R²_mean = per-channel unweighted, reads lower)",
-                          f"- model adds over the floor: {vi['model_added_mse']:.5f}"]
+                lines += [
+                    f"- **vs INPUT x [full pipeline]**: mse={vi['image_mse_vs_input']:.5f} "
+                    f"mae={vi['image_mae_vs_input']:.5f} "
+                    f"R²_global={vi.get('image_r2_vs_input_global', float('nan')):.3f} "
+                    f"R²_mean={vi['image_r2_vs_input_mean']:.3f}",
+                    f"- PCA-128(+clip) floor (inverse(target) vs x): mse={vi['pca_floor_mse']:.5f} "
+                    f"R²_global={vi.get('pca_floor_r2_global', float('nan')):.3f} "
+                    f"R²_mean={vi['pca_floor_r2_mean']:.3f}",
+                    "  (R²_global = variance-weighted ≈ PCA explained-variance; "
+                    "R²_mean = per-channel unweighted, reads lower)",
+                    f"- model adds over the floor: {vi['model_added_mse']:.5f}",
+                ]
     return "\n".join(lines) + "\n"
 
 

@@ -1341,7 +1341,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.7.0" },
     { name = "tifffile", specifier = ">=2025.5.10" },
     { name = "timm", specifier = ">=1.0.29" },
-    { name = "torch", specifier = ">=2.0.0" },
+    { name = "torch", specifier = ">=2.3.0" },
     { name = "torchmetrics", specifier = ">=0.11.4" },
     { name = "torchvision", specifier = ">=0.15.0" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },

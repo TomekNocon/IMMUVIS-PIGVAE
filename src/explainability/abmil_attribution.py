@@ -16,7 +16,9 @@ import torch
 
 
 @torch.no_grad()
-def abmil_attention(model: torch.nn.Module, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+def abmil_attention(
+    model: torch.nn.Module, x: torch.Tensor, mask: torch.Tensor | None = None
+) -> torch.Tensor:
     """Recompute the gated-ABMIL attention weights over crops.
 
     Mirrors ``GatedABMIL.forward`` up to the softmax (deterministic from ``V/U/W``), so no

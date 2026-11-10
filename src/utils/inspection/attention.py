@@ -1,3 +1,5 @@
+"""Attention-entropy diagnostics of a self-attention layer."""
+
 # src/utils/inspection/attention.py
 from __future__ import annotations
 
@@ -25,11 +27,11 @@ def attention_entropy_from_input(attn_module, x: torch.Tensor, attn_mask: torch.
         k = attn_module.rope.rotate_queries_or_keys(k)
 
     scale = 1.0 / math.sqrt(q.shape[-1])
-    logits = (q @ k.transpose(-2, -1)) * scale                      # [B, H, N, N]
+    logits = (q @ k.transpose(-2, -1)) * scale  # [B, H, N, N]
     logits = logits.masked_fill(~attn_mask, float("-inf"))
-    w = torch.softmax(logits, dim=-1)                               # [B, H, N, N]
+    w = torch.softmax(logits, dim=-1)  # [B, H, N, N]
 
-    n_keys = attn_mask.sum(dim=-1).clamp_min(2).float()             # [N]
+    n_keys = attn_mask.sum(dim=-1).clamp_min(2).float()  # [N]
     ent = -(w.clamp_min(1e-12) * w.clamp_min(1e-12).log()).sum(-1)  # [B, H, N]
     norm_ent = ent / torch.log(n_keys).view(1, 1, n)
     return {

@@ -16,23 +16,23 @@ Usage:
     uv run python scripts/diagnostics/diagnose_model.py experiment=pigvae ckpt_path=... batch_idx=5 tau=0.5
 """
 
-import operator
 import sys
 from pathlib import Path
 
 import numpy as np
+import rootutils
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import rootutils
-
 project_root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 import hydra
-from omegaconf import DictConfig, OmegaConf
-OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
-OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
+from omegaconf import DictConfig
+
+from src.utils.resolvers import register_resolvers
+
+register_resolvers()
 
 from hydra.utils import instantiate
 

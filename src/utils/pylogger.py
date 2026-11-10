@@ -1,3 +1,5 @@
+"""Rank-aware Python logger for multi-GPU runs."""
+
 import logging
 from collections.abc import Mapping
 

@@ -11,7 +11,6 @@ Usage:
     meta_dir=/raid_.../meta_tables/zglobal feature=DX.name
 """
 
-import operator
 import os
 
 import rootutils
@@ -22,10 +21,11 @@ import hydra
 import numpy as np
 import pandas as pd
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
-OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)), replace=True)
-OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y), replace=True)
+from src.utils.resolvers import register_resolvers
+
+register_resolvers()
 
 from src.downstream.abmil.data import _load_memmap
 from src.downstream.abmil.lit import AbmilLitModule

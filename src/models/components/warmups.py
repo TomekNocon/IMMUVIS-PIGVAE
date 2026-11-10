@@ -1,3 +1,5 @@
+"""Learning-rate warmup schedules."""
+
 import math
 
 from torch.optim.lr_scheduler import LambdaLR
@@ -7,10 +9,9 @@ from torch.optim.optimizer import Optimizer
 def get_cosine_schedule_with_warmup(
     optimizer: Optimizer, num_warmup_steps: int, num_training_steps: int
 ) -> LambdaLR:
-    """Creates a schedule with a learning rate that first increases linearly during the
-    warmup period and then decreases following a cosine function."""
+    """Linear warmup to the base LR over ``num_warmup_steps``, then cosine decay to zero."""
 
-    def lr_lambda(current_step):
+    def lr_lambda(current_step: int) -> float:
         if current_step < num_warmup_steps:
             # Linear warmup phase
             return float(current_step) / float(max(1, num_warmup_steps))

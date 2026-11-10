@@ -1,21 +1,16 @@
 """Stratified k-fold CV runner for the downstream ABMIL classifier.
 
-Ports `zscore_stats_from_bags` / `apply_zscore_to_bags` and the fold-loop
-structure from `/home/tnocon/mil/gated_abmil/src/run_abmil.py::run`, swapping
-the bespoke `GatedABMILClassifierWithValidation` train loop for Task B4's
-`AbmilLitModule` + `pl.Trainer(EarlyStopping, ModelCheckpoint)`.
-
-Leakage guardrail (Global Constraints): `zscore='cv_train'` fits mean/std on
-the TRAIN fold only and applies it to the val fold -- normalization is never
-fit on pooled train+val.
+Each fold trains an :class:`AbmilLitModule` with early stopping on the validation loss.
+No leakage: with ``zscore='cv_train'`` the normalisation is fit on the training fold only
+and applied to the validation fold.
 """
 
 import os
 
 import numpy as np
 import torch
-from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+from lightning import Trainer, seed_everything
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -155,8 +150,12 @@ def run_cv(bags, labels, num_classes, cfg):
 
         train_ds = MILDataset(train_bags, labels_t[train_idx])
         val_ds = MILDataset(val_bags, labels_t[val_idx])
-        train_dl = DataLoader(train_ds, batch_size=int(cfg.batch_size), shuffle=True, collate_fn=mil_collate)
-        val_dl = DataLoader(val_ds, batch_size=int(cfg.batch_size), shuffle=False, collate_fn=mil_collate)
+        train_dl = DataLoader(
+            train_ds, batch_size=int(cfg.batch_size), shuffle=True, collate_fn=mil_collate
+        )
+        val_dl = DataLoader(
+            val_ds, batch_size=int(cfg.batch_size), shuffle=False, collate_fn=mil_collate
+        )
 
         lit_module = AbmilLitModule(
             emb_dim=emb_dim,

@@ -30,7 +30,9 @@ def test_gated_abmil_shapes_and_masking():
 
 
 def test_mil_collate_pads_and_masks():
-    import numpy as np, torch
+    import numpy as np
+    import torch
+
     from src.downstream.abmil.data import MILDataset, mil_collate
     ds = MILDataset([np.ones((2,4),"float32"), np.ones((5,4),"float32")], torch.tensor([0,1]))
     bags, masks, labels = mil_collate([ds[0], ds[1]])
@@ -40,7 +42,9 @@ def test_mil_collate_pads_and_masks():
 
 
 def test_build_image_bags_groups_and_labels(tmp_path):
-    import numpy as np, pandas as pd
+    import numpy as np
+    import pandas as pd
+
     from src.downstream.abmil.data import build_image_bags
     emb = str(tmp_path/"e.npy"); np.save(emb, np.arange(6*4, dtype="float32").reshape(6,4))
     df = pd.DataFrame({
@@ -53,7 +57,9 @@ def test_build_image_bags_groups_and_labels(tmp_path):
 
 
 def test_build_image_bags_drops_unmapped_and_stays_aligned(tmp_path):
-    import numpy as np, pandas as pd
+    import numpy as np
+    import pandas as pd
+
     from src.downstream.abmil.data import build_image_bags
     emb = str(tmp_path/"e.npy"); np.save(emb, np.arange(7*4, dtype="float32").reshape(7,4))
     df = pd.DataFrame({
@@ -73,17 +79,19 @@ def test_build_image_bags_drops_unmapped_and_stays_aligned(tmp_path):
 
 
 def test_abmil_lit_overfits_toy():
-    import torch, numpy as np
+    import lightning as L
+    import numpy as np
+    import torch
     from torch.utils.data import DataLoader
-    import pytorch_lightning as pl
-    from src.downstream.abmil.lit import AbmilLitModule
+
     from src.downstream.abmil.data import MILDataset, mil_collate
+    from src.downstream.abmil.lit import AbmilLitModule
     g = torch.Generator().manual_seed(0)
     pos = [np.ones((3,8),"float32") for _ in range(8)]; neg = [(-np.ones((3,8),"float32")) for _ in range(8)]
     ds = MILDataset(pos+neg, torch.tensor([1]*8+[0]*8))
     dl = DataLoader(ds, batch_size=4, shuffle=True, collate_fn=mil_collate)
     m = AbmilLitModule(emb_dim=8, hidden_dim=8, num_heads=1, num_classes=2, lr=1e-2)
-    tr = pl.Trainer(max_epochs=30, enable_progress_bar=False, logger=False, enable_checkpointing=False, accelerator="cpu")
+    tr = L.Trainer(max_epochs=30, enable_progress_bar=False, logger=False, enable_checkpointing=False, accelerator="cpu")
     tr.fit(m, dl)
     # after fit, predictions on the training bags are (near) perfect
     with torch.no_grad():
@@ -93,9 +101,12 @@ def test_abmil_lit_overfits_toy():
 
 
 def test_run_cv_separable(tmp_path):
-    import numpy as np, torch
-    from src.downstream.abmil.cv import run_cv
     from types import SimpleNamespace
+
+    import numpy as np
+    import torch
+
+    from src.downstream.abmil.cv import run_cv
     bags = [np.ones((3,8),"float32") for _ in range(10)] + [(-np.ones((3,8),"float32")) for _ in range(10)]
     labels = torch.tensor([1]*10 + [0]*10)
     cfg = SimpleNamespace(num_folds=2, hidden_dim=8, num_heads=1, num_epochs=15, patience=5,

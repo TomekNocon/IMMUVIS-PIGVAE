@@ -125,8 +125,8 @@ def d4_accuracy(soft: np.ndarray, hard: np.ndarray, mult: np.ndarray) -> dict:
 
 def examples(cfg, first, n: int, majority: np.ndarray, mult: np.ndarray) -> dict:
     """Images, permutations and reconstructions of the first ``n`` validation images."""
-    import src.models.components.metrics.recontructions as recon
     import src.models.components.plot as plot
+    import src.models.components.reconstruction_metrics as recon
 
     graph, graph_pred, soft_probs, perm, bs = first
     idx = recon.batch_augmented_indices(bs, num_permutations=N_VIEWS, n_examples=n)  # image-major

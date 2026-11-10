@@ -1,4 +1,5 @@
-import operator
+"""Hydra entry point: train PIGVAE (``python src/train.py experiment=pigvae``)."""
+
 from typing import Any
 
 import hydra
@@ -7,10 +8,6 @@ import rootutils
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
-
-# Register a custom resolver to multiply values in Hydra configs
-OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)))
-OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y))
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -30,8 +27,6 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # more info: https://github.com/ashleve/rootutils
 # ------------------------------------------------------------------------------------ #
 
-# https://github.com/Lightning-AI/pytorch-lightning/discussions/16688
-
 from src.utils import (
     RankedLogger,
     extras,
@@ -39,9 +34,11 @@ from src.utils import (
     instantiate_callbacks,
     instantiate_loggers,
     log_hyperparameters,
+    register_resolvers,
     task_wrapper,
 )
 
+register_resolvers()
 log = RankedLogger(__name__, rank_zero_only=True)
 
 
@@ -94,14 +91,14 @@ def train(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
 
     train_metrics = trainer.callback_metrics
 
-    # if cfg.get("test"):
-    #     log.info("Starting testing!")
-    #     ckpt_path = trainer.checkpoint_callback.best_model_path
-    #     if ckpt_path == "":
-    #         log.warning("Best ckpt not found! Using current weights for testing...")
-    #         ckpt_path = None
-    #     trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
-    #     log.info(f"Best ckpt path: {ckpt_path}")
+    if cfg.get("test"):
+        log.info("Starting testing!")
+        ckpt_path = trainer.checkpoint_callback.best_model_path
+        if ckpt_path == "":
+            log.warning("Best ckpt not found! Using current weights for testing...")
+            ckpt_path = None
+        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+        log.info(f"Best ckpt path: {ckpt_path}")
 
     test_metrics = trainer.callback_metrics
 
@@ -132,7 +129,6 @@ def main(cfg: DictConfig) -> float | None:
         metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
     )
 
-    # return optimized metric
     return metric_value
 
 
