@@ -1,267 +1,165 @@
 <div align="center">
 
-# ImmuVis PI-GVAE
+# ImmuVis PIGVAE
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c?style=flat-square&logo=pytorch&logoColor=white)](https://pytorch.org)
-[![Lightning](https://img.shields.io/badge/Lightning-2.0+-792ee5?style=flat-square&logo=pytorchlightning&logoColor=white)](https://lightning.ai)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json&style=flat-square)](https://github.com/astral-sh/ruff)
+**Permutation-invariant graph VAE for imaging mass cytometry (IMC) crop embeddings**
 
-**A state-of-the-art deep learning framework for immunology visualization using Graph Variational Autoencoders (PI-GVAE)**
-
-*Built with PyTorch Lightning and Hydra configuration management for scalable immunological data analysis*
-
----
+[![Python](https://img.shields.io/badge/python-3.10+-blue)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/pytorch-2.3+-ee4c2c)](https://pytorch.org)
+[![Lightning](https://img.shields.io/badge/lightning-2.x-792ee5)](https://lightning.ai)
+[![Hydra](https://img.shields.io/badge/config-hydra-89b8cd)](https://hydra.cc)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 </div>
 
-## 🔬 Overview
+Code for the master thesis *[thesis title]*. Each 128 × 128 IMC crop is encoded by the
+[ImmuVis](https://github.com/dav3794/multiplex-image-model) foundation model into a 16 × 16 × 768
+feature map, reduced to 128 dimensions with PCA, and treated as a 16 × 16 grid graph of 256
+nodes. PIGVAE, a graph VAE in the spirit of [Winter et al. (2021)](https://arxiv.org/abs/2104.09856),
+learns a per-node latent and a global crop embedding (`z_global`) from this graph by
+reconstruction. The embeddings are evaluated by transfer to clinical labels with gated attention
+MIL (ABMIL) and explained with attention rollout and Integrated Gradients.
 
-This project implements a Graph Variational Autoencoder for analyzing and visualizing Imaging Mass Cytometry (IMC) data. It provides tools for training, evaluating, and analyzing graph-based representations of immunological data.
+## Method
 
-## ✨ Features
+| Part | Final model (`experiment=pigvae`) |
+|---|---|
+| Input | 256 nodes × 128 PCA coefficients; 8 D4 views (rotations and flips) of every crop per batch |
+| Encoder | 4-layer pre-norm transformer (width 512, 8 heads, QK-RMSNorm); each node attends to its grid neighbours (Manhattan radius 1); a one-way CLS token reads all nodes and gives `z_global` |
+| Bottleneck | Per-node Gaussian latent (32-d), with the same noise across the 8 views of a crop |
+| Decoder | 4-layer full-attention transformer with 2D sinusoidal positions, FiLM-conditioned on `z_global` (tanh-bounded) |
+| Objective | Huber + cosine + gradient reconstruction, KL weight 0.01 annealed in from epoch 5 |
+| Reference run | wandb `81zasevr`, 40 epochs |
 
-- 🧠 **Graph VAE Architecture**: Custom implementation of Graph Variational Autoencoders with Lie group equivariance
-- 📊 **IMC Data Support**: Specialized data loaders for Imaging Mass Cytometry datasets
-- ⚙️ **Configurable Training**: Hydra-based configuration management for experiments
-- 🚀 **Multiple Backends**: Support for CPU, GPU, and MPS training
-- 📈 **Comprehensive Metrics**: Built-in reconstruction and equivariance metrics
-- 📋 **Visualization Tools**: Plotting utilities for analysis and interpretation
+The learned D4 permuter of the original PIGVAE is kept in the code (and on the `mnist` branch),
+but the final model uses the known view order instead.
 
-## 🚀 Quick Start
+## Repository
 
-### Prerequisites
+```
+configs/             Hydra configs
+  experiment/          pigvae.yaml (final model), ablation/<axis>/*, baseline/dgi.yaml
+  data/ model/ trainer/ callbacks/ logger/ paths/ hparams_search/
+  downstream/ explain/ data_prep/ diagnostics/   configs of the pipeline scripts
+src/
+  data/                IMC datamodule, D4 views, PCA collation (DenseGraphBatch)
+  models/              PLGraphAE (LightningModule), encoder/decoder, losses, schedulers
+  downstream/          frozen-encoder feature extraction, gated ABMIL + cross-validation
+  explainability/      attention rollout, Integrated Gradients, faithfulness, IMC rendering
+  baselines/dgi/       Deep Graph Infomax baseline
+  deploy/modal/        ONNX serving on Modal (work in progress)
+  utils/               Hydra/Lightning utilities, model inspection, callbacks
+  train.py eval.py     entry points
+scripts/
+  data/                PCA fitting, embeddings -> HDF5 conversion
+  downstream/          encode -> label join -> ABMIL CV -> comparison table
+  explain/             encoder / ABMIL attribution, IMC visualisation
+  diagnostics/         checkpoint health report
+  thesis_figures/      figure extraction (cluster) and rendering (anywhere)
+  slurm/               SLURM launchers for all of the above
+external/              git submodules: ImmuVis (multiplex-image-model), DGI
+tests/                 unit tests + integration tests on real data
+```
 
-![Python](https://img.shields.io/badge/Python-≥3.10-blue?style=for-the-badge)
-![PyTorch](https://img.shields.io/badge/PyTorch-≥2.0.0-red?style=for-the-badge)
-![Lightning](https://img.shields.io/badge/Lightning-≥2.0.0-purple?style=for-the-badge)
+| Branch / tag | Contents |
+|---|---|
+| `main` | Final IMC model with the full pipeline, all ablation configs that need no extra code, the DGI baseline and the thesis figures |
+| `mnist`, `fashion-mnist` | Toy D4 experiments on (Fashion-)MNIST, including the learned permuter |
+| `ablation/*` | Ablations that need code not on `main` (CNN decoder, D4 alignment loss, no stats readout, ...) |
+| `archive/*` (tags) | Earlier development snapshots |
 
-### Installation
+## Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd immuvis
-   ```
-
-2. **Install dependencies** (using uv - recommended)
-   ```bash
-   uv sync
-   ```
-
-   Or using pip:
-   ```bash
-   pip install -e .
-   ```
-
-3. **Set up development tools**
-   ```bash
-   pre-commit install
-   ```
-
-## 💻 Usage
-
-### Training
-
-<details>
-<summary><b>🎯 Basic Training</b></summary>
-
-Train a model with default configuration:
 ```bash
-uv run src/train.py
+git clone --recurse-submodules https://github.com/TomekNocon/IMMUVIS-PIGVAE.git
+cd IMMUVIS-PIGVAE
+make install        # uv sync, submodules, pre-commit hooks
 ```
 
-Alternative methods:
+The data is not part of the repository. `configs/paths/szary.yaml` sets the root on the cluster;
+the IMC datamodule expects
+
+```
+<root>/data/IMC/<dataset>/train.h5, test.h5                          # scripts/data/convert_imc_embeddings_to_h5.py
+<root>/data/IMC/<dataset>/pca_model_128_center_crop_16.pkl           # scripts/data/find_pca_components.py
+```
+
+Add a file next to `szary.yaml` for another machine and select it with `paths=<name>`.
+
+## Usage
+
+All entry points are Hydra apps: override any config value on the command line. On the cluster,
+jobs go through the launchers in `scripts/slurm/` (submit from the repository root).
+
+**Train**
+
 ```bash
-# Using Python directly
-python src/train.py
-
-# Using make command
-make train
+make train                                            # final model (sbatch scripts/slurm/train.sh)
+make train EXPERIMENT=ablation/kl/scale_1e-3          # one ablation
+bash scripts/slurm/submit_ablation.sh kl spatial      # every config of one or more ablation axes
+uv run python src/train.py experiment=pigvae paths=szary trainer=gpu logger=wandb   # directly
+uv run python src/train.py -m hparams_search=pigvae_optuna experiment=pigvae paths=szary trainer=gpu
 ```
 
-</details>
+**Evaluate**
 
-<details>
-<summary><b>⚙️ Configuration</b></summary>
-
-The project uses **Hydra** for configuration management:
-
-| Config Type | Location | Purpose |
-|-------------|----------|---------|
-| `configs/train.yaml` | Main config | Training configuration |
-| `configs/data/` | Data modules | Dataset configurations |
-| `configs/model/` | Model arch | Architecture settings |
-| `configs/trainer/` | Training setup | Hardware & optimization |
-
-**Custom training:**
 ```bash
-uv run src/train.py trainer=gpu logger=wandb
+uv run python src/eval.py experiment=pigvae paths=szary ckpt_path=<last.ckpt>
 ```
 
-**Multi-run experiments:**
+**Downstream transfer** (frozen encoder → per-crop features → 10-fold gated-ABMIL CV)
+
 ```bash
-uv run src/train.py -m trainer=mps logger=wandb experiment=example hparams_search=mnist_optuna
+sbatch scripts/slurm/downstream.sh <ckpt> pigvae <run_tag>          # z_global features
+sbatch scripts/slurm/downstream_sweep.sh <ckpt> pigvae <run_tag>    # raw / z_global / node features + table
 ```
 
-</details>
+**Explain**
 
-<details>
-<summary><b>📊 Evaluation</b></summary>
-
-Evaluate a trained model:
 ```bash
-uv run src/eval.py trainer=mps logger=wandb ckpt_path=path/to/checkpoint.ckpt
+sbatch --export=ALL,CKPT=<ckpt> scripts/slurm/explain.sh                  # encoder Integrated Gradients
+sbatch --export=ALL,CKPT=<ckpt>,METHOD=rollout scripts/slurm/explain.sh   # attention rollout
+sbatch --export=ALL,INPUT=<image.tiff> scripts/slurm/visualize_imc.sh     # marker grid + composite
 ```
 
-</details>
+**Diagnose a checkpoint**
 
-<details>
-<summary><b>🧪 Testing & Quality</b></summary>
-
-**Run tests:**
 ```bash
-make test        # Quick tests
-make test-full   # Comprehensive tests
+uv run python scripts/diagnostics/diagnose_model.py experiment=pigvae ckpt_path=<ckpt> inspect=true
 ```
 
-**Code formatting:**
-```bash
-uv run ruff format
-uv run ruff check --fix
-```
-
-</details>
-
-## 📁 Project Structure
-
-```
-📦 immuvis/
-├── ⚙️  configs/                 # Hydra configuration files
-│   ├── 📊 data/               # Data module configs
-│   ├── 🧠 model/              # Model configs
-│   ├── 🏃 trainer/            # Trainer configs
-│   └── 📋 train.yaml          # Main config
-├── 🔬 src/
-│   ├── 📊 data/              # Data modules and loaders
-│   ├── 🧠 models/            # Model implementations
-│   │   ├── 🔧 components/    # Model components
-│   │   │   ├── 📈 metrics/   # Custom metrics
-│   │   │   └── ...
-│   │   └── ...
-│   ├── 🛠️  utils/             # Utility functions
-│   ├── 🏃 train.py          # Training script
-│   └── 📊 eval.py           # Evaluation script
-├── 🧪 tests/                # Test suite
-└── 📝 logs/                 # Training logs and outputs
-```
-
-## 🧠 Model Architecture
-
-| Component | Description |
-|-----------|-------------|
-| **Graph Transformer** | Custom implementation with Lie group equivariance |
-| **Spectral Embeddings** | Graph spectral analysis components |
-| **Custom Losses** | Specialized loss functions for graph VAE training |
-| **Evaluation Metrics** | Reconstruction and equivariance evaluation |
-
-## 📊 Supported Data
-
-<table>
-<tr>
-<td align="center">
-<img src="https://img.shields.io/badge/IMC-Supported-green?style=flat-square" alt="IMC"/>
-<br/>
-<b>Imaging Mass Cytometry</b>
-<br/>
-<i>Primary biological data</i>
-</td>
-<td align="center">
-<img src="https://img.shields.io/badge/MNIST-Testing-blue?style=flat-square" alt="MNIST"/>
-<br/>
-<b>MNIST Dataset</b>
-<br/>
-<i>Development & testing</i>
-</td>
-<td align="center">
-<img src="https://img.shields.io/badge/Custom-Flexible-orange?style=flat-square" alt="Custom"/>
-<br/>
-<b>Custom Graphs</b>
-<br/>
-<i>DenseGraphBatch format</i>
-</td>
-</tr>
-</table>
-
-### Key Metrics Tracked
-
-- 📈 **Reconstruction Loss**: VAE reconstruction quality
-- 🔄 **KL Divergence**: Latent space regularization
-- ⚖️ **Equivariance Error**: Lie group structure preservation
-- 🎯 **Graph Metrics**: Node and edge reconstruction accuracy
+**Thesis figures**: `extract_*.py` reads the data and models (run on the cluster with
+`scripts/slurm/run_gpu.sh` / `run_cpu.sh`); `fig_*.py` renders from the cached results into
+`figures/`. Every script documents its usage in its docstring.
 
 ## Development
 
-### Code Quality
-
-Format code:
 ```bash
-make format
+make lint           # ruff check + format check
+make format         # all pre-commit hooks, fixing in place
+make test           # fast tests
+make test-full      # all tests; the integration tests need the IMC data (they skip without it)
 ```
 
-Clean generated files:
-```bash
-make clean
-```
-
-### Contributing
-
-1. Create a feature branch
-2. Make changes
-3. Run tests and formatting
-4. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📚 Citation
-
-If you use this work in your research, please cite:
+## Citation
 
 ```bibtex
-@misc{immuvis2024,
-  title={ImmuVis PI-GVAE: Graph Variational Autoencoders for Immunology Visualization},
-  author={[Tomasz Nocoń]},
-  year={2024},
-  publisher={GitHub},
-  url={https://github.com/TomekNocon/IMMUVIS-PIGVAE}
+@mastersthesis{nocon_pigvae,
+  author = {Tomasz Noco{\'n}},
+  title  = {[thesis title]},
+  school = {[university]},
+  year   = {[year]},
+  url    = {https://github.com/TomekNocon/IMMUVIS-PIGVAE}
 }
 ```
 
-## 🤝 Contributing
+## Acknowledgements
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+Built on [ImmuVis / multiplex-image-model](https://github.com/dav3794/multiplex-image-model),
+[PIGVAE](https://arxiv.org/abs/2104.09856), [DGI](https://github.com/PetarV-/DGI) and the
+[Lightning-Hydra template](https://github.com/ashleve/lightning-hydra-template).
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+## License
 
-## 📧 Contact
-
-- **Author**: [Tomasz Nocoń]
-- **Email**: [Tom.nocon20@gmail.com]
-- **Project Link**: [https://github.com/TomekNocon/IMMUVIS-PIGVAE](https://github.com/TomekNocon/IMMUVIS-PIGVAE)
-
----
-
-<div align="center">
-
-**⭐ Star this repo if you found it helpful!**
-
-Made with ❤️ for the immunology research community
-
-</div>
+[MIT](LICENSE) © Tomasz Nocoń
