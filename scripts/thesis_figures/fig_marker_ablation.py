@@ -1,172 +1,375 @@
-"""Marker ablation figure, Sec. 6.3 deep-dive: which of the 43 IMC markers drive the decision.
+"""Which of the 43 IMC markers drive the ABMIL decision (Sec. 6.3 deep-dive).
 
-Reads
-  figures/_cache/spatial_v3/<tag>_<img>.npz   per-crop ABMIL IG (decision map), decisive crop,
-                                                      Butterworth-filtered slide
-  figures/_cache/marker_ablation/*.npz        marker / group ablation through the full chain
-                                                      (raw -> ImmuVis -> PCA -> PIGVAE -> z_global -> ABMIL)
+Panels for one patient: slide composite with the decisive real-tissue crop boxed, the per-crop ABMIL
+IG decision map (empty crops hatched), the top markers inside the decisive crop, slide-level marker
+effects coloured by marker group, and cohort group effects (adenocarcinoma vs squamous, one dot per
+slide). ``--with-attention`` adds the head-averaged ABMIL attention map next to the IG map, direction
+labels and a group legend on the marker-effect panel.
+
 Effects are oriented to the predicted class: > 0 means removing the marker weakens the call.
+Data: ``figures/_cache/spatial_v3/<slide>.npz`` (extract_spatial_attribution.py) and
+``figures/_cache/marker_ablation/*.npz`` (extract_marker_ablation.py).
 
-Panels (one patient):
-  (a) slide composite with the decisive real-tissue crop boxed
-  (b) per-crop ABMIL IG decision map (empty crops hatched)
-  (c) the top markers inside the decisive crop (crop-level ablation effect in the title)
-  (d) slide-level marker effects for this patient (top + bottom), coloured by marker group
-  (e) cohort: group effects, adenocarcinoma vs squamous, one dot per slide
-Usage: fig_marker_ablation.py [adeno_7064|squam_6577]   (default adeno_7064)
+Usage:
+    uv run python scripts/thesis_figures/fig_marker_ablation.py --slide adeno_7064
+    uv run python scripts/thesis_figures/fig_marker_ablation.py --slide squam_6577 --with-attention
 """
-import rootutils
-import glob, sys
 
-import matplotlib; matplotlib.use("Agg")
+import argparse
+
+import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
+from matplotlib.transforms import blended_transform_factory
 
-ROOT = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
-CACHE = ROOT / "figures" / "_cache"
-OUT = ROOT / "figures"
-TAG = sys.argv[1] if len(sys.argv) > 1 else "adeno_7064"
-P = 128
+from figlib import imc, io, paths, style
 
-GROUP_COL = {"epithelial/tumour": "#c9a227", "nuclear": "#2f6db5", "immune": "#c8323e",
-             "stroma/fibroblast": "#3f9a5c", "vascular/lymphatic": "#e07b2c"}
-GROUP_SHORT = {"epithelial/tumour": "epithelial", "nuclear": "nuclear", "immune": "immune",
-               "stroma/fibroblast": "stroma", "vascular/lymphatic": "vascular"}
-CLASS_COL = {"Adenocarcinoma": "#2f6db5", "Squamous cell carcinoma": "#a87f10"}
-COMPOSITE = [("DNA1", "#4C9BE8"), ("panCK", "#E8C34C"), ("CD45", "#E8584C"), ("SMA", "#5CCB7A")]
-N_TILES, N_TOP, N_BOT = 5, 10, 4
-
-plt.rcParams.update({
-    "font.size": 7.5, "axes.titlesize": 8, "axes.labelsize": 7.5,
-    "xtick.labelsize": 6.5, "ytick.labelsize": 6.5, "legend.fontsize": 6.5,
-    "axes.spines.top": False, "axes.spines.right": False,
-    "pdf.fonttype": 42, "font.family": "DejaVu Sans",
-})
-
-sp = np.load(CACHE / "spatial_v3" / f"{TAG}.npz")
-ab = np.load(CACHE / "marker_ablation" / f"{TAG.split('_')[1]}.npz")
-assert (sp["coords"] == ab["coords"]).all()
-markers = list(ab["markers"]); gnames = list(ab["group_names"])
-GROUPS = {  # same partition as extract_marker_ablation.py
-    "epithelial/tumour": ["panCK", "K-Cadherin", "Carbonic Anhydrase", "Ki67"],
-    "nuclear": ["DNA1", "DNA2", "Histone H3"],
-    "immune": ["CD45", "CD3", "CD4", "CD8a", "FOXP3", "PD1", "TCF1/7", "CD20", "CD68", "CD15", "MPO", "HLADR", "Ido1"],
-    "stroma/fibroblast": ["Cadherin-11", "Caveolin-1", "CD10", "CD146", "CD248", "CD73", "Collagen Type I", "FAP", "FSP1",
-                          "MMP11", "MMP9", "p75", "PDGFRb", "SMA", "Vimentin", "CXCL12"],
-    "vascular/lymphatic": ["CD31-vWF", "CD34", "LYVE1", "PNAd", "CCL21", "VCAM1", "Podoplanin"],
-}
-group_of = {m: g for g, ms in GROUPS.items() for m in ms}
-slide = sp["slide"].astype(np.float32)
-coords, empty, ig = sp["coords"], sp["empty"], sp["ig"]
-k = int(sp["decisive"]); r0, c0 = coords[k]
-pred = "squamous" if sp["logit"] > 0 else "adenocarcinoma"
-label = str(ab["label"]); IMG = str(ab["img"])[:-5]
+P = imc.CROP
+N_TILES, N_TOP, N_BOTTOM = 5, 10, 4
+NOTE = "#555555"
+GROUP_OF = {m: g for g, ms in style.MARKER_GROUPS.items() for m in ms}
 
 
-def stretch(ch, lo=1, hi=99.5):
-    a, b = np.percentile(ch, lo), np.percentile(ch, hi)
-    return np.clip((ch - a) / (b - a), 0, 1) if b > a else np.zeros_like(ch)
+def short(marker: str) -> str:
+    return marker.replace("Carbonic Anhydrase", "Carb. anhydrase")
 
 
-def tint(ch, hexcol, ref=None):
-    rgb = np.array(matplotlib.colors.to_rgb(hexcol))
-    if ref is None:
-        s = stretch(ch)
-    else:  # stretch with the slide-level percentiles, so tile brightness is comparable to the slide
-        a, b = np.percentile(ref, 1), np.percentile(ref, 99.5)
-        s = np.clip((ch - a) / (b - a), 0, 1) if b > a else np.zeros_like(ch)
-    return s[..., None] * rgb
+def crop_map(shape, coords, values, keep=None) -> np.ndarray:
+    """Paint one value per 128-px crop onto a slide-sized grid (NaN outside / where not kept)."""
+    grid = np.full(shape, np.nan)
+    for j, (a, b) in enumerate(coords):
+        grid[a : a + P, b : b + P] = values[j] if keep is None or keep[j] else np.nan
+    return grid
 
 
-fig = plt.figure(figsize=(6.3, 7.4))
-gs = fig.add_gridspec(3, 1, height_ratios=[2.35, 1.25, 2.6], hspace=0.38)
-top = gs[0].subgridspec(1, 2, wspace=0.08)
-mid = gs[1].subgridspec(1, N_TILES, wspace=0.06)
-bot = gs[2].subgridspec(1, 2, wspace=0.45, width_ratios=[1.0, 1.15])
+def hatch_empty(ax, coords, empty, colour: str) -> None:
+    for j, (a, b) in enumerate(coords):
+        if empty[j]:
+            ax.add_patch(
+                Rectangle((b - 0.5, a - 0.5), P, P, fill=False, hatch="////", ec=colour, lw=0)
+            )
 
-# (a) composite with decisive crop
-ax = fig.add_subplot(top[0])
-comp = np.clip(0.55 * sum(tint(slide[markers.index(m)], c) for m, c in COMPOSITE), 0, 1)
-ax.imshow(comp)
-ax.add_patch(Rectangle((c0 - .5, r0 - .5), P, P, fill=False, ec="white", lw=1.6))
-ax.set_xticks([]); ax.set_yticks([])
-ax.set_title(f"(a) Slide {IMG}, {label.split()[0].lower()} (logit {sp['logit']:+.1f})", loc="left")
-for i, (m, c) in enumerate(COMPOSITE):
-    ax.text(0.01, 0.99 - 0.055 * i, m, color=c, transform=ax.transAxes, fontsize=6.5, va="top",
-            fontweight="bold")
-ax.plot([slide.shape[2] - 120, slide.shape[2] - 20], [slide.shape[1] - 25] * 2, color="white", lw=2)
-ax.text(slide.shape[2] - 70, slide.shape[1] - 35, "100 µm", color="white", ha="center", fontsize=6)
 
-# (b) ABMIL IG decision map
-ax = fig.add_subplot(top[1])
-grid = np.full(slide.shape[1:], np.nan)
-real = ~empty
-vmax = np.abs(ig[real]).max()
-for j, (a, b) in enumerate(coords):
-    grid[a:a + P, b:b + P] = ig[j] if real[j] else np.nan
-im = ax.imshow(grid, cmap="cividis", vmin=0, vmax=vmax)
-for j, (a, b) in enumerate(coords):
-    if empty[j]:
-        ax.add_patch(Rectangle((b - .5, a - .5), P, P, fill=False, hatch="////", ec="#bbbbbb", lw=0))
-ax.add_patch(Rectangle((c0 - .5, r0 - .5), P, P, fill=False, ec="#c8323e", lw=1.6))
-ax.set_xlim(-.5, slide.shape[2] - .5); ax.set_ylim(slide.shape[1] - .5, -.5)
-ax.set_xticks([]); ax.set_yticks([])
-ax.set_title("(b) Decision map (ABMIL IG per crop)", loc="left")
-for s_ in ax.spines.values(): s_.set_visible(False)
-cb = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.03)
-cb.set_label("IG toward prediction", fontsize=6.5, labelpad=2); cb.ax.tick_params(labelsize=6)
+def slide_axes(ax, slide) -> None:
+    ax.set_xlim(-0.5, slide.shape[2] - 0.5)
+    ax.set_ylim(slide.shape[1] - 0.5, -0.5)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
-# (c) top markers inside the decisive crop
-ca = ab["crop_abl"][k]
-order = np.argsort(-ca)[:N_TILES]
-for t, mi in enumerate(order):
-    ax = fig.add_subplot(mid[t])
-    m = markers[mi]; col = GROUP_COL[group_of[m]]
-    ax.imshow(tint(slide[mi, r0:r0 + P, c0:c0 + P], col, ref=slide[mi]))
-    ax.set_xticks([]); ax.set_yticks([])
-    for s in ax.spines.values(): s.set_visible(True); s.set_color(col); s.set_linewidth(1.2)
-    ax.set_title(f"{m.replace('Carbonic Anhydrase', 'Carb. anhydrase')}\n{ca[mi]:+.2f}", fontsize=7, color=col)
-    if t == 0:
-        ax.text(0, 1.42, "(c) Markers whose removal (in this crop only) weakens the call most",
-                transform=ax.transAxes, fontsize=8, va="bottom")
 
-# (d) slide-level marker effects for this patient
-ax = fig.add_subplot(bot[0])
-sa = ab["slide_abl"]
-o = np.argsort(-sa); sel = np.r_[o[:N_TOP], o[-N_BOT:]]
-yy = np.r_[np.arange(N_TOP), np.arange(N_TOP, N_TOP + N_BOT) + 0.8]
-ax.barh(yy, sa[sel], color=[GROUP_COL[group_of[markers[j]]] for j in sel], height=0.75)
-ax.set_yticks(yy); ax.set_yticklabels([markers[j].replace("Carbonic Anhydrase", "Carb. anhydrase") for j in sel])
-ax.invert_yaxis(); ax.axvline(0, color="k", lw=0.6)
-ax.set_xlabel("Δ logit toward prediction\n(marker removed from all crops)")
-ax.set_title(f"(d) Marker effects, slide {IMG}", loc="left", pad=16)
+class Data:
+    """Spatial attribution + marker ablation of one slide."""
 
-# (e) cohort group effects
-ax = fig.add_subplot(bot[1])
-cohort = [np.load(f) for f in sorted(glob.glob(str(CACHE / "marker_ablation" / "*.npz")))]
-rng = np.random.default_rng(0)
-cls_names = list(CLASS_COL)
-for gi, g in enumerate(gnames):
-    for ci, cn in enumerate(cls_names):
-        v = np.array([d["group_abl"][gi] for d in cohort if str(d["label"]) == cn])
-        x = gi + (ci - 0.5) * 0.36
-        ax.scatter(x + rng.uniform(-0.07, 0.07, len(v)), v, s=7, color=CLASS_COL[cn], alpha=0.75, lw=0)
-        ax.hlines(v.mean(), x - 0.13, x + 0.13, color="k", lw=1.2)
-    ax.axvspan(gi - 0.5, gi + 0.5, color=GROUP_COL[g], alpha=0.07, lw=0)
-ax.axhline(0, color="k", lw=0.6)
-ax.set_xticks(range(len(gnames))); ax.set_xticklabels([GROUP_SHORT[g] for g in gnames], rotation=30, ha="right")
-for t, g in zip(ax.get_xticklabels(), gnames): t.set_color(GROUP_COL[g])
-ax.set_xlim(-0.5, len(gnames) - 0.5)
-ax.set_ylabel("Δ logit toward prediction\n(marker group removed)")
-nper = {cn: sum(str(d["label"]) == cn for d in cohort) for cn in cls_names}
-ax.set_title("(e) Cohort, correctly classified slides", loc="left", pad=16)
-ax.legend(handles=[plt.Line2D([], [], ls="", marker="o", ms=4, color=CLASS_COL[cn],
-                              label=f"{cn.split()[0].lower()} (n={nper[cn]})") for cn in cls_names],
-          loc="lower left", bbox_to_anchor=(0, 1.0), ncol=2, frameon=False, handletextpad=0.2, columnspacing=0.8)
+    def __init__(self, slide_tag: str):
+        self.sp = np.load(paths.CACHE / "spatial_v3" / f"{slide_tag}.npz")
+        self.ab = np.load(paths.CACHE / "marker_ablation" / f"{slide_tag.split('_')[1]}.npz")
+        if not (self.sp["coords"] == self.ab["coords"]).all():
+            raise ValueError(f"{slide_tag}: spatial and ablation caches list different crops")
+        self.markers = list(self.ab["markers"])
+        self.slide = self.sp["slide"].astype(np.float32)
+        self.coords, self.empty, self.ig = self.sp["coords"], self.sp["empty"], self.sp["ig"]
+        self.decisive = int(self.sp["decisive"])
+        self.r0, self.c0 = self.coords[self.decisive]
+        self.logit = self.sp["logit"]
+        self.pred = "squamous" if self.logit > 0 else "adenocarcinoma"
+        self.label = str(self.ab["label"])
+        self.image = str(self.ab["img"])[:-5]
 
-fig.subplots_adjust(left=0.12, right=0.93, top=0.95, bottom=0.08)
-for ext in ("pdf", "png"):
-    fig.savefig(OUT / f"fig_marker_ablation_{TAG}.{ext}", dpi=300)
-print("wrote", OUT / f"fig_marker_ablation_{TAG}.pdf", "| decisive crop", k, (r0, c0),
-      "| top in crop", [(markers[j], round(ca[j], 2)) for j in order])
+
+def panel_slide(ax, d: Data, attention: bool) -> None:
+    """(a) false-colour composite with the decisive crop boxed and a 100 um scale bar."""
+    composite = sum(
+        imc.tint(d.slide[d.markers.index(m)], style.MARKER_COLOURS[m])
+        for m in style.SLIDE_COMPOSITE
+    )
+    ax.imshow(np.clip(0.55 * composite, 0, 1))
+    ax.add_patch(Rectangle((d.c0 - 0.5, d.r0 - 0.5), P, P, fill=False, ec="white", lw=1.6))
+    ax.set_xticks([])
+    ax.set_yticks([])
+    call = f"{d.label.split()[0].lower()}"
+    if attention:
+        ax.set_title(f"(a) Slide {d.image}", loc="left")
+        ax.text(
+            0.5,
+            -0.03,
+            f"{call}, logit {d.logit:+.1f}",
+            transform=ax.transAxes,
+            ha="center",
+            va="top",
+            fontsize=6.5,
+        )
+    else:
+        ax.set_title(f"(a) Slide {d.image}, {call} (logit {d.logit:+.1f})", loc="left")
+    for i, m in enumerate(style.SLIDE_COMPOSITE):
+        ax.text(
+            0.01,
+            0.99 - 0.055 * i,
+            m,
+            color=style.MARKER_COLOURS[m],
+            transform=ax.transAxes,
+            fontsize=6.5,
+            va="top",
+            fontweight="bold",
+        )
+    height, width = d.slide.shape[1:]
+    ax.plot([width - 120, width - 20], [height - 25] * 2, color="white", lw=2)
+    ax.text(width - 70, height - 35, "100 µm", color="white", ha="center", fontsize=6)
+
+
+def panel_ig_map(fig, ax, d: Data, attention: bool) -> None:
+    """(b) per-crop ABMIL IG toward the prediction; empty crops hatched."""
+    real = ~d.empty
+    im = ax.imshow(
+        crop_map(d.slide.shape[1:], d.coords, d.ig, keep=real),
+        cmap="cividis",
+        vmin=0,
+        vmax=np.abs(d.ig[real]).max(),
+    )
+    hatch_empty(ax, d.coords, d.empty, "#bbbbbb")
+    ax.add_patch(Rectangle((d.c0 - 0.5, d.r0 - 0.5), P, P, fill=False, ec=style.RED, lw=1.6))
+    slide_axes(ax, d.slide)
+    if attention:
+        ax.set_title("(b) ABMIL IG per crop", loc="left")
+        cbar = fig.colorbar(im, ax=ax, orientation="horizontal", fraction=0.05, pad=0.03)
+        cbar.set_label("IG toward prediction", fontsize=6.5, labelpad=1)
+        cbar.ax.tick_params(labelsize=5.5)
+    else:
+        ax.set_title("(b) Decision map (ABMIL IG per crop)", loc="left")
+        cbar = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.03)
+        cbar.set_label("IG toward prediction", fontsize=6.5, labelpad=2)
+        cbar.ax.tick_params(labelsize=6)
+
+
+def panel_attention_map(fig, ax, d: Data) -> None:
+    """(c) head-averaged ABMIL attention per crop (empty crops hatched but coloured)."""
+    att = d.sp["att"]
+    im = ax.imshow(crop_map(d.slide.shape[1:], d.coords, att), cmap="Reds", vmin=0, vmax=att.max())
+    hatch_empty(ax, d.coords, d.empty, NOTE)
+    ax.add_patch(Rectangle((d.c0 - 0.5, d.r0 - 0.5), P, P, fill=False, ec="k", lw=1.4, ls="--"))
+    top = int(np.argmax(att))
+    ta, tb = d.coords[top]
+    ax.add_patch(Rectangle((tb - 0.5, ta - 0.5), P, P, fill=False, ec=style.BLUE, lw=1.6))
+    slide_axes(ax, d.slide)
+    ax.set_title("(c) ABMIL attention per crop", loc="left")
+    cbar = fig.colorbar(im, ax=ax, orientation="horizontal", fraction=0.05, pad=0.03)
+    cbar.set_label("attention (sums to 1)", fontsize=6.5, labelpad=1)
+    cbar.ax.tick_params(labelsize=5.5)
+    rank = int((att > att[d.decisive]).sum()) + 1
+    print(f"attention: decisive crop rank {rank}, max crop {top} empty={bool(d.empty[top])}")
+
+
+def panel_crop_tiles(fig, cells, d: Data, letter: str) -> np.ndarray:
+    """Markers whose removal from the decisive crop alone weakens the call most."""
+    effect = d.ab["crop_abl"][d.decisive]
+    order = np.argsort(-effect)[:N_TILES]
+    for t, mi in enumerate(order):
+        ax = fig.add_subplot(cells[t])
+        marker = d.markers[mi]
+        colour = style.GROUP_COLOURS[GROUP_OF[marker]]
+        ax.imshow(imc.tint(d.slide[mi, d.r0 : d.r0 + P, d.c0 : d.c0 + P], colour, ref=d.slide[mi]))
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_color(colour)
+            spine.set_linewidth(1.2)
+        ax.set_title(f"{short(marker)}\n{effect[mi]:+.2f}", fontsize=7, color=colour)
+        if t == 0:
+            ax.text(
+                0,
+                1.42,
+                f"({letter}) Markers whose removal (in this crop only) weakens the call most",
+                transform=ax.transAxes,
+                fontsize=8,
+                va="bottom",
+            )
+    return order
+
+
+def direction_labels(ax, d: Data) -> None:
+    """Arrows above the bars: left of 0 supports the other class, right supports the prediction."""
+    other = "adeno" if d.pred == "squamous" else "squamous"
+    predicted = "squamous" if d.pred == "squamous" else "adeno"
+    xmin, xmax = ax.get_xlim()
+    span = xmax - xmin
+    trans = blended_transform_factory(ax.transData, ax.transAxes)
+    arrowprops = {"arrowstyle": "->", "color": NOTE, "lw": 0.8}
+    ax.annotate(
+        "",
+        xy=(xmin + 0.02 * span, 1.035),
+        xytext=(-0.05 * span, 1.035),
+        xycoords=trans,
+        arrowprops=arrowprops,
+    )
+    ax.annotate(
+        "",
+        xy=(xmax - 0.02 * span, 1.035),
+        xytext=(0.05 * span, 1.035),
+        xycoords=trans,
+        arrowprops=arrowprops,
+    )
+    ax.text(
+        -0.06 * span,
+        1.06,
+        f"marker supports {other}",
+        transform=trans,
+        ha="right",
+        va="bottom",
+        fontsize=6,
+        color=NOTE,
+    )
+    ax.text(
+        0.06 * span,
+        1.06,
+        f"marker supports {predicted}",
+        transform=trans,
+        ha="left",
+        va="bottom",
+        fontsize=6,
+        color=NOTE,
+    )
+    ax.set_xlim(xmin, xmax)
+
+
+def panel_slide_effects(ax, d: Data, letter: str, attention: bool) -> None:
+    """Slide-level marker effects (marker removed from every crop), top and bottom markers."""
+    effect = d.ab["slide_abl"]
+    order = np.argsort(-effect)
+    selected = np.r_[order[:N_TOP], order[-N_BOTTOM:]]
+    y = np.r_[np.arange(N_TOP), np.arange(N_TOP, N_TOP + N_BOTTOM) + 0.8]
+    ax.barh(
+        y,
+        effect[selected],
+        color=[style.GROUP_COLOURS[GROUP_OF[d.markers[j]]] for j in selected],
+        height=0.75,
+    )
+    ax.set_yticks(y)
+    ax.set_yticklabels([short(d.markers[j]) for j in selected])
+    ax.invert_yaxis()
+    ax.axvline(0, color="k", lw=0.6)
+    if attention:
+        ax.set_xlabel("Δ logit, marker removed from all crops")
+        ax.set_title(f"({letter}) Marker effects, slide {d.image}", loc="left", pad=22)
+        direction_labels(ax, d)
+        ax.legend(
+            handles=[
+                Rectangle((0, 0), 1, 1, color=c, label=style.GROUP_SHORT[g])
+                for g, c in style.GROUP_COLOURS.items()
+            ],
+            title="marker group",
+            title_fontsize=6.5,
+            loc="lower right",
+            frameon=False,
+            handlelength=1.0,
+            handleheight=0.8,
+            labelspacing=0.3,
+            borderaxespad=0.2,
+        )
+    else:
+        ax.set_xlabel("Δ logit toward prediction\n(marker removed from all crops)")
+        ax.set_title(f"({letter}) Marker effects, slide {d.image}", loc="left", pad=16)
+
+
+def panel_cohort(ax, d: Data, letter: str) -> None:
+    """Group effects across the cohort of correctly classified slides, one dot per slide."""
+    cohort = [np.load(f) for f in sorted((paths.CACHE / "marker_ablation").glob("*.npz"))]
+    groups = list(d.ab["group_names"])
+    rng = np.random.default_rng(0)
+    classes = list(style.CLASS_COLOURS)
+    for gi, g in enumerate(groups):
+        for ci, cls in enumerate(classes):
+            v = np.array([s["group_abl"][gi] for s in cohort if str(s["label"]) == cls])
+            x = gi + (ci - 0.5) * 0.36
+            ax.scatter(
+                x + rng.uniform(-0.07, 0.07, len(v)),
+                v,
+                s=7,
+                color=style.CLASS_COLOURS[cls],
+                alpha=0.75,
+                lw=0,
+            )
+            ax.hlines(v.mean(), x - 0.13, x + 0.13, color="k", lw=1.2)
+        ax.axvspan(gi - 0.5, gi + 0.5, color=style.GROUP_COLOURS[g], alpha=0.07, lw=0)
+    ax.axhline(0, color="k", lw=0.6)
+    ax.set_xticks(range(len(groups)))
+    ax.set_xticklabels([style.GROUP_SHORT[g] for g in groups], rotation=30, ha="right")
+    for tick, g in zip(ax.get_xticklabels(), groups, strict=True):
+        tick.set_color(style.GROUP_COLOURS[g])
+    ax.set_xlim(-0.5, len(groups) - 0.5)
+    ax.set_ylabel("Δ logit toward prediction\n(marker group removed)")
+    n_per_class = {cls: sum(str(s["label"]) == cls for s in cohort) for cls in classes}
+    ax.set_title(f"({letter}) Cohort, correctly classified slides", loc="left", pad=16)
+    ax.legend(
+        handles=[
+            plt.Line2D(
+                [],
+                [],
+                ls="",
+                marker="o",
+                ms=4,
+                color=style.CLASS_COLOURS[cls],
+                label=f"{cls.split()[0].lower()} (n={n_per_class[cls]})",
+            )
+            for cls in classes
+        ],
+        loc="lower left",
+        bbox_to_anchor=(0, 1.0),
+        ncol=2,
+        frameon=False,
+        handletextpad=0.2,
+        columnspacing=0.8,
+    )
+
+
+def main(slide_tag: str, attention: bool, out: str | None) -> None:
+    style.use_sans(7.5, title=8, label=7.5, tick=6.5, legend=6.5)
+    d = Data(slide_tag)
+    fig = plt.figure(figsize=(6.3, 7.7 if attention else 7.4))
+    gs = fig.add_gridspec(3, 1, height_ratios=[2.35, 1.25, 2.6], hspace=0.55 if attention else 0.38)
+    top = gs[0].subgridspec(1, 3 if attention else 2, wspace=0.12 if attention else 0.08)
+    middle = gs[1].subgridspec(1, N_TILES, wspace=0.06)
+    bottom = gs[2].subgridspec(1, 2, wspace=0.45, width_ratios=[1.0, 1.15])
+    letters = iter("cdef" if attention else "cde")
+
+    panel_slide(fig.add_subplot(top[0]), d, attention)
+    panel_ig_map(fig, fig.add_subplot(top[1]), d, attention)
+    if attention:
+        panel_attention_map(fig, fig.add_subplot(top[2]), d)
+        next(letters)
+    order = panel_crop_tiles(fig, middle, d, next(letters))
+    panel_slide_effects(fig.add_subplot(bottom[0]), d, next(letters), attention)
+    panel_cohort(fig.add_subplot(bottom[1]), d, next(letters))
+
+    fig.subplots_adjust(left=0.12, right=0.93, top=0.95, bottom=0.08)
+    name = (
+        f"fig_marker_ablation_att_{slide_tag}" if attention else f"fig_marker_ablation_{slide_tag}"
+    )
+    io.save(fig, out or paths.figure(name), pdf_dpi=300)
+    crop_effect = d.ab["crop_abl"][d.decisive]
+    print(
+        f"decisive crop {d.decisive} {(d.r0, d.c0)} | top in crop",
+        [(d.markers[j], round(crop_effect[j], 2)) for j in order],
+    )
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument(
+        "--slide", default="adeno_7064", help="<class>_<image> of a spatial_v3 cache file"
+    )
+    ap.add_argument(
+        "--with-attention", action="store_true", help="add the ABMIL attention map panel"
+    )
+    ap.add_argument(
+        "--out",
+        default=None,
+        help="output stem (default figures/fig_marker_ablation[_att]_<slide>)",
+    )
+    a = ap.parse_args()
+    main(a.slide, a.with_attention, a.out)

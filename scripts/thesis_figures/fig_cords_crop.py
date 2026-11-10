@@ -1,111 +1,113 @@
-"""Thesis figure (Sec. 3.5.1): four marker channels of one 128x128 cords crop, side by side.
+"""Marker channels of one 128x128 cords crop, side by side (Sec. 3.5.1).
 
-Preprocessing matches the encoder input: arcsinh(x/5) -> Butterworth low-pass (0.2) -> clip(0,4)/4.
-For display, each channel is additionally contrast-stretched to its 1st-99.5th percentile (stated
-in the caption). Crops are the non-overlapping 128 tiling the embeddings were cut with.
+Preprocessing matches the encoder input (arcsinh(x/5) -> Butterworth low-pass (0.2) -> clip(0,4)/4);
+for display each channel is contrast-stretched to its 1st-99.5th percentile (stated in the caption).
+Crops are the non-overlapping 128-px tiling the embeddings were cut with. Runs on szary (raid TIFFs).
 
-Stage 1 (--scan): score crops over many images, write a candidate contact sheet.
-Stage 2 (--image ID --crop K): render the final figure as PDF + PNG.
+Usage:
+    # 1) score crops over many images and write a contact sheet of candidates
+    uv run python scripts/thesis_figures/fig_cords_crop.py scan --n-images 40
+    # 2) render the chosen crop
+    uv run python scripts/thesis_figures/fig_cords_crop.py render --image 7775 --crop 17 --markers DNA1,panCK,CD8a,SMA
 """
+
+import argparse
+from pathlib import Path
+
 import rootutils
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
 
-import argparse, glob, os
-import numpy as np, tifffile, yaml
-import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from skimage.filters import butterworth
+import numpy as np
 
-ROOT = "/raid_encrypted/immucan/immuvis_split/train/cords/imgs"
-PANEL = "/home/tnocon/multiplex-image-model/configs/all_panels_config.yaml"
-# (marker, display colour): nuclei, tumour epithelium, immune cells, stroma
-SHOW = [("DNA1", "#4C9BE8"), ("panCK", "#E8C34C"), ("CD45", "#E8584C"), ("SMA", "#5CCB7A")]
-COLOURS = {"DNA1": "#4C9BE8", "panCK": "#E8C34C", "CD45": "#E8584C", "SMA": "#5CCB7A",
-           "CD8a": "#E04CC8", "CD4": "#4CD8E0", "CD3": "#F08A3C", "CD68": "#B07CF0"}
-P = 128
+from figlib import imc, paths, style
 
-def markers():
-    return yaml.safe_load(open(PANEL))["markers"]["cords"]
+P = imc.CROP
+DEFAULT_MARKERS = "DNA1,panCK,CD45,SMA"  # nuclei, tumour epithelium, immune cells, stroma
 
-def preprocess(img):
-    img = np.arcsinh(img.astype(np.float32) / 5.0)
-    img = np.stack([butterworth(c, cutoff_frequency_ratio=0.2, high_pass=False) for c in img])
-    return np.clip(img, 0, 4) / 4
 
-def crops(img):
-    _, H, W = img.shape
-    out = []
-    for i in range(0, H - P + 1, P):
-        for j in range(0, W - P + 1, P):
-            out.append(((i, j), img[:, i:i + P, j:j + P]))
-    return out
-
-def stretch(ch, lo=1, hi=99.5):
-    a, b = np.percentile(ch, lo), np.percentile(ch, hi)
-    return np.clip((ch - a) / (b - a), 0, 1) if b > a else np.zeros_like(ch)
-
-def tint(ch, hexcol):
-    rgb = np.array(matplotlib.colors.to_rgb(hexcol))
-    return stretch(ch)[..., None] * rgb
-
-def score(crop, idx):
-    # want every shown channel to have real signal, covering a decent fraction of the crop
-    s = []
-    for k in idx:
+def crop_score(crop: np.ndarray, channels: list[int]) -> float:
+    """How well the weakest shown channel is covered by real signal (higher is better)."""
+    scores = []
+    for k in channels:
         c = crop[k]
-        frac = (c > np.percentile(c, 50) + 0.05).mean()
-        s.append(min(frac, 0.5) * c.std())
-    return min(s)  # the weakest channel decides
+        covered = (c > np.percentile(c, 50) + 0.05).mean()
+        scores.append(min(covered, 0.5) * c.std())
+    return min(scores)
 
-def scan(n_images, out):
-    names = markers(); idx = [names.index(m) for m, _ in SHOW]
-    files = sorted(glob.glob(f"{ROOT}/*.tiff"))
+
+def scan(markers: list[str], n_images: int, out_dir) -> None:
+    """Score every crop of ``n_images`` random slides and write the top-12 as a contact sheet."""
+    channels = [imc.cords_markers().index(m) for m in markers]
+    files = sorted(paths.CORDS_TRAIN_TIFFS.glob("*.tiff"))
     rng = np.random.default_rng(0)
     files = list(rng.choice(files, size=min(n_images, len(files)), replace=False))
-    cands = []
+    candidates = []
     for f in files:
-        img = preprocess(tifffile.imread(f))
-        for k, (ij, c) in enumerate(crops(img)):
-            cands.append((score(c, idx), os.path.basename(f)[:-5], k, ij, c[idx]))
-    cands.sort(key=lambda t: -t[0])
-    top = cands[:12]
-    n = len(SHOW)
-    fig, axes = plt.subplots(len(top), n, figsize=(2 * n, 2 * len(top)))
-    for r, (s, iid, k, ij, cs) in enumerate(top):
-        for c, (m, col) in enumerate(SHOW):
-            axes[r, c].imshow(tint(cs[c], col)); axes[r, c].axis("off")
-            if r == 0: axes[r, c].set_title(m)
-        axes[r, 0].text(-5, 64, f"{iid}\ncrop {k}", ha="right", va="center", fontsize=8)
-    tag = "_".join(m for m, _ in SHOW)
-    plt.tight_layout(); plt.savefig(f"{out}/candidates_{tag}.png", dpi=80)
-    for s, iid, k, ij, _ in top: print(f"score={s:.4f} image={iid} crop={k} at={ij}")
+        for k, (ij, crop) in enumerate(imc.crops(imc.load_slide(f))):
+            candidates.append((crop_score(crop, channels), f.stem, k, ij, crop[channels]))
+    candidates.sort(key=lambda t: -t[0])
+    top = candidates[:12]
 
-def render(image_id, k, out):
-    names = markers(); idx = [names.index(m) for m, _ in SHOW]
-    img = preprocess(tifffile.imread(f"{ROOT}/{image_id}.tiff"))
-    (i, j), c = crops(img)[k]
-    plt.rcParams.update({"font.family": "serif", "font.size": 9})
-    n = len(SHOW)
-    fig, axes = plt.subplots(1, n, figsize=(6.3, 6.3 / n * 1.18))  # ~ A4 text width
-    for ax, (m, col), ci in zip(axes, SHOW, idx):
-        ax.imshow(tint(c[ci], col), interpolation="nearest")
-        ax.set_title(m, fontsize=9, pad=3); ax.set_xticks([]); ax.set_yticks([])
-        for sp in ax.spines.values(): sp.set_visible(False)
+    fig, axes = plt.subplots(len(top), len(markers), figsize=(2 * len(markers), 2 * len(top)))
+    for r, (_, image, k, _, crop) in enumerate(top):
+        for c, m in enumerate(markers):
+            axes[r, c].imshow(imc.tint(crop[c], style.MARKER_COLOURS[m]))
+            axes[r, c].axis("off")
+            if r == 0:
+                axes[r, c].set_title(m)
+        axes[r, 0].text(-5, 64, f"{image}\ncrop {k}", ha="right", va="center", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_dir / f"candidates_{'_'.join(markers)}.png", dpi=80)
+    for score, image, k, ij, _ in top:
+        print(f"score={score:.4f} image={image} crop={k} at={ij}")
+
+
+def render(markers: list[str], image: str, k: int, out_dir) -> None:
+    """The final figure: one panel per marker with a 50 um scale bar."""
+    channels = [imc.cords_markers().index(m) for m in markers]
+    slide = imc.load_slide(paths.CORDS_TRAIN_TIFFS / f"{image}.tiff")
+    (i, j), crop = imc.crops(slide)[k]
+    style.use_serif(9, mathtext=False)
+    n = len(markers)
+    fig, axes = plt.subplots(1, n, figsize=(6.3, 6.3 / n * 1.18))
+    for ax, m, ch in zip(axes, markers, channels, strict=True):
+        ax.imshow(imc.tint(crop[ch], style.MARKER_COLOURS[m]), interpolation="nearest")
+        ax.set_title(m, fontsize=9, pad=3)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
     # IMC is acquired at 1 um/px, so 50 px = 50 um
     axes[0].plot([P - 8 - 50, P - 8], [P - 8, P - 8], color="white", lw=2, solid_capstyle="butt")
     axes[0].text(P - 8 - 25, P - 12, "50 µm", color="white", ha="center", va="bottom", fontsize=7)
-    plt.subplots_adjust(left=0.005, right=0.995, top=0.86, bottom=0.01, wspace=0.04)
-    base = f"{out}/fig_cords_crop_{image_id}_c{k}_" + "_".join(m for m, _ in SHOW)
-    plt.savefig(base + ".pdf"); plt.savefig(base + ".png", dpi=300)
-    print("wrote", base, "origin", (i, j), "channels in tiff:", img.shape[0])
+    fig.subplots_adjust(left=0.005, right=0.995, top=0.86, bottom=0.01, wspace=0.04)
+    stem = out_dir / f"fig_cords_crop_{image}_c{k}_{'_'.join(markers)}"
+    fig.savefig(stem.with_suffix(".pdf"))
+    fig.savefig(stem.with_suffix(".png"), dpi=300)
+    print(f"wrote {stem} | crop origin {(i, j)} | {slide.shape[0]} channels in the TIFF")
+
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--scan", type=int, default=0, help="number of images to scan")
-    ap.add_argument("--image"); ap.add_argument("--crop", type=int)
-    ap.add_argument("--out", default="figures")
-    ap.add_argument("--markers", default="DNA1,panCK,CD45,SMA", help="comma-separated, see COLOURS")
-    a = ap.parse_args(); os.makedirs(a.out, exist_ok=True)
-    SHOW = [(m, COLOURS[m]) for m in a.markers.split(",")]
-    scan(a.scan, a.out) if a.scan else render(a.image, a.crop, a.out)
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("mode", choices=["scan", "render"])
+    ap.add_argument(
+        "--markers",
+        default=DEFAULT_MARKERS,
+        help=f"comma-separated, from {list(style.MARKER_COLOURS)}",
+    )
+    ap.add_argument(
+        "--n-images", type=int, default=40, help="scan: number of random slides to score"
+    )
+    ap.add_argument("--image", help="render: image id, e.g. 7775")
+    ap.add_argument("--crop", type=int, help="render: crop index in the 128-px tiling")
+    ap.add_argument("--out-dir", default=str(paths.FIGURES))
+    a = ap.parse_args()
+    out = Path(a.out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    selected = a.markers.split(",")
+    if a.mode == "scan":
+        scan(selected, a.n_images, out)
+    else:
+        render(selected, a.image, a.crop, out)

@@ -1,141 +1,175 @@
 """Quantify the ABMIL empty-crop shortcut without retraining (open item 15).
 
-For the reference run's z_global downstream (vae16_s0p01_film_2026-07-31, source zglobal):
-  1. tissue density of every crop from the raw TIFF: mean arcsinh(x/5) over channels and pixels;
-     a crop is EMPTY if density <= max(0.1, 0.4 * median density of its image's crops)
-     (the rule of the former raw-image visualiser); a stricter absolute rule (<= 0.1) is
-     reported as a sensitivity check.
-  2. rebuild each label's bags and the 10 stratified folds exactly as run_abmil/run_cv do
-     (same filtering, bag order, StratifiedKFold(random_state=42), train-fold z-score), load each
-     fold's saved head, and on the held-out bags record
-       - the attention mass on empty crops (mean over the 8 heads, summed over empty crops),
-       - the out-of-fold AUC with all crops (must reproduce the reported AUC) and with empty crops
-         masked out of the attention softmax (same frozen head, no retraining).
+For the reference run's z_global downstream:
+  1. tissue density of every crop from the raw TIFF (mean arcsinh(x/5) over channels and pixels); a
+     crop is EMPTY if density <= max(0.1, 0.4 * median density of its image's crops), with a stricter
+     absolute rule (<= 0.1) as a sensitivity check -> ``figures/_cache/empty_shortcut/crop_density.csv``;
+  2. per clinical target, the bags and folds exactly as run_abmil / run_cv built them, each fold's saved
+     head, and on the held-out bags: the attention mass on empty crops, and the out-of-fold AUC with all
+     crops (reproduces the reported AUC) and with empty crops masked out of the attention softmax
+     (same frozen head) -> ``attention_<target>.csv`` and ``summary.csv`` in ``--out-dir``.
+
+Usage:
+    uv run python scripts/thesis_figures/quantify_empty_shortcut.py
 """
-import rootutils
-import glob, os
+
+import argparse
+import os
 from concurrent.futures import ProcessPoolExecutor
-import numpy as np, pandas as pd, tifffile, torch
-from sklearn.model_selection import StratifiedKFold
+from pathlib import Path
+
+import rootutils
+
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True, cwd=True)
-from src.downstream.abmil.cv import _auc, zscore_stats_from_bags, apply_zscore_to_bags
-from src.downstream.abmil.data import build_image_bags
-from src.downstream.abmil.lit import AbmilLitModule
-from src.downstream.abmil.data import balance_meta_df, drop_nan_labels, load_pooled_meta
 
-RUN = "/raid_encrypted/immucan/embeddings/tnocon/downstream/vae16_s0p01_film_2026-07-31"
-META, RES = f"{RUN}/meta_tables/zglobal", f"{RUN}/results/zglobal/cords"
-TIFF = "/raid_encrypted/immucan/IMC/immu-vis-other-ds/full-20122025"
-OUT = "figures/_cache/empty_shortcut"
-FEATURES = ["Grade", "Relapse", "DX.name", "Stage"]
-P = 128
+import numpy as np
+import pandas as pd
+import tifffile
+import torch
 
+from figlib import abmil, imc, paths
+from src.downstream.abmil.cv import _auc, apply_zscore_to_bags, zscore_stats_from_bags
 
-def image_density(args):
-    img, coords = args
-    a = np.arcsinh(tifffile.imread(os.path.join(TIFF, img)).astype(np.float32) / 5.0)
-    out = []
-    for r, c in coords:
-        r, c = int(r), int(c)
-        out.append(float(a[:, r:r + P, c:c + P].mean()) if r + P <= a.shape[1] and c + P <= a.shape[2] else np.nan)
-    return img, out, a.shape
+TARGETS = ["Grade", "Relapse", "DX.name", "Stage"]
+P = imc.CROP
 
 
-def attention(model, x, mask):
-    """GatedABMIL forward that also returns the attention [B, H, S]."""
-    v, u = torch.tanh(model.V(x)), torch.sigmoid(model.U(x))
-    a = model.W(v * u).masked_fill(mask.unsqueeze(2), -1e9)
-    a = torch.softmax(a, dim=1).transpose(1, 2)
-    pooled = torch.bmm(a, x).reshape(x.size(0), model.num_heads * x.size(2))
-    return model.classifier(pooled), a
+def image_density(job) -> tuple[str, list[float]]:
+    image, coords = job
+    a = np.arcsinh(tifffile.imread(os.path.join(paths.TIFF_FULL, image)).astype(np.float32) / 5.0)
+    return image, [
+        float(a[:, r : r + P, c : c + P].mean())
+        if r + P <= a.shape[1] and c + P <= a.shape[2]
+        else np.nan
+        for r, c in ((int(r), int(c)) for r, c in coords)
+    ]
 
 
-def pad(bags, extra_mask=None):
-    S = max(b.shape[0] for b in bags); D = bags[0].shape[1]
-    x = torch.zeros(len(bags), S, D); m = torch.ones(len(bags), S, dtype=torch.bool)
-    for i, b in enumerate(bags):
-        x[i, :len(b)] = torch.from_numpy(np.asarray(b, "float32")); m[i, :len(b)] = False
-        if extra_mask is not None: m[i, :len(b)] |= torch.from_numpy(extra_mask[i])
-    return x, m
-
-
-def main():
-    os.makedirs(OUT, exist_ok=True)
-    pooled = load_pooled_meta(META, "cords")
-    crops = pooled.drop_duplicates(["img_path", "coords0", "coords1"])[["img_path", "coords0", "coords1"]]
-    dens_file = f"{OUT}/crop_density.csv"
-    if not os.path.exists(dens_file):
-        jobs = [(img, g[["coords0", "coords1"]].values) for img, g in crops.groupby("img_path")]
+def crop_density(pooled: pd.DataFrame) -> pd.DataFrame:
+    """Tissue density and empty flags of every crop (computed once, then read from the cache)."""
+    if not abmil.CROP_DENSITY.exists():
+        crops = pooled.drop_duplicates(["img_path", "coords0", "coords1"])[
+            ["img_path", "coords0", "coords1"]
+        ]
+        jobs = [(image, g[["coords0", "coords1"]].values) for image, g in crops.groupby("img_path")]
         rows = []
-        with ProcessPoolExecutor(8) as ex:
-            for img, ds, shp in ex.map(image_density, jobs, chunksize=4):
-                g = crops[crops.img_path == img]
-                rows += [(img, r, c, d) for (r, c), d in zip(g[["coords0", "coords1"]].values, ds)]
+        with ProcessPoolExecutor(8) as pool:
+            for image, densities in pool.map(image_density, jobs, chunksize=4):
+                g = crops[crops.img_path == image]
+                rows += [
+                    (image, r, c, d)
+                    for (r, c), d in zip(g[["coords0", "coords1"]].values, densities, strict=True)
+                ]
         dens = pd.DataFrame(rows, columns=["img_path", "coords0", "coords1", "density"])
-        med = dens.groupby("img_path").density.transform("median")
-        dens["empty"] = dens.density <= np.maximum(0.1, 0.4 * med)
+        median = dens.groupby("img_path").density.transform("median")
+        dens["empty"] = dens.density <= np.maximum(0.1, 0.4 * median)
         dens["empty_abs"] = dens.density <= 0.1
-        dens.to_csv(dens_file, index=False)
-    dens = pd.read_csv(dens_file)
-    print(f"crops {len(dens)}  NaN density {dens.density.isna().sum()}  empty (rule) {dens["empty"].mean():.3%}  "
-          f"empty (abs<=0.1) {dens.empty_abs.mean():.3%}", flush=True)
-    key = dens.set_index(["img_path", "coords0", "coords1"])
+        dens.to_csv(abmil.CROP_DENSITY, index=False)
+    dens = pd.read_csv(abmil.CROP_DENSITY)
+    print(
+        f"crops {len(dens)}  NaN density {dens.density.isna().sum()}  empty (rule) {dens['empty'].mean():.3%}  "
+        f"empty (abs<=0.1) {dens.empty_abs.mean():.3%}",
+        flush=True,
+    )
+    return dens
 
+
+def pad(bags, extra_mask=None) -> tuple[torch.Tensor, torch.Tensor]:
+    """Pad bags to one tensor; the mask is True on padding (and on crops flagged in extra_mask)."""
+    size, dim = max(b.shape[0] for b in bags), bags[0].shape[1]
+    x = torch.zeros(len(bags), size, dim)
+    mask = torch.ones(len(bags), size, dtype=torch.bool)
+    for i, b in enumerate(bags):
+        x[i, : len(b)] = torch.from_numpy(np.asarray(b, "float32"))
+        mask[i, : len(b)] = False
+        if extra_mask is not None:
+            mask[i, : len(b)] |= torch.from_numpy(extra_mask[i])
+    return x, mask
+
+
+def target_summary(target: str, pooled: pd.DataFrame, out_dir: Path) -> dict:
+    cohort = abmil.load_cohort(target, pooled)
+    flags = {
+        "rule": [cohort.empty(i) for i in range(len(cohort.bags))],
+        "abs": [cohort.density(i).empty_abs.values.astype(bool) for i in range(len(cohort.bags))],
+    }
+    n, n_classes = len(cohort.bags), len(cohort.classes)
+    logit_dim = 1 if n_classes <= 2 else n_classes
+    oof = {k: np.full((n, logit_dim), np.nan, np.float32) for k in ["all", "rule", "abs"]}
+    attention_rows = []
+    for f, (train, val) in enumerate(cohort.folds):
+        head = abmil.fold_head(target, f)
+        mu, sd = zscore_stats_from_bags(cohort.bags, indices=train)
+        val_bags = [apply_zscore_to_bags([cohort.bags[i]], mu, sd)[0] for i in val]
+        with torch.no_grad():
+            x, mask = pad(val_bags)
+            logits, att = abmil.gated_attention(head, x, mask)
+            oof["all"][val] = logits.numpy().reshape(len(val), logit_dim)
+            for rule in ["rule", "abs"]:
+                empty = [flags[rule][i] for i in val]
+                empty = [
+                    e if (~e).any() else np.zeros_like(e) for e in empty
+                ]  # an all-empty bag stays as is
+                x2, mask2 = pad(val_bags, empty)
+                oof[rule][val] = (
+                    abmil.gated_attention(head, x2, mask2)[0].numpy().reshape(len(val), logit_dim)
+                )
+            mean_att = att.mean(1).numpy()  # [B, S], head-averaged
+        for j, i in enumerate(val):
+            s, e, e_abs = len(cohort.bags[i]), flags["rule"][i], flags["abs"][i]
+            attention_rows.append({
+                "bag": i,
+                "fold": f,
+                "n": s,
+                "frac_empty": e.mean(),
+                "att_empty": mean_att[j, :s][e].sum(),
+                "frac_empty_abs": e_abs.mean(),
+                "att_empty_abs": mean_att[j, :s][e_abs].sum(),
+                "top_is_empty": bool(e[np.argmax(mean_att[j, :s])]),
+            })
+    att = pd.DataFrame(attention_rows)
+    att.to_csv(out_dir / f"attention_{target}.csv", index=False)
+    has_empty = att.frac_empty > 0
+    reported = (
+        pd.read_csv(paths.REF_RESULTS / "results.csv").set_index("feature").loc[target, "auc"]
+    )
+    y = cohort.y.astype(int)
+    return {
+        "feature": target,
+        "bags": n,
+        "classes": n_classes,
+        "folds": len(cohort.folds),
+        "reported_auc": reported,
+        "auc_all": _auc(y, oof["all"], n_classes),
+        "auc_no_empty": _auc(y, oof["rule"], n_classes),
+        "auc_no_empty_abs": _auc(y, oof["abs"], n_classes),
+        "frac_crops_empty": float(np.concatenate(flags["rule"]).mean()),
+        "bags_with_empty": float(has_empty.mean()),
+        "att_mass_empty": float(att.att_empty.mean()),
+        "att_mass_empty_in_bags_with_empty": float(att[has_empty].att_empty.mean()),
+        "frac_empty_in_bags_with_empty": float(att[has_empty].frac_empty.mean()),
+        "enrichment": float(att[has_empty].att_empty.sum() / att[has_empty].frac_empty.sum()),
+        "top_crop_empty": float(att.top_is_empty.mean()),
+        "att_mass_empty_abs": float(att.att_empty_abs.mean()),
+    }
+
+
+def main(targets: list[str], out_dir: str) -> None:
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    pooled = abmil.pooled_meta()
+    crop_density(pooled)
     summary = []
-    for feat in FEATURES:
-        fm = balance_meta_df(drop_nan_labels(pooled[pooled.feature == feat]), min_class_freq=0.05)
-        classes = sorted(fm.feature_value.astype(str).unique()); c2i = {c: i for i, c in enumerate(classes)}
-        bags, labels = build_image_bags(fm, c2i)
-        # per-bag empty flags in exactly the bag-row order of build_image_bags
-        flags = {"rule": [], "abs": []}
-        for _img, g in fm.groupby("img_path", sort=False):
-            if pd.isna(g.feature_value.iloc[0]) or c2i.get(str(g.feature_value.iloc[0])) is None: continue
-            rows = pd.concat([gg for _, gg in g.groupby("embeddings_file")])
-            k = key.loc[list(zip(rows.img_path, rows.coords0, rows.coords1))]
-            flags["rule"].append(k["empty"].values.astype(bool)); flags["abs"].append(k.empty_abs.values.astype(bool))
-        y = labels.numpy().astype(int); n = len(bags); C = len(classes)
-        nf = min(10, int(np.bincount(y).min()), n)
-        folds = list(StratifiedKFold(n_splits=nf, shuffle=True, random_state=42).split(np.zeros(n), y))
-        ld = 1 if C <= 2 else C
-        oof = {k: np.full((n, ld), np.nan, np.float32) for k in ["all", "rule", "abs"]}
-        att_rows = []
-        for f, (tr, va) in enumerate(folds):
-            ck = sorted(glob.glob(f"{RES}/{feat}/fold_{f}/*.ckpt"), key=os.path.getmtime)[-1]
-            model = AbmilLitModule.load_from_checkpoint(ck, map_location="cpu").model.eval()
-            mu, sd = zscore_stats_from_bags(bags, indices=tr)
-            vb = [apply_zscore_to_bags([bags[i]], mu, sd)[0] for i in va]
-            with torch.no_grad():
-                x, m = pad(vb); lg, a = attention(model, x, m)
-                oof["all"][va] = lg.numpy().reshape(len(va), ld)
-                for rule in ["rule", "abs"]:
-                    em = [flags[rule][i] for i in va]
-                    keep_any = np.array([(~e).any() for e in em])
-                    em2 = [e if k else np.zeros_like(e) for e, k in zip(em, keep_any)]  # all-empty bag: keep as is
-                    x2, m2 = pad(vb, em2); lg2, _ = attention(model, x2, m2)
-                    oof[rule][va] = lg2.numpy().reshape(len(va), ld)
-                am = a.mean(1).numpy()                      # [B, S] head-averaged attention
-                for j, i in enumerate(va):
-                    s = len(bags[i]); e = flags["rule"][i]; ea = flags["abs"][i]
-                    att_rows.append(dict(bag=i, fold=f, n=s, frac_empty=e.mean(), att_empty=am[j, :s][e].sum(),
-                                         frac_empty_abs=ea.mean(), att_empty_abs=am[j, :s][ea].sum(),
-                                         top_is_empty=bool(e[np.argmax(am[j, :s])])))
-        att = pd.DataFrame(att_rows); att.to_csv(f"{OUT}/attention_{feat}.csv", index=False)
-        has = att.frac_empty > 0
-        rep = pd.read_csv(f"{RUN}/results/zglobal/results.csv").set_index("feature").loc[feat, "auc"]
-        row = dict(feature=feat, bags=n, classes=C, folds=nf, reported_auc=rep,
-                   auc_all=_auc(y, oof["all"], C), auc_no_empty=_auc(y, oof["rule"], C), auc_no_empty_abs=_auc(y, oof["abs"], C),
-                   frac_crops_empty=float(np.concatenate(flags["rule"]).mean()),
-                   bags_with_empty=float(has.mean()),
-                   att_mass_empty=float(att.att_empty.mean()),
-                   att_mass_empty_in_bags_with_empty=float(att[has].att_empty.mean()),
-                   frac_empty_in_bags_with_empty=float(att[has].frac_empty.mean()),
-                   enrichment=float(att[has].att_empty.sum() / att[has].frac_empty.sum()),
-                   top_crop_empty=float(att.top_is_empty.mean()),
-                   att_mass_empty_abs=float(att.att_empty_abs.mean()))
-        summary.append(row); print(row, flush=True)
-    pd.DataFrame(summary).to_csv(f"{OUT}/summary.csv", index=False)
+    for target in targets:
+        summary.append(target_summary(target, pooled, out))
+        print(summary[-1], flush=True)
+    pd.DataFrame(summary).to_csv(out / "summary.csv", index=False)
     print(pd.DataFrame(summary).round(4).to_string(index=False))
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--targets", nargs="+", default=TARGETS)
+    ap.add_argument("--out-dir", default=str(paths.CACHE / "empty_shortcut"))
+    a = ap.parse_args()
+    main(a.targets, a.out_dir)
