@@ -16,13 +16,12 @@ import time
 from pathlib import Path
 
 import hydra
-
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.decomposition import IncrementalPCA
-from torch.utils.data import DataLoader
 import rootutils
 from omegaconf import DictConfig, OmegaConf
+from sklearn.decomposition import IncrementalPCA
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -33,6 +32,7 @@ from src.data.components.graphs_datamodules import (
     PatchAugmentations,
     PickleDataset,
 )
+
 
 def build_loader(
     h5_path: Path,
@@ -119,11 +119,11 @@ def plot_explained_variance(
     ax2 = axes[1]
     ax2.plot(range(1, len(cumvar) + 1), cumvar, color="steelblue", linewidth=2)
     colors = plt.cm.Set1(np.linspace(0, 1, len(thresholds)))
-    for (thresh, n_comp), color in zip(thresholds.items(), colors):
+    for (thresh, n_comp), color in zip(thresholds.items(), colors, strict=True):
         ax2.axhline(y=thresh, linestyle="--", alpha=0.5, color=color)
         ax2.axvline(x=n_comp, linestyle=":", alpha=0.5, color=color)
         ax2.annotate(
-            f"{thresh*100:.1f}% → {n_comp}",
+            f"{thresh * 100:.1f}% → {n_comp}",
             xy=(n_comp, thresh),
             xytext=(n_comp + len(cumvar) * 0.02, thresh - 0.02),
             fontsize=9,
@@ -181,7 +181,7 @@ def main(cfg: DictConfig) -> None:
     cumvar = np.cumsum(explained_ratio)
 
     print(f"\nTotal components fitted: {len(explained_ratio)}")
-    print(f"Total variance explained: {cumvar[-1]*100:.2f}%")
+    print(f"Total variance explained: {cumvar[-1] * 100:.2f}%")
 
     results = report_thresholds(cumvar, list(OmegaConf.to_container(cfg.thresholds)))
 
@@ -189,7 +189,7 @@ def main(cfg: DictConfig) -> None:
     print("-" * 40)
     for thresh, n_comp in results.items():
         actual_var = cumvar[n_comp - 1] if n_comp <= len(cumvar) else cumvar[-1]
-        print(f"{thresh*100:>11.1f}%  {n_comp:>12d}  {actual_var*100:>11.2f}%")
+        print(f"{thresh * 100:>11.1f}%  {n_comp:>12d}  {actual_var * 100:>11.2f}%")
 
     plot_path = output_dir / f"pca_explained_variance_crop{cfg.center_crop_size}.png"
     plot_explained_variance(explained_ratio, cumvar, results, plot_path)
@@ -197,7 +197,7 @@ def main(cfg: DictConfig) -> None:
     print("\nTop-20 individual component variance contributions:")
     for i, ratio in enumerate(explained_ratio[:20]):
         bar = "█" * int(ratio / explained_ratio[0] * 40)
-        print(f"  PC{i+1:>3d}: {ratio*100:>7.3f}%  cumul={cumvar[i]*100:>7.3f}%  {bar}")
+        print(f"  PC{i + 1:>3d}: {ratio * 100:>7.3f}%  cumul={cumvar[i] * 100:>7.3f}%  {bar}")
 
 
 if __name__ == "__main__":

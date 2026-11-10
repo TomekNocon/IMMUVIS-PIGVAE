@@ -44,7 +44,6 @@ from omegaconf import DictConfig
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 
-
 def _batch_id(name: str) -> int:
     m = re.search(r"batch_(\d+)", name)
     if m is None:
@@ -100,9 +99,7 @@ def _open_h5(path: Path, c: int, h: int, w: int, chunk_rows: int) -> h5py.File:
     return f
 
 
-def _append(
-    f: h5py.File, emb: np.ndarray, pos: np.ndarray, paths: list[str]
-) -> None:
+def _append(f: h5py.File, emb: np.ndarray, pos: np.ndarray, paths: list[str]) -> None:
     n = emb.shape[0]
     for name in ("embeddings", "metadata", "positions", "paths"):
         d = f[name]
@@ -179,8 +176,7 @@ def process_split(
                     )
 
             print(
-                f"  [{batch_idx + 1}/{len(pairs)}] {npy_path.name} done "
-                f"({emb.shape[0]} rows)",
+                f"  [{batch_idx + 1}/{len(pairs)}] {npy_path.name} done ({emb.shape[0]} rows)",
                 flush=True,
             )
     finally:

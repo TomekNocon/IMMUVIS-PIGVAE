@@ -17,8 +17,7 @@ hparams:
   num_node_features: 128
   normalize: False # If you use PCA do not normalize!
   imc_root: "IMC"
-  imc_dataset_names: 
+  imc_dataset_names:
     - "cords"
   zscore: False   # raw PCA (no whitening): leading high-variance comps dominate the loss, matching their weight in the inverse-PCA image
   clip_range: null  # no clamp: isolates the pure PCA-128 truncation floor (clip 3->10 already recovered most of the floor; null removes the last clip add-on entirely)
-  

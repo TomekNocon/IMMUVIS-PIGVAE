@@ -27,6 +27,7 @@ from src.downstream.abmil.data import (
     load_pooled_meta,
 )
 
+
 @hydra.main(version_base=None, config_path="../../configs", config_name="downstream/abmil")
 def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.results_dir, exist_ok=True)
@@ -36,8 +37,12 @@ def main(cfg: DictConfig) -> None:
     def _flush():
         # Incremental write: re-emit after every feature so a later crash never
         # discards already-completed features' metrics.
-        pd.DataFrame(cv_fold_rows).to_csv(os.path.join(cfg.results_dir, "cv_folds.csv"), index=False)
-        pd.DataFrame(cv_summary_rows).to_csv(os.path.join(cfg.results_dir, "cv_summary.csv"), index=False)
+        pd.DataFrame(cv_fold_rows).to_csv(
+            os.path.join(cfg.results_dir, "cv_folds.csv"), index=False
+        )
+        pd.DataFrame(cv_summary_rows).to_csv(
+            os.path.join(cfg.results_dir, "cv_summary.csv"), index=False
+        )
         pd.DataFrame(results_rows).to_csv(os.path.join(cfg.results_dir, "results.csv"), index=False)
 
     for dataset in cfg.datasets:
@@ -74,7 +79,10 @@ def main(cfg: DictConfig) -> None:
                     print(f"[{dataset}/{feature}] skipping (no bags)", flush=True)
                     continue
 
-                print(f"=== {dataset}/{feature}: {len(bags)} images, {num_classes} classes ===", flush=True)
+                print(
+                    f"=== {dataset}/{feature}: {len(bags)} images, {num_classes} classes ===",
+                    flush=True,
+                )
 
                 fold_results_dir = os.path.join(cfg.results_dir, dataset, feature)
                 os.makedirs(fold_results_dir, exist_ok=True)
@@ -92,7 +100,7 @@ def main(cfg: DictConfig) -> None:
                 )
 
                 out = run_cv(bags, labels, num_classes=num_classes, cfg=fold_cfg)
-            except Exception as e:  # noqa: BLE001 -- isolate one feature's failure
+            except Exception as e:
                 # A rare-subtype feature can trip run_cv's `min_class_count < 2`
                 # ValueError (or any other per-feature error). Log and continue so a
                 # single feature never aborts the whole datasets x features sweep and

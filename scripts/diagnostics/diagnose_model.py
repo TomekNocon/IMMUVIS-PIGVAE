@@ -60,10 +60,12 @@ def make_activation_hook(store: dict, key: str, keep_tensor: bool = False):
             store[key] = _stat(t)
             if keep_tensor:
                 store[key + "__tensor"] = t.cpu()
+
     return hook
 
 
 # ── core diagnostics ─────────────────────────────────────────────────────────
+
 
 def run_diagnostics(model, batch, tau: float) -> dict:
     model.eval()
@@ -75,8 +77,8 @@ def run_diagnostics(model, batch, tau: float) -> dict:
     # Register activation hooks (transformer decoder replaces CNN decoder)
     hook_targets = [
         ("encoder/graph_transformer", ae.encoder.graph_transformer),
-        ("encoder/fc_in",             ae.encoder.fc_in),
-        ("decoder/fc_in",             ae.decoder.fc_in),
+        ("encoder/fc_in", ae.encoder.fc_in),
+        ("decoder/fc_in", ae.decoder.fc_in),
         ("decoder/graph_transformer", ae.decoder.graph_transformer),
     ]
     if hasattr(ae.decoder, "node_fc_out"):
@@ -86,11 +88,13 @@ def run_diagnostics(model, batch, tau: float) -> dict:
         hook_targets.append(("permuter/graph_transformer", ae.permuter.graph_transformer))
 
     for name, module in hook_targets:
-        keep = (name == "permuter/scoring_fc")
-        hooks.append(module.register_forward_hook(make_activation_hook(act_store, name, keep_tensor=keep)))
+        keep = name == "permuter/scoring_fc"
+        hooks.append(
+            module.register_forward_hook(make_activation_hook(act_store, name, keep_tensor=keep))
+        )
 
     with torch.no_grad():
-        graph_emb, graph_pred, soft_probs, perm, mu, logvar = model(
+        graph_emb, graph_pred, soft_probs, _perm, mu, logvar = model(
             graph=batch, training=False, tau=tau
         )
         # node_features are not exposed through PLGraphAE.forward — call encode directly.
@@ -100,8 +104,8 @@ def run_diagnostics(model, batch, tau: float) -> dict:
     for h in hooks:
         h.remove()
 
-    total_B = node_features.shape[0]
-    B = total_B // NUM_VIEWS
+    total_b = node_features.shape[0]
+    B = total_b // NUM_VIEWS
     N = node_features.shape[1]
     D = node_features.shape[2]
 
@@ -120,34 +124,34 @@ def run_diagnostics(model, batch, tau: float) -> dict:
         overlap_ratio = (sigma_sq.sqrt() / mu_var.clamp_min(1e-12).sqrt()).item()
         noise_fraction = (sigma_sq / (mu_var + sigma_sq).clamp_min(1e-12)).item()
         latent_diag = {
-            "vae":                "enabled",
-            "mu_mean":            round(mu.mean().item(), 5),
-            "mu_std":             round(mu.std().item(), 5),
-            "std_mean":           round(std.mean().item(), 5),
-            "std_per_dim_min":    round(std.mean(0).min().item(), 5),
-            "std_per_dim_max":    round(std.mean(0).max().item(), 5),
-            "active_dims":        active,
-            "total_dims":         mu.shape[-1],
+            "vae": "enabled",
+            "mu_mean": round(mu.mean().item(), 5),
+            "mu_std": round(mu.std().item(), 5),
+            "std_mean": round(std.mean().item(), 5),
+            "std_per_dim_min": round(std.mean(0).min().item(), 5),
+            "std_per_dim_max": round(std.mean(0).max().item(), 5),
+            "active_dims": active,
+            "total_dims": mu.shape[-1],
             "kld_per_dim_median": round(kld_per_dim_mean.median().item(), 5),
-            "kld_per_dim_p95":    round(kld_per_dim_mean.quantile(0.95).item(), 5),
-            "kld_per_dim_max":    round(kld_per_dim_mean.max().item(), 5),
-            "total_kld_mean":     round(kld_per_dim.mean().item(), 5),
-            "overlap_ratio":      round(overlap_ratio, 4),
-            "noise_fraction":     round(noise_fraction, 4),
+            "kld_per_dim_p95": round(kld_per_dim_mean.quantile(0.95).item(), 5),
+            "kld_per_dim_max": round(kld_per_dim_mean.max().item(), 5),
+            "total_kld_mean": round(kld_per_dim.mean().item(), 5),
+            "overlap_ratio": round(overlap_ratio, 4),
+            "noise_fraction": round(noise_fraction, 4),
             "aggregate_var_mean": round((mu_var + sigma_sq).item(), 4),
         }
     else:
         # Deterministic AE (vae=false) — report graph_emb stats instead
         z = graph_emb.detach().float()
         latent_diag = {
-            "vae":            "disabled",
-            "z_mean":         round(z.mean().item(), 5),
-            "z_std":          round(z.std().item(), 5),
-            "z_min":          round(z.min().item(), 5),
-            "z_max":          round(z.max().item(), 5),
-            "z_abs_max":      round(z.abs().max().item(), 5),
-            "z_dims":         z.shape[-1],
-            "z_norm_mean":    round(z.norm(dim=-1).mean().item(), 5),
+            "vae": "disabled",
+            "z_mean": round(z.mean().item(), 5),
+            "z_std": round(z.std().item(), 5),
+            "z_min": round(z.min().item(), 5),
+            "z_max": round(z.max().item(), 5),
+            "z_abs_max": round(z.abs().max().item(), 5),
+            "z_dims": z.shape[-1],
+            "z_norm_mean": round(z.norm(dim=-1).mean().item(), 5),
         }
 
     # ── 2. Node feature diversity ─────────────────────────────────────────
@@ -165,15 +169,16 @@ def run_diagnostics(model, batch, tau: float) -> dict:
 
     node_diag = {
         "position_level_cos_sim (want low)": round(sim_pos[off_diag].mean().item(), 5),
-        "position_level_cos_sim_std":        round(sim_pos[off_diag].std().item(), 5),
-        "mean_pooled_cos_sim (always ~1)":   round(sim_mean[off_diag].mean().item(), 5),
-        "feat_std_across_augs":              round(views.std(dim=0).mean().item(), 5),
-        "feat_mean":                         round(node_features.mean().item(), 5),
-        "feat_std":                          round(node_features.std().item(), 5),
-        "feat_abs_max":                      round(node_features.abs().max().item(), 5),
+        "position_level_cos_sim_std": round(sim_pos[off_diag].std().item(), 5),
+        "mean_pooled_cos_sim (always ~1)": round(sim_mean[off_diag].mean().item(), 5),
+        "feat_std_across_augs": round(views.std(dim=0).mean().item(), 5),
+        "feat_mean": round(node_features.mean().item(), 5),
+        "feat_std": round(node_features.std().item(), 5),
+        "feat_abs_max": round(node_features.abs().max().item(), 5),
         "pairwise_similarity": {
             f"{AUG_NAMES[i]}↔{AUG_NAMES[j]}": round(sim_pair[i, j].item(), 4)
-            for i in range(NUM_VIEWS) for j in range(i + 1, NUM_VIEWS)
+            for i in range(NUM_VIEWS)
+            for j in range(i + 1, NUM_VIEWS)
         },
     }
 
@@ -183,23 +188,23 @@ def run_diagnostics(model, batch, tau: float) -> dict:
         probs = soft_probs.view(NUM_VIEWS, B, NUM_VIEWS)
         pred_classes = probs.argmax(dim=-1)
         confidence = probs.max(dim=-1).values
-        per_row_H = -(probs * (probs + 1e-8).log()).sum(-1)
+        per_row_h = -(probs * (probs + 1e-8).log()).sum(-1)
 
         raw_scores = act_store.get("permuter/scoring_fc__tensor")
         score_diag = {}
         if raw_scores is not None:
             scores_by_view = raw_scores.view(NUM_VIEWS, B, NUM_VIEWS)
             max_score_diff = (
-                scores_by_view.unsqueeze(0) - scores_by_view.unsqueeze(1)
-            ).abs().max().item()
+                (scores_by_view.unsqueeze(0) - scores_by_view.unsqueeze(1)).abs().max().item()
+            )
             mean_score_diff = (
-                scores_by_view.unsqueeze(0) - scores_by_view.unsqueeze(1)
-            ).abs().mean().item()
+                (scores_by_view.unsqueeze(0) - scores_by_view.unsqueeze(1)).abs().mean().item()
+            )
             img0_scores = scores_by_view[:, 0, :]
-            img0_diffs  = img0_scores - img0_scores[0:1, :]
+            img0_diffs = img0_scores - img0_scores[0:1, :]
             score_diag = {
-                "raw_scores_mean":       round(raw_scores.mean().item(), 5),
-                "raw_scores_std":        round(raw_scores.std().item(), 5),
+                "raw_scores_mean": round(raw_scores.mean().item(), 5),
+                "raw_scores_std": round(raw_scores.std().item(), 5),
                 "max_diff_across_views": round(max_score_diff, 6),
                 "mean_diff_across_views": round(mean_score_diff, 6),
                 "IMAGE_0_score_vectors": {
@@ -213,19 +218,19 @@ def run_diagnostics(model, batch, tau: float) -> dict:
             }
 
         perm_diag = {
-            "mean_confidence":       round(confidence.mean().item(), 5),
+            "mean_confidence": round(confidence.mean().item(), 5),
             "uniform_confidence_is": round(1.0 / NUM_VIEWS, 5),
-            "per_row_entropy_mean":  round(per_row_H.mean().item(), 5),
-            "max_possible_entropy":  round(np.log(NUM_VIEWS), 5),
-            "all_views_same_class":  bool((pred_classes == pred_classes[0:1]).all().item()),
-            "is_bijective":          bool(len({pred_classes[:, 0].tolist()[v] for v in range(NUM_VIEWS)}) == NUM_VIEWS),
+            "per_row_entropy_mean": round(per_row_h.mean().item(), 5),
+            "max_possible_entropy": round(np.log(NUM_VIEWS), 5),
+            "all_views_same_class": bool((pred_classes == pred_classes[0:1]).all().item()),
+            "is_bijective": bool(
+                len({pred_classes[:, 0].tolist()[v] for v in range(NUM_VIEWS)}) == NUM_VIEWS
+            ),
             "predicted_class_per_aug": {
-                AUG_NAMES[v]: int(pred_classes[v].mode().values.item())
-                for v in range(NUM_VIEWS)
+                AUG_NAMES[v]: int(pred_classes[v].mode().values.item()) for v in range(NUM_VIEWS)
             },
             "confidence_per_aug": {
-                AUG_NAMES[v]: round(confidence[v].mean().item(), 5)
-                for v in range(NUM_VIEWS)
+                AUG_NAMES[v]: round(confidence[v].mean().item(), 5) for v in range(NUM_VIEWS)
             },
             "score_diagnostics": score_diag,
         }
@@ -246,10 +251,11 @@ def run_diagnostics(model, batch, tau: float) -> dict:
             "pred_shape": list(pred.shape),
             "global_std (1/sqrt(N) ~ 0.167 if collapsed)": round(pred.float().std().item(), 5),
             "per_position_std_mean": round(pred.float().std(dim=-1).mean().item(), 5),
-            "per_position_std_min":  round(pred.float().std(dim=-1).min().item(), 5),
-            "per_position_std_max":  round(pred.float().std(dim=-1).max().item(), 5),
-            "across_position_std (should be > 0 if decoder is position-aware)":
-                round(pred.float().mean(dim=-1).std(dim=-1).mean().item(), 5),
+            "per_position_std_min": round(pred.float().std(dim=-1).min().item(), 5),
+            "per_position_std_max": round(pred.float().std(dim=-1).max().item(), 5),
+            "across_position_std (should be > 0 if decoder is position-aware)": round(
+                pred.float().mean(dim=-1).std(dim=-1).mean().item(), 5
+            ),
             "expected_collapsed_std": round(1.0 / N**0.5, 5),
         }
     else:
@@ -257,33 +263,32 @@ def run_diagnostics(model, batch, tau: float) -> dict:
 
     # ── 6. Equivariance proof ─────────────────────────────────────────────
     # Derive the grid side from the node count (36->6, 256->16) instead of hardcoding.
-    grid = round(N ** 0.5)
+    grid = round(N**0.5)
     if grid * grid != N:
         equivariance_diag = {"note": f"skipped: N={N} is not a square grid"}
     else:
-        flip_perm = [row * grid + (grid - 1 - col)
-                     for row in range(grid) for col in range(grid)]
+        flip_perm = [row * grid + (grid - 1 - col) for row in range(grid) for col in range(grid)]
 
         h_identity = node_features[B].cpu()
-        h_flip     = node_features[0].cpu()
+        h_flip = node_features[0].cpu()
         h_identity_permuted = h_identity[flip_perm, :]
 
-        raw_diff  = (h_flip - h_identity).abs()
+        raw_diff = (h_flip - h_identity).abs()
         perm_diff = (h_flip - h_identity_permuted).abs()
 
         cos_before = F.cosine_similarity(h_flip, h_identity, dim=-1).mean().item()
-        cos_after  = F.cosine_similarity(h_flip, h_identity_permuted, dim=-1).mean().item()
+        cos_after = F.cosine_similarity(h_flip, h_identity_permuted, dim=-1).mean().item()
 
         equivariance_diag = {
             "claim": "encoder(flip(x)) == flip(encoder(x)) iff encoder is permutation-equivariant",
             "diff WITHOUT permutation": {
-                "max":    round(raw_diff.max().item(), 6),
-                "mean":   round(raw_diff.mean().item(), 6),
+                "max": round(raw_diff.max().item(), 6),
+                "mean": round(raw_diff.mean().item(), 6),
                 "cos_sim": round(cos_before, 6),
             },
             "diff AFTER applying flip_perm to identity": {
-                "max":    round(perm_diff.max().item(), 6),
-                "mean":   round(perm_diff.mean().item(), 6),
+                "max": round(perm_diff.max().item(), 6),
+                "mean": round(perm_diff.mean().item(), 6),
                 "cos_sim": round(cos_after, 6),
             },
             "verdict": (
@@ -294,17 +299,17 @@ def run_diagnostics(model, batch, tau: float) -> dict:
         }
 
     # ── 7. Within-augmentation inter-node similarity ──────────────────────
-    h_id_all  = node_features[B].cpu()
+    h_id_all = node_features[B].cpu()
     h_id_norm = F.normalize(h_id_all, dim=-1)
     sim_within = torch.mm(h_id_norm, h_id_norm.t())
-    off_diag_N = ~torch.eye(N, dtype=torch.bool)
-    inter_node_cos = sim_within[off_diag_N]
+    off_diag_n = ~torch.eye(N, dtype=torch.bool)
+    inter_node_cos = sim_within[off_diag_n]
 
     within_aug_diag = {
         "question": "are h_i and h_j similar for different positions i≠j in same augmentation?",
         "inter_node_cos_sim_mean": round(inter_node_cos.mean().item(), 6),
-        "inter_node_cos_sim_min":  round(inter_node_cos.min().item(), 6),
-        "inter_node_cos_sim_max":  round(inter_node_cos.max().item(), 6),
+        "inter_node_cos_sim_min": round(inter_node_cos.min().item(), 6),
+        "inter_node_cos_sim_max": round(inter_node_cos.max().item(), 6),
         "interpretation": (
             "COLLAPSED (encoder ignores which cell is at each position)"
             if inter_node_cos.mean().item() > 0.99
@@ -319,31 +324,34 @@ def run_diagnostics(model, batch, tau: float) -> dict:
     node_inspection = {}
     for node_idx in [0, 5, 17, 35]:
         v_identity = h_identity[node_idx]
-        v_flip     = h_flip[node_idx]
+        v_flip = h_flip[node_idx]
         cos = F.cosine_similarity(v_identity.unsqueeze(0), v_flip.unsqueeze(0)).item()
-        l2  = (v_identity - v_flip).norm().item()
+        l2 = (v_identity - v_flip).norm().item()
         node_inspection[f"node_{node_idx}"] = {
             "r0_nf (identity) first 16 dims": [round(x, 4) for x in v_identity[:16].tolist()],
             "r0_f  (flip)     first 16 dims": [round(x, 4) for x in v_flip[:16].tolist()],
-            "element-wise diff first 16":     [round(x, 4) for x in (v_flip - v_identity)[:16].tolist()],
-            "cosine_similarity":              round(cos, 6),
-            "L2_norm_of_diff":               round(l2, 6),
-            "L2_norm_of_vector":             round(v_identity.norm().item(), 4),
+            "element-wise diff first 16": [
+                round(x, 4) for x in (v_flip - v_identity)[:16].tolist()
+            ],
+            "cosine_similarity": round(cos, 6),
+            "L2_norm_of_diff": round(l2, 6),
+            "L2_norm_of_vector": round(v_identity.norm().item(), 4),
         }
 
     return {
-        "latent":                            latent_diag,
-        "node_features":                     node_diag,
-        "permuter":                          perm_diag,
-        "activations":                       activation_diag,
-        "decoder_std_diagnostic":            decoder_std_diag,
-        "equivariance_proof":                equivariance_diag,
-        "within_aug_inter_node_similarity":  within_aug_diag,
+        "latent": latent_diag,
+        "node_features": node_diag,
+        "permuter": perm_diag,
+        "activations": activation_diag,
+        "decoder_std_diagnostic": decoder_std_diag,
+        "equivariance_proof": equivariance_diag,
+        "within_aug_inter_node_similarity": within_aug_diag,
         "node_inspection (image 0, r0_nf vs r0_f)": node_inspection,
     }
 
 
 # ── pretty printer ────────────────────────────────────────────────────────────
+
 
 def _print_dict(d: dict, indent: int = 0):
     pad = "  " * indent
@@ -357,9 +365,9 @@ def _print_dict(d: dict, indent: int = 0):
 
 def _print_section(title: str, data: dict, indent: int = 0):
     pad = "  " * indent
-    print(f"\n{pad}{'─' * (60 - 2*indent)}")
+    print(f"\n{pad}{'─' * (60 - 2 * indent)}")
     print(f"{pad}  {title}")
-    print(f"{pad}{'─' * (60 - 2*indent)}")
+    print(f"{pad}{'─' * (60 - 2 * indent)}")
     _print_dict(data, indent + 1)
 
 
@@ -372,12 +380,18 @@ def print_report(results: dict, batch_idx: int):
     _print_section("NODE FEATURE DIVERSITY (across D4 augmentations)", results["node_features"])
     _print_section("PERMUTER", results["permuter"])
     _print_section("ACTIVATION STATS (per module)", results["activations"])
-    _print_section("DECODER STD DIAGNOSTIC (std ~ 1/sqrt(N) = collapsed)", results["decoder_std_diagnostic"])
+    _print_section(
+        "DECODER STD DIAGNOSTIC (std ~ 1/sqrt(N) = collapsed)", results["decoder_std_diagnostic"]
+    )
     _print_section("EQUIVARIANCE PROOF (image 0: r0_nf vs r0_f)", results["equivariance_proof"])
-    _print_section("WITHIN-AUG INTER-NODE SIMILARITY (cos(h_i, h_j) for i≠j?)",
-                   results["within_aug_inter_node_similarity"])
-    _print_section("NODE INSPECTION — actual vectors at 4 positions (image 0: r0_nf vs r0_f)",
-                   results["node_inspection (image 0, r0_nf vs r0_f)"])
+    _print_section(
+        "WITHIN-AUG INTER-NODE SIMILARITY (cos(h_i, h_j) for i≠j?)",
+        results["within_aug_inter_node_similarity"],
+    )
+    _print_section(
+        "NODE INSPECTION — actual vectors at 4 positions (image 0: r0_nf vs r0_f)",
+        results["node_inspection (image 0, r0_nf vs r0_f)"],
+    )
 
 
 # ── inspection orchestrator ──────────────────────────────────────────────────
@@ -435,8 +449,10 @@ def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
     pre_handles = []
     for _name, _mod in model.named_modules():
         if isinstance(_mod, SelfAttention):
+
             def _pre_hook(_m, args, _n=_name):
                 captured[_n] = args[0].detach()
+
             pre_handles.append(_mod.register_forward_pre_hook(_pre_hook))
     with torch.no_grad():
         z_nodes, z_global, _node_features, _mu, _logvar = model.encode(batch)
@@ -474,7 +490,9 @@ def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
     # input_features (raw pre-PCA x), if kept by the collator, also gives error vs the input.
     if pca_layer is not None:
         results["reconstruction"]["image_space"] = image_space_reconstruction(
-            graph_pred.node_features, batch.node_features, pca_layer,
+            graph_pred.node_features,
+            batch.node_features,
+            pca_layer,
             input_x=getattr(batch, "input_features", None),
         )
 
@@ -483,6 +501,7 @@ def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
+
 
 def load_model_and_data(cfg: DictConfig):
     """Build the datamodule and the PIGVAE module from the composed config, load the checkpoint."""
@@ -495,15 +514,16 @@ def load_model_and_data(cfg: DictConfig):
     if collate_fn is not None and hasattr(collate_fn, "keep_input"):
         collate_fn.keep_input = True
 
-    graph_ae      = instantiate(cfg.model.graph_ae)
-    critic        = instantiate(cfg.model.critic)
-    temp_sched    = instantiate(cfg.model.temperature_scheduler)
+    graph_ae = instantiate(cfg.model.graph_ae)
+    critic = instantiate(cfg.model.critic)
+    temp_sched = instantiate(cfg.model.temperature_scheduler)
     entropy_sched = instantiate(cfg.model.entropy_weight_scheduler)
-    kld_sched     = instantiate(cfg.model.kld_alpha_scheduler)
-    optimizer_fn  = instantiate(cfg.model.optimizer)
+    kld_sched = instantiate(cfg.model.kld_alpha_scheduler)
+    optimizer_fn = instantiate(cfg.model.optimizer)
     scheduler_cfg = cfg.model.scheduler
 
     from src.models.pigvae_auto_module import PLGraphAE
+
     model = PLGraphAE(
         graph_ae=graph_ae,
         critic=critic,
@@ -542,7 +562,9 @@ def main(cfg: DictConfig) -> None:
     model = model.to(device)
 
     if cfg.inspect:
-        out_dir = cfg.out_dir or str(Path(cfg.paths.log_dir) / "diagnostics" / Path(cfg.ckpt_path).stem)
+        out_dir = cfg.out_dir or str(
+            Path(cfg.paths.log_dir) / "diagnostics" / Path(cfg.ckpt_path).stem
+        )
         meta = {
             "ckpt": cfg.ckpt_path,
             "split": cfg.split,

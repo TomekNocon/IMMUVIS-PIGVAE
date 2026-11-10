@@ -43,9 +43,11 @@ def main(cfg: DictConfig) -> None:
         img = imc_viz.butterworth_denoise(img, cutoff_frequency_ratio=float(cfg.denoise_cutoff))
     names = _marker_names(cfg)
     C, H, W = img.shape
-    print(f"[imc-viz] {cfg.input_path} -> [C={C}, H={H}, W={W}]"
-          f"{' (named)' if names else ' (unnamed markers)'}"
-          f"{' +butterworth' if cfg.get('denoise') else ''}")
+    print(
+        f"[imc-viz] {cfg.input_path} -> [C={C}, H={H}, W={W}]"
+        f"{' (named)' if names else ' (unnamed markers)'}"
+        f"{' +butterworth' if cfg.get('denoise') else ''}"
+    )
 
     stem = cfg.name or os.path.splitext(os.path.basename(cfg.input_path))[0]
     if cfg.get("patch") is not None:
@@ -58,24 +60,41 @@ def main(cfg: DictConfig) -> None:
     pctl = tuple(cfg.pctl)
     if cfg.figure in ("both", "grid"):
         out = os.path.join(cfg.out_dir, f"{stem}_grid.png")
-        imc_viz.plot_marker_grid(img, marker_names=names, out_path=out, cmap=cfg.cmap,
-                                 pctl=pctl, ncols=int(cfg.ncols),
-                                 pixel_size_um=cfg.pixel_size_um, scale_bar_um=cfg.scale_bar_um,
-                                 title=f"{stem} · {C} markers")
+        imc_viz.plot_marker_grid(
+            img,
+            marker_names=names,
+            out_path=out,
+            cmap=cfg.cmap,
+            pctl=pctl,
+            ncols=int(cfg.ncols),
+            pixel_size_um=cfg.pixel_size_um,
+            scale_bar_um=cfg.scale_bar_um,
+            title=f"{stem} · {C} markers",
+        )
         print(f"[imc-viz] wrote {out}")
 
     if cfg.figure in ("both", "composite"):
         cc = cfg.get("composite_channels")
         if isinstance(cc, str) and cc.lower() == "all":
-            chans = list(range(C))          # every marker, distinct colours
+            chans = list(range(C))  # every marker, distinct colours
         elif cc:
             chans = list(cc)
         else:
-            chans = imc_viz.default_composite_channels(names, num_channels=C, k=int(cfg.composite_k))
+            chans = imc_viz.default_composite_channels(
+                names, num_channels=C, k=int(cfg.composite_k)
+            )
         out = os.path.join(cfg.out_dir, f"{stem}_composite.png")
-        imc_viz.plot_false_colour(img, chans, marker_names=names, out_path=out, pctl=pctl,
-                                  blend=cfg.blend, pixel_size_um=cfg.pixel_size_um,
-                                  scale_bar_um=cfg.scale_bar_um, title=f"{stem} · composite")
+        imc_viz.plot_false_colour(
+            img,
+            chans,
+            marker_names=names,
+            out_path=out,
+            pctl=pctl,
+            blend=cfg.blend,
+            pixel_size_um=cfg.pixel_size_um,
+            scale_bar_um=cfg.scale_bar_um,
+            title=f"{stem} · composite",
+        )
         print(f"[imc-viz] wrote {out} (channels={chans})")
 
     print(f"[imc-viz] done -> {os.path.abspath(cfg.out_dir)}")

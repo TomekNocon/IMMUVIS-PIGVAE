@@ -25,6 +25,7 @@ from src.downstream.encode import (
     source_subdir,
 )
 
+
 @hydra.main(version_base=None, config_path="../../configs", config_name="downstream/encode")
 def main(cfg: DictConfig) -> None:
     feature_source = getattr(cfg, "feature_source", "zglobal")
@@ -56,10 +57,21 @@ def main(cfg: DictConfig) -> None:
         emb = f"{cfg.out_dir}/cords_{split}_embeddings.npy"
         meta = f"{cfg.out_dir}/cords_{split}_metadata.csv"
         if os.path.exists(emb) and os.path.exists(meta):
-            print(f"skip {split} (exists)"); continue
-        encode_h5(f"{cfg.data_root}/{split}.h5", gae, pca, emb, meta, cfg.device,
-                  cfg.batch_size, feature_source, node_agg)
+            print(f"skip {split} (exists)")
+            continue
+        encode_h5(
+            f"{cfg.data_root}/{split}.h5",
+            gae,
+            pca,
+            emb,
+            meta,
+            cfg.device,
+            cfg.batch_size,
+            feature_source,
+            node_agg,
+        )
         print(f"wrote {emb}")
+
 
 if __name__ == "__main__":
     main()
