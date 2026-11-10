@@ -1,8 +1,10 @@
+# IMC crop embeddings from <data_dir>/<imc_root>/<dataset>/{train,test}.h5 (scripts/data/).
+# Base defaults use the 6x6 centre crop; experiment=pigvae switches to the full 16x16 grid.
 _target_: src.data.imc_datamodule.IMCDataModule
 hparams:
   data_dir: ${paths.data_dir}
-  batch_size: 16 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
-  train_val_test_split: [40843, 10197, 0, 0] # [18108, 5040, 0, 0]
+  batch_size: 16 # crops per batch (x num_aug_per_sample views); divisible by the number of devices
+  train_val_test_split: [40843, 10197, 0, 0] # train from train.h5; val and test from test.h5
   num_workers: 5
   pin_memory: False
   grid_size: 6
@@ -10,14 +12,14 @@ hparams:
   patch_size: 1
   augmentation_prob: 1.0
   is_contrastive: True
-  num_aug_per_sample: 8
+  num_aug_per_sample: 8 # D4 views per crop
   center_crop_size: 6
-  num_channels: 768
+  num_channels: 768 # ImmuVis embedding channels
   num_pca_components: 128
   num_node_features: 128
-  normalize: False # If you use PCA do not normalize!
+  normalize: False # no per-channel normalisation (the PCA handles the scale)
   imc_root: "IMC"
   imc_dataset_names:
     - "cords"
-  zscore: False   # raw PCA (no whitening): leading high-variance comps dominate the loss, matching their weight in the inverse-PCA image
-  clip_range: null  # no clamp: isolates the pure PCA-128 truncation floor (clip 3->10 already recovered most of the floor; null removes the last clip add-on entirely)
+  zscore: False # raw PCA coefficients (no whitening), so high-variance components weigh more
+  clip_range: null # no clipping of the PCA coefficients
