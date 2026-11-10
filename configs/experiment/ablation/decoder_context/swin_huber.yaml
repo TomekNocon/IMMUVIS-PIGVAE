@@ -1,8 +1,8 @@
 # @package _global_
-# Variant of ablation/decoder_context/alibi: decoder Swin learned relative-position bias + Huber-ONLY loss.
-#   vs ablation/decoder_context/alibi this changes TWO things: pos_bias alibi->swin, and loss (cosine β=0, gradient γ=0).
-#   kept: encoder dilated mask radius 2, hidden 384, final_norm on, z=32, RoPE/FiLM off, permuter dormant.
-# Run: sbatch --export=ALL,EXPERIMENT=ablation/decoder_context/swin_huber scripts/slurm/train.sh
+# Decoder-context ablation: decoder_context/alibi with a learned Swin relative-position bias
+# instead of ALiBi, and a Huber-only loss (cosine and gradient terms off).
+#
+# Run: make train EXPERIMENT=ablation/decoder_context/swin_huber
 
 defaults:
   - override /data: imc

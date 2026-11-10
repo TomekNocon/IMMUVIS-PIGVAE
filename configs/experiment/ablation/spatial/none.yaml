@@ -1,6 +1,9 @@
 # @package _global_
-# Spatial ablation — Condition A: baseline (CLS + stats only, no spatial modules)
-# Run: python src/train.py experiment=ablation/spatial/none logger=wandb trainer=gpu paths=szary
+# Spatial-readout ablation, condition A: CLS + node statistics only (no spatial modules).
+# Shared 6x6-phase setup (vs pigvae): 6x6 centre crop (36 nodes), deterministic AE (no KL),
+# no FiLM, lr 3e-4, dropout 0.1, batch 16.
+#
+# Run: make train EXPERIMENT=ablation/spatial/none   (whole axis: bash scripts/slurm/submit_ablation.sh spatial)
 
 defaults:
   - override /data: imc

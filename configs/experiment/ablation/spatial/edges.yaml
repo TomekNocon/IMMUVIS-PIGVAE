@@ -1,6 +1,9 @@
 # @package _global_
-# Spatial ablation — Condition B: CLS + stats + MLP edges (1-hop adjacency)
-# Run: python src/train.py experiment=ablation/spatial/edges logger=wandb trainer=gpu paths=szary
+# Spatial-readout ablation, condition B: A + an MLP over the grid edges (1-hop adjacency).
+# Shared 6x6-phase setup (vs pigvae): 6x6 centre crop (36 nodes), deterministic AE (no KL),
+# no FiLM, lr 3e-4, dropout 0.1, batch 16.
+#
+# Run: make train EXPERIMENT=ablation/spatial/edges   (whole axis: bash scripts/slurm/submit_ablation.sh spatial)
 
 defaults:
   - override /data: imc

@@ -1,18 +1,7 @@
 # @package _global_
-# free_bits sweep @ 16x16, point 2/3: free_bits 0.1 (the PRIMARY recommendation).
+# Free-bits ablation (FiLM off): film/no_film with 0.1 free nats per latent dimension (vs 0).
 #
-# IDENTICAL to ablation/kl/free_bits_0.5 (jtscgh92) EXCEPT kld_free_bits. Single-knob A/B/C:
-#   jtscgh92 fb 0.5 (overfit, anchor) -> fb 0.2 -> [this] fb 0.1 -> fb 0.0 (vanilla VAE).
-# 0.1 leaves 8192 x 0.1 = ~820 free nats (vs 4096 at fb 0.5) -> the latent must pay for capacity
-# beyond that, so it compresses to the genuinely-useful amount: sigma up, mu_std down, training
-# clouds overlap, decoder forced to interpolate instead of memorise.
-# See research-ml [[exp-2026-06-24-vae16-overfit-mechanism]].
-#
-# Watch: val_mse minimum should HOLD to ep39 (not climb to 0.07); train<->val gap shrinks.
-# Collapse guardrail: active_dims stays a large fraction of 8192, kld_per_dim_median not -> ~0.
-#
-# Run (or via scripts/slurm/submit_ablation.sh kl):
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/kl/free_bits_0.1 scripts/slurm/train.sh
+# Run: make train EXPERIMENT=ablation/kl/free_bits_0.1   (whole axis: bash scripts/slurm/submit_ablation.sh kl)
 
 defaults:
   - override /data: imc

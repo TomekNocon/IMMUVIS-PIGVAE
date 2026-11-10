@@ -1,16 +1,8 @@
 # @package _global_
-# Full native resolution: 16x16 grid (256 nodes) — the original IMC embedding size,
-# vs the 6x6 / 36-node centre-crop used so far. First full-size training run.
-#   grid_size = size = center_crop_size = 16 (16 == native, so the crop is a no-op).
-#   encoder/decoder/permuter grid_size = 16 (drives PE, neighborhood mask, 2D rel-pos bias).
-#   PCA refits at center_crop_16 -> pca_model_128_center_crop_16.pkl on first run.
-# Baseline otherwise: PCA 128, z=32, zscore=False, clip=null, FiLM off, qk-RMSNorm,
-# RoPE off, neighborhood_radius 1, permuter dormant (per-view AE). Even grid -> D4 still holds.
-# Memory: 256 nodes + full-attention decoder (256x256) is ~7x the 6x6 work, so batch_size 16->8.
-# Run (PCA refit over 256-node samples + bigger graphs = slower; give it walltime):
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/vae/deterministic_ae scripts/slurm/train.sh
-#   (if it OOMs, drop data.hparams.batch_size to 4)
-# Inspect: python scripts/diagnostics/diagnose_model.py --ckpt <last.ckpt> --inspect --experiment ablation/vae/deterministic_ae
+# AE vs VAE: film/no_film as a deterministic autoencoder (vae: false, so no KL term; the KL
+# settings below are unused).
+#
+# Run: make train EXPERIMENT=ablation/vae/deterministic_ae
 
 defaults:
   - override /data: imc

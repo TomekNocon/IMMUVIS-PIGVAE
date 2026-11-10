@@ -1,20 +1,10 @@
 # @package _global_
-# FiLM DIAGNOSTIC, more-VAE point (scale 0.01, free_bits 0.0 = vanilla VAE). Clone of ablation/film/no_film
-# with FiLM ON. Pair of ablation/film/film_kl_1e-3 — the two rebuild the AE<->VAE spectrum, now both FiLM-on.
+# PIGVAE: the final IMC model (wandb 81zasevr).
+# 16x16 grid of PCA-128 ImmuVis features, per-node VAE (z=32, KL scale 0.01, no free bits,
+# annealed in from epoch 5), decoder FiLM-conditioned on z_global (tanh-bounded, own weight decay
+# 0.05). Ablations: configs/experiment/ablation/<axis>/.
 #
-# Motivation: the feature-source sweep showed raw-768 mean-pool >= z_global >= node latent on every
-# downstream target. z_global gets ZERO reconstruction gradient (decoder use_film:false), so it is a
-# dead-end aggregation. This run routes z_global (the CLS) into the decoder via FiLM so reconstruction
-# gradient finally shapes it. DIAGNOSTIC, not the expected winner (node_* already has reconstruction
-# gradient and still lost to raw): it tests only whether routing z_global through reconstruction closes
-# ANY of the gap. The objective stays reconstruction, not discriminability.
-#
-# IDENTICAL to ablation/film/no_film EXCEPT decoder FiLM turned on with the STABLE recipe from
-# film_pca192_stable (plain FiLM once inflated decoder max_abs ~271; film_bound tanh-bounds gamma,beta):
-#   use_film: true, film_bound: true, film_weight_decay: 0.05.
-#
-# Run:
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=pigvae scripts/slurm/train.sh
+# Run: make train
 
 defaults:
   - override /data: imc

@@ -1,6 +1,9 @@
 # @package _global_
-# Spatial ablation — Condition C: CLS + stats + Laplacian spectrum (global structure)
-# Run: python src/train.py experiment=ablation/spatial/spectrum logger=wandb trainer=gpu paths=szary
+# Spatial-readout ablation, condition C: A + the content-weighted grid-Laplacian spectrum.
+# Shared 6x6-phase setup (vs pigvae): 6x6 centre crop (36 nodes), deterministic AE (no KL),
+# no FiLM, lr 3e-4, dropout 0.1, batch 16.
+#
+# Run: make train EXPERIMENT=ablation/spatial/spectrum   (whole axis: bash scripts/slurm/submit_ablation.sh spatial)
 
 defaults:
   - override /data: imc

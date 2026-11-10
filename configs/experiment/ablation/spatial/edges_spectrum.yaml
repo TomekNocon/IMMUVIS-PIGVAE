@@ -1,6 +1,9 @@
 # @package _global_
-# Spatial ablation — Condition D: CLS + stats + MLP edges + spectrum (full spatial)
-# Run: python src/train.py experiment=ablation/spatial/edges_spectrum logger=wandb trainer=gpu paths=szary
+# Spatial-readout ablation, condition D: A + edge MLP + Laplacian spectrum (B and C combined).
+# Shared 6x6-phase setup (vs pigvae): 6x6 centre crop (36 nodes), deterministic AE (no KL),
+# no FiLM, lr 3e-4, dropout 0.1, batch 16.
+#
+# Run: make train EXPERIMENT=ablation/spatial/edges_spectrum   (whole axis: bash scripts/slurm/submit_ablation.sh spatial)
 
 defaults:
   - override /data: imc

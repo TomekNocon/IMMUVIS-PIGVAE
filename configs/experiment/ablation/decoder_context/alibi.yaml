@@ -1,11 +1,10 @@
 # @package _global_
-# Context + decoder-locality experiment (built on the pernode_z diagnostic AE):
-#   - encoder dilated mask radius 2 (more local context, D4-equivariant)
-#   - decoder ALiBi-2D relative-position bias (soft locality; absolute PE auto-dropped)
-#   - hidden 384 (efficiency; 90%-energy rank says ~parity with 512)
-#   - final_norm ON, z=32, RoPE/FiLM off, permuter dormant (per-view AE)
-# Run: sbatch scripts/slurm/train.sh  (set EXPERIMENT) — or:
-#   python src/train.py experiment=ablation/decoder_context/alibi logger=wandb trainer=gpu paths=szary
+# Decoder-context ablation: encoder neighbourhood radius 2 (vs 1) and a 2D ALiBi distance bias
+# in the decoder instead of the absolute positional encoding; width 384.
+# Shared 6x6-phase setup (vs pigvae): 6x6 centre crop (36 nodes), deterministic AE (no KL),
+# no FiLM, lr 3e-4, dropout 0.1, batch 16.
+#
+# Run: make train EXPERIMENT=ablation/decoder_context/alibi   (whole axis: bash scripts/slurm/submit_ablation.sh decoder_context)
 
 defaults:
   - override /data: imc

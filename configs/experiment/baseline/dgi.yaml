@@ -1,13 +1,9 @@
 # @package _global_
-# DGI graph baseline — self-supervised mutual-information objective (Velickovic et al. 2019) on the
-# same IMC crop-graphs, as a contrastive counterpart to PIGVAE's reconstruction. Matched to the
-# best PIGVAE run's input: PCA-128 node features, summary width 512 (= z_global). Single-view
-# (D4 augmentation off): the mean-readout summary is D4-invariant (a grid rotation is an
-# automorphism), so the 8 views are redundant — 1 view is cheaper and exact.
+# DGI baseline: Deep Graph Infomax (Velickovic et al., 2019), a contrastive objective on the
+# same crop graphs (PCA-128 nodes, 512-d summary = z_global width), one view per crop.
+# Downstream: encode with feature_source=dgi, source_tag=dgi.
 #
-# Run:
-#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=baseline/dgi scripts/slurm/train.sh
-# Then downstream (encode readout summary -> ABMIL) with feature_source=dgi, source_tag=dgi.
+# Run: make train EXPERIMENT=baseline/dgi
 
 defaults:
   - override /data: imc

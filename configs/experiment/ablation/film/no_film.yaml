@@ -1,19 +1,10 @@
 # @package _global_
-# free_bits sweep @ 16x16, point 3/3: free_bits 0.0 (a VANILLA VAE — every KL nat penalised).
+# FiLM ablation: the final model without FiLM, so z_global gets no reconstruction gradient
+# (wandb iaktnnux).
+# Changes vs pigvae: decoder use_film / film_bound off, no FiLM weight decay.
+# Reference for the kl/* and vae/* ablations.
 #
-# IDENTICAL to ablation/kl/free_bits_0.5 (jtscgh92) EXCEPT kld_free_bits. Single-knob A/B/C:
-#   jtscgh92 fb 0.5 (overfit, anchor) -> fb 0.2 -> fb 0.1 -> [this] fb 0.0.
-# fb 0.0 disables the free-bits dead zone entirely (KLDLoss skips the relu branch) -> maximum
-# prior pressure for this scale. This is the textbook VAE; it is the strong end of the sweep and
-# the one most likely to over-correct, so read it against fb 0.1 / 0.2.
-# See research-ml [[exp-2026-06-24-vae16-overfit-mechanism]] and [[kl-regularization]].
-#
-# Watch: does val_mse hold, OR does the latent OVER-regularise / collapse? Over-correction looks
-# like std_mean -> ~1.0 (prior), mu_std low, active_dims << 8192, kld_per_dim_median crashing, and
-# val_mse uniformly worse (the vae6 / 6x6 fb0 failure mode — though that was at scale 0.05).
-#
-# Run (or via scripts/slurm/submit_ablation.sh kl):
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/film/no_film scripts/slurm/train.sh
+# Run: make train EXPERIMENT=ablation/film/no_film   (whole axis: bash scripts/slurm/submit_ablation.sh film)
 
 defaults:
   - override /data: imc

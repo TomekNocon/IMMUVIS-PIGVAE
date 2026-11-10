@@ -1,17 +1,8 @@
 # @package _global_
-# APPLES-TO-APPLES input/width test — clone of pigvae (the best run 81zasevr,
-# balanced s0.01 + FiLM-bound, batch-8 with D4 aug) with EXACTLY two knobs changed:
-#   1. PCA 128 -> 256 components (richer input; the encoder currently sees a PCA-128
-#      truncation while raw-768 keeps everything -> ceiling traced to input info).
-#   2. latent width input_size 512 -> 768 (z_global becomes 768-d = same dim as the
-#      raw-768 baseline, so the comparison is apples-to-apples on width too).
-# node_z_dim stays 32. Everything else identical to the best run.
-# Question: does z_global clear the raw-768 baseline on ALL 4 targets (incl. Relapse)
-# once input richness + width are matched? Bundles two changes on purpose (both are
-# needed for the equal-footing comparison); attribute with a follow-up rung only if it wins.
+# Input/width ablation: pigvae with PCA-256 node features (vs 128) and width 768 (vs 512), so
+# z_global is 768-d like the raw ImmuVis baseline.
 #
-# Run:
-#   sbatch --time=12:00:00 --export=ALL,EXPERIMENT=ablation/input_width/pca256_zg768 scripts/slurm/train.sh
+# Run: make train EXPERIMENT=ablation/input_width/pca256_zg768
 
 defaults:
   - override /data: imc

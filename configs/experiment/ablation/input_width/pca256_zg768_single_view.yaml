@@ -1,17 +1,9 @@
 # @package _global_
-# BATCH-64 sibling of ablation/input_width/pca256_zg768 — same two knobs (PCA-256 + z_global-768),
-# but the batch is 64 DISTINCT images with the D4 augmentation OFF (num_aug_per_sample: 1),
-# instead of 8 images x 8 D4 views.
+# Input/width ablation, single view: input_width/pca256_zg768 with one view per crop (D4
+# augmentation off) and batches of 64 distinct crops (vs 8 crops x 8 views). z_global is
+# D4-invariant, so the extra views add no new content to it.
 #
-# Rationale: the permuter is dormant, so the 8 D4 views feed no invariance objective. And since
-# z_global is EXACTLY D4-invariant by construction (no positional encoding + D4-equivariant mask
-# + symmetric readout), the 8 views produce the IDENTICAL z_global — they add orientation variety
-# to the per-node reconstruction but ZERO new image content to z_global. Batch-64 gives z_global
-# 8x more distinct-image gradient diversity per step, and trains ~5-6x faster (~1.75h vs ~10h).
-# The raw-768 baseline is recipe-independent, so "does z_global clear raw" stays a valid comparison.
-#
-# Run:
-#   sbatch --time=06:00:00 --export=ALL,EXPERIMENT=ablation/input_width/pca256_zg768_single_view scripts/slurm/train.sh
+# Run: make train EXPERIMENT=ablation/input_width/pca256_zg768_single_view
 
 defaults:
   - override /data: imc
