@@ -201,6 +201,10 @@ class PLGraphAE(L.LightningModule):
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
+        if wandb.run is None or not self.validation_step_outputs:  # figures need a wandb run
+            self.validation_step_outputs.clear()
+            self.perms.clear()
+            return
         # Log one example to W&B
         n_examples = 10
         predictions = self.validation_step_outputs[0]["prediction"].node_features
@@ -248,7 +252,8 @@ class PLGraphAE(L.LightningModule):
 
         subset_batch_size = subset_predictions.shape[0]
         pred_imgs = (
-            pL.restore_tensor(
+            pL
+            .restore_tensor(
                 restore_subset_predictions,
                 subset_batch_size,
                 1,
@@ -261,7 +266,8 @@ class PLGraphAE(L.LightningModule):
             .squeeze()
         )
         ground_truth_imgs = (
-            pL.restore_tensor(
+            pL
+            .restore_tensor(
                 restore_subset_ground_truths,
                 subset_batch_size,
                 1,
@@ -356,6 +362,10 @@ class PLGraphAE(L.LightningModule):
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
+        if wandb.run is None or not self.test_step_outputs:  # figures need a wandb run
+            self.test_step_outputs.clear()
+            self.perms.clear()
+            return
         n_examples = 10
         predictions = self.test_step_outputs[0]["prediction"].node_features
         ground_truths = self.test_step_outputs[0]["ground_truth"].node_features
@@ -393,7 +403,8 @@ class PLGraphAE(L.LightningModule):
 
         subset_batch_size = subset_predictions.shape[0]
         pred_imgs = (
-            pL.restore_tensor(
+            pL
+            .restore_tensor(
                 restore_subset_predictions,
                 subset_batch_size,
                 1,
@@ -407,7 +418,8 @@ class PLGraphAE(L.LightningModule):
             .numpy()
         )
         ground_truth_imgs = (
-            pL.restore_tensor(
+            pL
+            .restore_tensor(
                 restore_subset_ground_truths,
                 subset_batch_size,
                 1,
