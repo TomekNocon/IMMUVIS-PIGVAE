@@ -18,8 +18,9 @@ class Seq(nn.Module):
 def test_collect_activation_stats_per_module_and_token():
     model = Seq()
     x = torch.randn(4, 36, 8)
-    stats = collect_activation_stats(model, lambda: model(x),
-                                     module_filter=lambda n, m: isinstance(m, nn.Linear))
+    stats = collect_activation_stats(
+        model, lambda: model(x), module_filter=lambda n, m: isinstance(m, nn.Linear)
+    )
     assert "a" in stats and "b" in stats
     assert "max_abs" in stats["a"]
     # 3D output -> per-token norms recorded with length N=36

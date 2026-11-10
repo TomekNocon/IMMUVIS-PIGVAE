@@ -20,11 +20,18 @@ def test_build_flags_detects_anomalies():
 def test_write_report_creates_artifacts(tmp_path):
     results = {
         "meta": {"run": "test"},
-        "weights": {}, "activations": {}, "attention": {},
+        "weights": {},
+        "activations": {},
+        "attention": {},
         "latent": {"z_dim": 32, "active_dims": 30, "rank_ratio": 0.9},
-        "reconstruction": {"per_channel_r2": [0.9], "per_channel_mse": [0.1],
-                           "per_position_mse": [0.1], "worst_channels": [0],
-                           "per_view_mse": None, "error_by_magnitude": []},
+        "reconstruction": {
+            "per_channel_r2": [0.9],
+            "per_channel_mse": [0.1],
+            "per_position_mse": [0.1],
+            "worst_channels": [0],
+            "per_view_mse": None,
+            "error_by_magnitude": [],
+        },
     }
     write_report(results, tmp_path)
     assert (tmp_path / "report.json").exists()

@@ -74,7 +74,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S301", "S403", "S404"]
+"tests/**" = ["S101", "S301", "S403", "S404", "S603"]
 "scripts/thesis_figures/**" = ["RUF001"]  # typographic characters (×, −, –) in figure text
 
 [tool.ruff.lint.isort]
@@ -82,7 +82,13 @@ known-first-party = ["src", "figlib"]
 
 [tool.ruff.lint.pep8-naming]
 # Single-letter tensor dimensions (batch, nodes, channels, height, width, ...) are ML notation.
-extend-ignore-names = ["A", "B", "C", "D", "H", "K", "L", "N", "W", "X"]
+extend-ignore-names = ["A", "B", "C", "D", "H", "K", "L", "N", "P", "W", "X"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers"]
+markers = ["slow: integration tests that train on real data (deselect with '-m \"not slow\"')"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]
 
 [tool.mypy]
 python_version = "3.10"

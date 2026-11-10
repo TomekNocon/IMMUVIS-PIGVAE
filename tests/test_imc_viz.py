@@ -93,7 +93,7 @@ def test_default_composite_by_name():
     names = ["SMA", "DNA1", "CD8a", "Foo", "CD68"]
     picked = imc_viz.default_composite_channels(names, k=3)
     assert picked[0] == 1  # DNA lands first (blue slot)
-    assert 2 in picked      # CD8
+    assert 2 in picked  # CD8
 
 
 def test_default_composite_by_index_fallback():
@@ -150,7 +150,8 @@ def test_plot_false_colour_all_channels_writes_png(img_chw, tmp_path):
 def test_plot_false_colour_writes_png_and_returns_rgb(img_chw, tmp_path):
     out = tmp_path / "comp.png"
     names = [f"m{i}" for i in range(40)]
-    rgb = imc_viz.plot_false_colour(img_chw, [0, "m1", 2], marker_names=names,
-                                    out_path=str(out), pixel_size_um=1.0)
+    rgb = imc_viz.plot_false_colour(
+        img_chw, [0, "m1", 2], marker_names=names, out_path=str(out), pixel_size_um=1.0
+    )
     assert out.exists() and out.stat().st_size > 0
     assert rgb.shape == (256, 256, 3)

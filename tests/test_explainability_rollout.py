@@ -12,7 +12,9 @@ def test_capture_attention_collects_encoder_layers():
     mask = torch.ones(1, 256, dtype=torch.bool)
     store: list = []
     with capture_attention(store):
-        gae.encode(DenseGraphBatch(node_features=nf, edge_features=torch.empty(0), mask=mask), sample=False)
+        gae.encode(
+            DenseGraphBatch(node_features=nf, edge_features=torch.empty(0), mask=mask), sample=False
+        )
     assert len(store) == 4  # 4 encoder transformer layers, one SDPA call each
     assert store[0].shape[-1] == 257  # T = 256 content + 1 CLS
 

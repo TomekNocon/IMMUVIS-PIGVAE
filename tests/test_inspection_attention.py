@@ -7,8 +7,9 @@ from src.utils.inspection.attention import attention_entropy_from_input
 
 def test_entropy_fraction_in_unit_range_and_uniform_is_high():
     torch.manual_seed(0)
-    t = Transformer(hidden_dim=16, num_heads=2, ppf_hidden_dim=32, num_layers=1,
-                    dropout=0.0, qk_norm=True)
+    t = Transformer(
+        hidden_dim=16, num_heads=2, ppf_hidden_dim=32, num_layers=1, dropout=0.0, qk_norm=True
+    )
     attn = t.blocks[0].attention_layer
     assert isinstance(attn, SelfAttention)
     x = torch.randn(2, 36, 16)

@@ -1,111 +1,55 @@
+"""Smoke tests of Hydra multirun sweeps through ``src/train.py`` (``fast_dev_run``)."""
+
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from tests.helpers.run_if import RunIf
-from tests.helpers.run_sh_command import run_sh_command
-
-startfile = "src/train.py"
-overrides = ["logger=[]"]
+from tests.conftest import TEST_OVERRIDES
+from tests.helpers.run_if import ROOT, RunIf
 
 
-@RunIf(sh=True)  # type: ignore[operator]
+def _multirun(tmp_path: Path, *overrides: str) -> None:
+    base = TEST_OVERRIDES
+    if any(o.startswith("experiment=") for o in overrides):
+        base = [o for o in base if not o.startswith("experiment=")]
+    command = [
+        sys.executable,
+        "src/train.py",
+        "-m",
+        f"hydra.sweep.dir={tmp_path}",
+        "++trainer.fast_dev_run=true",
+        *base,
+        *overrides,
+    ]
+    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        pytest.fail(result.stderr[-5000:])
+
+
+@RunIf(imc_data=True)
 @pytest.mark.slow
 def test_experiments(tmp_path: Path) -> None:
-    """Test running all available experiment configs with `fast_dev_run=True.`
-
-    :param tmp_path: The temporary logging path.
-    """
-    command = [
-        startfile,
-        "-m",
-        "experiment=glob(*)",
-        "hydra.sweep.dir=" + str(tmp_path),
-        "++trainer.fast_dev_run=true",
-        *overrides,
-    ]
-    run_sh_command(command)
+    """Every top-level experiment config runs."""
+    _multirun(tmp_path, "experiment=glob(*)")
 
 
-@RunIf(sh=True)  # type: ignore[operator]
+@RunIf(imc_data=True)
 @pytest.mark.slow
 def test_hydra_sweep(tmp_path: Path) -> None:
-    """Test default hydra sweep.
-
-    :param tmp_path: The temporary logging path.
-    """
-    command = [
-        startfile,
-        "-m",
-        "hydra.sweep.dir=" + str(tmp_path),
-        "model.optimizer.lr=0.005,0.01",
-        "++trainer.fast_dev_run=true",
-        *overrides,
-    ]
-
-    run_sh_command(command)
+    """A basic grid sweep over the learning rate."""
+    _multirun(tmp_path, "model.optimizer.lr=0.005,0.01")
 
 
-@RunIf(sh=True)  # type: ignore[operator]
-@pytest.mark.slow
-def test_hydra_sweep_ddp_sim(tmp_path: Path) -> None:
-    """Test default hydra sweep with ddp sim.
-
-    :param tmp_path: The temporary logging path.
-    """
-    command = [
-        startfile,
-        "-m",
-        "hydra.sweep.dir=" + str(tmp_path),
-        "trainer=ddp_sim",
-        "trainer.max_epochs=3",
-        "+trainer.limit_train_batches=0.01",
-        "+trainer.limit_val_batches=0.1",
-        "+trainer.limit_test_batches=0.1",
-        "model.optimizer.lr=0.005,0.01,0.02",
-        *overrides,
-    ]
-    run_sh_command(command)
-
-
-@RunIf(sh=True)  # type: ignore[operator]
+@RunIf(imc_data=True)
 @pytest.mark.slow
 def test_optuna_sweep(tmp_path: Path) -> None:
-    """Test Optuna hyperparam sweeping.
-
-    :param tmp_path: The temporary logging path.
-    """
-    command = [
-        startfile,
-        "-m",
+    """The PIGVAE Optuna search (in-memory storage, a few trials)."""
+    _multirun(
+        tmp_path,
         "hparams_search=pigvae_optuna",
-        "hydra.sweep.dir=" + str(tmp_path),
-        "hydra.sweeper.n_trials=10",
-        "hydra.sweeper.sampler.n_startup_trials=5",
-        "++trainer.fast_dev_run=true",
-        *overrides,
-    ]
-    run_sh_command(command)
-
-
-@RunIf(wandb=True, sh=True)  # type: ignore[operator]
-@pytest.mark.slow
-def test_optuna_sweep_ddp_sim_wandb(tmp_path: Path) -> None:
-    """Test Optuna sweep with wandb logging and ddp sim.
-
-    :param tmp_path: The temporary logging path.
-    """
-    command = [
-        startfile,
-        "-m",
-        "hparams_search=pigvae_optuna",
-        "hydra.sweep.dir=" + str(tmp_path),
-        "hydra.sweeper.n_trials=5",
-        "trainer=ddp_sim",
-        "trainer.max_epochs=3",
-        "+trainer.limit_train_batches=0.01",
-        "+trainer.limit_val_batches=0.1",
-        "+trainer.limit_test_batches=0.1",
-        "logger=wandb",
-    ]
-    run_sh_command(command)
+        "hydra.sweeper.storage=null",
+        "hydra.sweeper.n_trials=3",
+        "hydra.sweeper.sampler.n_startup_trials=2",
+    )

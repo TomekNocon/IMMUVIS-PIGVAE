@@ -4,6 +4,7 @@ Builds per-node mu/logvar with known overlap and asserts ae_vae_spectrum() place
 them on the right part of the axis (AE-ward / balanced / over-regularised), and that
 the law-of-total-variance decomposition holds.
 """
+
 import math
 
 import torch

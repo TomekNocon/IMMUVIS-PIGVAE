@@ -34,11 +34,12 @@ def test_mil_collate_pads_and_masks():
     import torch
 
     from src.downstream.abmil.data import MILDataset, mil_collate
-    ds = MILDataset([np.ones((2,4),"float32"), np.ones((5,4),"float32")], torch.tensor([0,1]))
+
+    ds = MILDataset([np.ones((2, 4), "float32"), np.ones((5, 4), "float32")], torch.tensor([0, 1]))
     bags, masks, labels = mil_collate([ds[0], ds[1]])
-    assert bags.shape == (2,5,4) and masks.shape == (2,5)
-    assert masks[0,2] and not masks[0,1] and not masks[1,4]
-    assert list(labels) == [0,1]
+    assert bags.shape == (2, 5, 4) and masks.shape == (2, 5)
+    assert masks[0, 2] and not masks[0, 1] and not masks[1, 4]
+    assert list(labels) == [0, 1]
 
 
 def test_build_image_bags_groups_and_labels(tmp_path):
@@ -46,14 +47,18 @@ def test_build_image_bags_groups_and_labels(tmp_path):
     import pandas as pd
 
     from src.downstream.abmil.data import build_image_bags
-    emb = str(tmp_path/"e.npy"); np.save(emb, np.arange(6*4, dtype="float32").reshape(6,4))
+
+    emb = str(tmp_path / "e.npy")
+    np.save(emb, np.arange(6 * 4, dtype="float32").reshape(6, 4))
     df = pd.DataFrame({
-        "img_path": ["a","a","a","b","b","b"],
-        "embeddings_file": [emb]*6, "embedding_idx": [0,1,2,3,4,5],
-        "feature_value": ["pos","pos","pos","neg","neg","neg"]})
-    bags, labels = build_image_bags(df, {"neg":0,"pos":1})
-    assert len(bags) == 2 and bags[0].shape == (3,4)
-    assert list(labels) == [1,0]
+        "img_path": ["a", "a", "a", "b", "b", "b"],
+        "embeddings_file": [emb] * 6,
+        "embedding_idx": [0, 1, 2, 3, 4, 5],
+        "feature_value": ["pos", "pos", "pos", "neg", "neg", "neg"],
+    })
+    bags, labels = build_image_bags(df, {"neg": 0, "pos": 1})
+    assert len(bags) == 2 and bags[0].shape == (3, 4)
+    assert list(labels) == [1, 0]
 
 
 def test_build_image_bags_drops_unmapped_and_stays_aligned(tmp_path):
@@ -61,20 +66,23 @@ def test_build_image_bags_drops_unmapped_and_stays_aligned(tmp_path):
     import pandas as pd
 
     from src.downstream.abmil.data import build_image_bags
-    emb = str(tmp_path/"e.npy"); np.save(emb, np.arange(7*4, dtype="float32").reshape(7,4))
-    df = pd.DataFrame({
-        "img_path": ["valid","valid","valid","nanlabel","nanlabel","unmapped","unmapped"],
-        "embeddings_file": [emb]*7,
-        "embedding_idx": [0,1,2,3,4,5,6],
-        "feature_value": ["pos","pos","pos",np.nan,np.nan,"unknown_class","unknown_class"]})
 
-    bags, labels = build_image_bags(df, {"neg":0,"pos":1})
+    emb = str(tmp_path / "e.npy")
+    np.save(emb, np.arange(7 * 4, dtype="float32").reshape(7, 4))
+    df = pd.DataFrame({
+        "img_path": ["valid", "valid", "valid", "nanlabel", "nanlabel", "unmapped", "unmapped"],
+        "embeddings_file": [emb] * 7,
+        "embedding_idx": [0, 1, 2, 3, 4, 5, 6],
+        "feature_value": ["pos", "pos", "pos", np.nan, np.nan, "unknown_class", "unknown_class"],
+    })
+
+    bags, labels = build_image_bags(df, {"neg": 0, "pos": 1})
 
     # Both the NaN-labelled image and the unmapped-label image must be
     # dropped from BOTH outputs, keeping bags and labels aligned 1:1.
     assert len(bags) == 1 and len(labels) == 1
     assert bags[0].shape == (3, 4)
-    assert np.array_equal(bags[0], np.arange(3*4, dtype="float32").reshape(3,4))
+    assert np.array_equal(bags[0], np.arange(3 * 4, dtype="float32").reshape(3, 4))
     assert list(labels) == [1]
 
 
@@ -86,12 +94,19 @@ def test_abmil_lit_overfits_toy():
 
     from src.downstream.abmil.data import MILDataset, mil_collate
     from src.downstream.abmil.lit import AbmilLitModule
-    g = torch.Generator().manual_seed(0)
-    pos = [np.ones((3,8),"float32") for _ in range(8)]; neg = [(-np.ones((3,8),"float32")) for _ in range(8)]
-    ds = MILDataset(pos+neg, torch.tensor([1]*8+[0]*8))
+
+    pos = [np.ones((3, 8), "float32") for _ in range(8)]
+    neg = [(-np.ones((3, 8), "float32")) for _ in range(8)]
+    ds = MILDataset(pos + neg, torch.tensor([1] * 8 + [0] * 8))
     dl = DataLoader(ds, batch_size=4, shuffle=True, collate_fn=mil_collate)
     m = AbmilLitModule(emb_dim=8, hidden_dim=8, num_heads=1, num_classes=2, lr=1e-2)
-    tr = L.Trainer(max_epochs=30, enable_progress_bar=False, logger=False, enable_checkpointing=False, accelerator="cpu")
+    tr = L.Trainer(
+        max_epochs=30,
+        enable_progress_bar=False,
+        logger=False,
+        enable_checkpointing=False,
+        accelerator="cpu",
+    )
     tr.fit(m, dl)
     # after fit, predictions on the training bags are (near) perfect
     with torch.no_grad():
@@ -107,9 +122,21 @@ def test_run_cv_separable(tmp_path):
     import torch
 
     from src.downstream.abmil.cv import run_cv
-    bags = [np.ones((3,8),"float32") for _ in range(10)] + [(-np.ones((3,8),"float32")) for _ in range(10)]
-    labels = torch.tensor([1]*10 + [0]*10)
-    cfg = SimpleNamespace(num_folds=2, hidden_dim=8, num_heads=1, num_epochs=15, patience=5,
-                          lr=1e-2, batch_size=4, zscore="cv_train", results_dir=str(tmp_path))
+
+    bags = [np.ones((3, 8), "float32") for _ in range(10)] + [
+        (-np.ones((3, 8), "float32")) for _ in range(10)
+    ]
+    labels = torch.tensor([1] * 10 + [0] * 10)
+    cfg = SimpleNamespace(
+        num_folds=2,
+        hidden_dim=8,
+        num_heads=1,
+        num_epochs=15,
+        patience=5,
+        lr=1e-2,
+        batch_size=4,
+        zscore="cv_train",
+        results_dir=str(tmp_path),
+    )
     out = run_cv(bags, labels, num_classes=2, cfg=cfg)
     assert np.mean(out["fold_accuracy"]) > 0.8

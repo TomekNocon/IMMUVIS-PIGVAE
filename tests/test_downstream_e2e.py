@@ -23,9 +23,9 @@ class StubPCA:
 
 
 def test_e2e_encode_to_abmil(tmp_path):
-    from src.downstream.encode import encode_h5, load_frozen_pigvae, _build_pl_module
-    from src.downstream.abmil.data import build_image_bags
     from src.downstream.abmil.cv import run_cv
+    from src.downstream.abmil.data import build_image_bags
+    from src.downstream.encode import _build_pl_module, encode_h5, load_frozen_pigvae
 
     # --- Step 1: synthetic h5 -- 12 patches, 4 unique images x 3 crops each ---
     n_images = 4
@@ -67,8 +67,15 @@ def test_e2e_encode_to_abmil(tmp_path):
 
     # --- Step 5: run stratified 2-fold CV ---
     cfg = SimpleNamespace(
-        num_folds=2, hidden_dim=8, num_heads=1, num_epochs=3, patience=2,
-        lr=1e-2, batch_size=2, zscore="cv_train", results_dir=str(tmp_path),
+        num_folds=2,
+        hidden_dim=8,
+        num_heads=1,
+        num_epochs=3,
+        patience=2,
+        lr=1e-2,
+        batch_size=2,
+        zscore="cv_train",
+        results_dir=str(tmp_path),
     )
     out = run_cv(bags, labels, num_classes=2, cfg=cfg)
 

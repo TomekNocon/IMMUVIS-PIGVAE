@@ -25,9 +25,9 @@ def test_tensor_stats_empty():
 
 def test_participation_ratio_uniform_vs_spiked():
     uniform = torch.ones(10)
-    assert abs(participation_ratio(uniform) - 10.0) < 1e-4   # all equal -> full PR
+    assert abs(participation_ratio(uniform) - 10.0) < 1e-4  # all equal -> full PR
     spiked = torch.tensor([100.0, 1e-6, 1e-6])
-    assert participation_ratio(spiked) < 1.1                 # dominated by one -> ~1
+    assert participation_ratio(spiked) < 1.1  # dominated by one -> ~1
 
 
 def test_linear_spectral_identity():
@@ -45,11 +45,11 @@ def test_energy_rank_concentrated():
     # singular values 10, 5 -> energy 100, 25 (total 125); cum: 0.8, 1.0
     sv = torch.tensor([10.0, 5.0, 0.0, 0.0])
     out = energy_rank(sv)
-    assert out["rank90"] == 2   # 0.8 < 0.9 at k=1, reaches at k=2
+    assert out["rank90"] == 2  # 0.8 < 0.9 at k=1, reaches at k=2
     assert out["rank99"] == 2
 
 
 def test_energy_rank_single_direction():
     sv = torch.tensor([10.0, 0.01, 0.01])
     out = energy_rank(sv)
-    assert out["rank90"] == 1   # one direction holds ~100% of energy
+    assert out["rank90"] == 1  # one direction holds ~100% of energy

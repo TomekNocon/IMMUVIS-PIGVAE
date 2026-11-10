@@ -6,9 +6,7 @@ feature corruption for DGI's negatives, the D4-invariant crop summary used for A
 mutual-information loss is a real scalar that decreases on a toy.
 """
 
-import networkx as nx
 import numpy as np
-import pytest
 import torch
 
 from src.baselines.dgi.model import DGILitModule, corrupt_features, grid_adjacency
@@ -25,14 +23,14 @@ def _rotation_perm(grid_size: int) -> torch.Tensor:
 
 
 def test_grid_adjacency_shape_and_symmetry():
-    A = grid_adjacency(4)                      # 4x4 grid -> 16 nodes
+    A = grid_adjacency(4)  # 4x4 grid -> 16 nodes
     assert A.shape == (16, 16)
     assert torch.allclose(A, A.t(), atol=1e-6)  # undirected -> symmetric
 
 
 def test_grid_adjacency_has_self_loops():
     A = grid_adjacency(4, normalize=False)
-    assert (A.diag() > 0).all()                # self-loops added (GCN needs A + I)
+    assert (A.diag() > 0).all()  # self-loops added (GCN needs A + I)
 
 
 def test_grid_adjacency_commutes_with_d4_rotation():
@@ -46,7 +44,7 @@ def test_grid_adjacency_commutes_with_d4_rotation():
 
 def test_corrupt_features_shape_and_per_graph_shuffle():
     torch.manual_seed(0)
-    x = torch.randn(3, 16, 8)                  # [B, N, F]
+    x = torch.randn(3, 16, 8)  # [B, N, F]
     xc = corrupt_features(x)
     assert xc.shape == x.shape
     # each graph's corrupted rows are a permutation of its own rows (row multiset preserved)
@@ -54,14 +52,14 @@ def test_corrupt_features_shape_and_per_graph_shuffle():
         orig = {tuple(r.tolist()) for r in x[b]}
         corr = {tuple(r.tolist()) for r in xc[b]}
         assert orig == corr
-    assert not torch.allclose(xc, x)           # actually shuffled
+    assert not torch.allclose(xc, x)  # actually shuffled
 
 
 def test_embed_returns_summary_of_hidden_width():
     torch.manual_seed(0)
     m = DGILitModule(n_in=8, n_h=6, grid_size=4)
     c = m.embed(torch.randn(3, 16, 8))
-    assert c.shape == (3, 6)                    # per-crop summary, hidden width
+    assert c.shape == (3, 6)  # per-crop summary, hidden width
 
 
 def test_embed_is_d4_invariant():
@@ -89,22 +87,27 @@ def test_mi_loss_decreases_on_toy():
     opt = torch.optim.Adam(m.parameters(), lr=1e-2)
     first = m.mi_loss(x).item()
     for _ in range(50):
-        opt.zero_grad(); loss = m.mi_loss(x); loss.backward(); opt.step()
-    assert loss.item() < first                  # the contrastive objective actually trains
+        opt.zero_grad()
+        loss = m.mi_loss(x)
+        loss.backward()
+        opt.step()
+    assert loss.item() < first  # the contrastive objective actually trains
 
 
 def test_source_subdir_dgi():
     from src.downstream.encode import source_subdir
-    assert source_subdir("dgi") == "dgi"        # DGI lands in its own mil_embeddings/dgi bundle
+
+    assert source_subdir("dgi") == "dgi"  # DGI lands in its own mil_embeddings/dgi bundle
 
 
 def test_encode_patches_dgi_returns_summary():
     # The encode path used by the ABMIL sweep must yield one DGI summary [B, n_h] per crop.
     from src.downstream.encode import encode_patches
+
     torch.manual_seed(0)
     B, gs, C, n_in, n_h = 3, 16, 768, 128, 512
     m = DGILitModule(n_in=n_in, n_h=n_h, grid_size=gs).eval()
-    pca = torch.nn.Linear(C, n_in)              # stand-in for the fitted 768->128 PCA
+    pca = torch.nn.Linear(C, n_in)  # stand-in for the fitted 768->128 PCA
     patches = np.random.randn(B, C, gs, gs).astype("float32")
     out = encode_patches(m, pca, patches, "cpu", feature_source="dgi")
     assert out.shape == (B, n_h)
@@ -112,12 +115,20 @@ def test_encode_patches_dgi_returns_summary():
 
 def test_load_frozen_dgi_roundtrip(tmp_path):
     import lightning
+
     from src.downstream.encode import load_frozen_dgi
+
     m = DGILitModule(n_in=8, n_h=6, grid_size=4)
     ckpt = tmp_path / "dgi.ckpt"
-    torch.save({"state_dict": m.state_dict(), "hyper_parameters": dict(m.hparams),
-                "pytorch-lightning_version": lightning.__version__}, ckpt)
+    torch.save(
+        {
+            "state_dict": m.state_dict(),
+            "hyper_parameters": dict(m.hparams),
+            "pytorch-lightning_version": lightning.__version__,
+        },
+        ckpt,
+    )
     loaded = load_frozen_dgi(str(ckpt))
-    assert hasattr(loaded, "embed") and not loaded.training      # loaded + eval mode
+    assert hasattr(loaded, "embed") and not loaded.training  # loaded + eval mode
     x = torch.randn(2, 16, 8)
     assert torch.allclose(loaded.embed(x), m.eval().embed(x), atol=1e-5)  # same weights

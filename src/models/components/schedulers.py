@@ -11,7 +11,7 @@ class TemperatureScheduler(torch.nn.Module):
         super().__init__()
         self.initial_tau = hparams.initial_tau
         self.final_tau = hparams.final_tau
-        self.num_epochs = hparams.num_epochs
+        self.num_epochs = max(1, int(hparams.num_epochs))  # >= 1: short runs ramp in one epoch
 
     def forward(self, epoch: int) -> float:
         tau = self.initial_tau * (self.final_tau / self.initial_tau) ** (epoch / self.num_epochs)
@@ -25,7 +25,7 @@ class EntropyWeightScheduler(torch.nn.Module):
         super().__init__()
         self.initial_weight = hparams.initial_weight
         self.final_weight = hparams.final_weight
-        self.total_epochs = hparams.num_epochs
+        self.total_epochs = max(1, int(hparams.num_epochs))
         self.mode = hparams.mode
 
     def forward(self, epoch: int) -> float:
@@ -48,7 +48,7 @@ class KLDAlphaScheduler(torch.nn.Module):
         super().__init__()
         self.initial_alpha = hparams.initial_alpha
         self.final_alpha = hparams.final_alpha
-        self.total_epochs = hparams.num_epochs
+        self.total_epochs = max(1, int(hparams.num_epochs))
         # Hold at initial_alpha until start_epoch, then anneal over num_epochs, so the KL ramp
         # can start after the LR warmup peak. Default 0 ramps from epoch 0.
         self.start_epoch = int(getattr(hparams, "start_epoch", 0))

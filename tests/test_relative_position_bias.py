@@ -42,11 +42,21 @@ def test_transformer_pos_bias_changes_output():
 
 def _decoder(pos_bias: str) -> GraphDecoder:
     h = OmegaConf.create({
-        "graph_decoder_hidden_dim": 64, "graph_decoder_num_heads": 4,
-        "graph_decoder_ppf_hidden_dim": 128, "graph_decoder_num_layers": 2,
-        "dropout": 0.0, "head_dim": 16, "qk_norm": True, "use_film": False,
-        "use_rope": False, "pos_bias": pos_bias, "node_z_dim": 32, "project": True,
-        "num_node_features": 128, "grid_size": 6, "encoder_hidden_dim": 64,
+        "graph_decoder_hidden_dim": 64,
+        "graph_decoder_num_heads": 4,
+        "graph_decoder_ppf_hidden_dim": 128,
+        "graph_decoder_num_layers": 2,
+        "dropout": 0.0,
+        "head_dim": 16,
+        "qk_norm": True,
+        "use_film": False,
+        "use_rope": False,
+        "pos_bias": pos_bias,
+        "node_z_dim": 32,
+        "project": True,
+        "num_node_features": 128,
+        "grid_size": 6,
+        "encoder_hidden_dim": 64,
     })
     return GraphDecoder(h)
 

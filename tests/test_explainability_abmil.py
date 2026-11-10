@@ -33,7 +33,10 @@ def test_faithfulness_rewards_correct_importance():
     # Linear score = sum of feature-0 across instances; the true importance is feature-0.
     torch.manual_seed(1)
     x = torch.rand(6, 4) + 1.0  # positive contributions
-    forward_fn = lambda bag: bag[:, 0].sum()
+
+    def forward_fn(bag: torch.Tensor) -> torch.Tensor:
+        return bag[:, 0].sum()
+
     good = x[:, 0]
     bad = -x[:, 0]  # reversed ranking
 
