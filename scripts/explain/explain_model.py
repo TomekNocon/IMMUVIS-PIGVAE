@@ -127,15 +127,9 @@ def main(cfg: DictConfig) -> None:
             rows.append({"crop": b, "ig": fs_ig, "random": fs_rand})
         torch.save(rows, os.path.join(cfg.out_dir, "faithfulness.pt"))
 
-    elif cfg.method in ("abmil_ig", "abmil_attention"):
-        raise NotImplementedError(
-            "ABMIL decision-level explainability needs a trained ABMIL head + per-image bag "
-            "assembly. The attribution functions are ready and tested in "
-            "src/explainability/abmil_attribution.py; wiring the entrypoint (load abmil_ckpt, "
-            "build z_global bags per image) is the next step."
-        )
     else:
-        raise ValueError(f"unknown method {cfg.method!r}")
+        # ABMIL (decision-level) attribution: scripts/explain/explain_abmil.py
+        raise ValueError(f"unknown method {cfg.method!r} (encoder_ig | rollout | faithfulness)")
 
     print(f"[explain] wrote outputs to {os.path.abspath(cfg.out_dir)}")
 

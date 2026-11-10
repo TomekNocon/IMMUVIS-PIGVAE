@@ -9,7 +9,7 @@ defaults:
 task_name: abmil
 
 downstream_root: ${paths.root_dir}/downstream
-run_tag: vae16_s0p001_2026-06-28 # checkpoint bundle under downstream_root
+run_tag: ??? # checkpoint bundle under downstream_root
 source_tag: zglobal # raw | zglobal | node_mean | node_flatten
 meta_dir: ${downstream_root}/${run_tag}/meta_tables/${source_tag}
 results_dir: ${downstream_root}/${run_tag}/results/${source_tag}

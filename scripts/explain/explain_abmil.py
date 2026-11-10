@@ -19,7 +19,6 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 import hydra
 import numpy as np
-import pandas as pd
 import torch
 from omegaconf import DictConfig
 
@@ -27,39 +26,16 @@ from src.utils.resolvers import register_resolvers
 
 register_resolvers()
 
-from src.downstream.abmil.data import _load_memmap
+from src.downstream.abmil.data import (
+    balance_meta_df,
+    build_image_bags_with_sources,
+    drop_nan_labels,
+    load_pooled_meta,
+)
 from src.downstream.abmil.lit import AbmilLitModule
 from src.explainability import viz
 from src.explainability.abmil_attribution import abmil_attention, abmil_ig, crop_importance
 from src.explainability.faithfulness import faithfulness_score
-
-
-def _drop_nan_labels(meta_df):
-    valid = meta_df.dropna(subset=["feature_value"])["img_path"].unique()
-    return meta_df[meta_df["img_path"].isin(valid)]
-
-
-def build_bags_with_coords(meta_df, class_to_idx):
-    """Like build_image_bags, but also returns each crop's (coords0, coords1) and its source
-    (embeddings_file, embedding_idx) in bag order, so per-crop importance can be placed back on
-    the tissue (CLAM heatmap) and the raw input patch reloaded from the h5 for stitching."""
-    bags, labels, coords, srcs = [], [], [], []
-    for _img, g in meta_df.groupby("img_path", sort=False):
-        raw = g["feature_value"].iloc[0]
-        lab = class_to_idx.get(str(raw))
-        if lab is None or pd.isna(raw):
-            continue
-        rows, crd, ef_list, idx_list = [], [], [], []
-        for ef, gg in g.groupby("embeddings_file"):
-            rows.append(_load_memmap(ef)[gg["embedding_idx"].values])
-            crd.append(gg[["coords0", "coords1"]].values)
-            ef_list += [ef] * len(gg)
-            idx_list += list(gg["embedding_idx"].values)
-        bags.append(np.concatenate(rows, axis=0))
-        labels.append(lab)
-        coords.append(np.concatenate(crd, axis=0))
-        srcs.append((ef_list, np.asarray(idx_list)))
-    return bags, labels, coords, srcs
 
 
 def load_channel0_tiles(ef_list, idx_arr, data_root, channel=0):
@@ -82,50 +58,32 @@ def load_channel0_tiles(ef_list, idx_arr, data_root, channel=0):
     return tiles
 
 
-def _balance_meta_df(meta_df, min_class_freq=0.05):
-    """Image-level class-frequency filter (replicates run_abmil.balance_meta_df) so the class
-    set matches the trained head (e.g. DX.name -> binary Adeno vs Squamous)."""
-    img_labels = meta_df.groupby("img_path", sort=False)["feature_value"].first()
-    img_labels = img_labels[~pd.isna(img_labels)].astype(str)
-    if len(img_labels) == 0:
-        return meta_df.iloc[0:0]
-    classes, counts = np.unique(img_labels.values, return_counts=True)
-    keep = set(classes[(counts / counts.sum()) >= float(min_class_freq)])
-    keep_imgs = img_labels[img_labels.isin(keep)].index
-    return meta_df[meta_df["img_path"].isin(keep_imgs)]
-
-
 @hydra.main(version_base="1.3", config_path="../../configs", config_name="explain/abmil")
 def main(cfg: DictConfig) -> None:
     os.makedirs(cfg.out_dir, exist_ok=True)
 
-    # ── pooled meta for this feature ──
-    frames = []
-    for split in ("train", "test"):
-        p = os.path.join(cfg.meta_dir, f"cords_{split}_metadata.csv")
-        if os.path.exists(p):
-            frames.append(pd.read_csv(p))
-    meta = pd.concat(frames, ignore_index=True)
+    # Pooled train+test meta of this feature, filtered exactly as in the downstream CV so the
+    # class set matches the trained head.
+    meta = load_pooled_meta(cfg.meta_dir, cfg.dataset)
     if "feature" in meta.columns:
         meta = meta[meta["feature"] == cfg.feature].copy()
-    # Match the downstream CV: drop-nan then class-frequency balance -> the head's class set.
-    meta = _drop_nan_labels(meta)
-    meta = _balance_meta_df(meta, min_class_freq=float(cfg.min_class_freq))
+    meta = drop_nan_labels(meta)
+    meta = balance_meta_df(meta, min_class_freq=float(cfg.min_class_freq))
     classes = sorted(meta["feature_value"].astype(str).unique())
     class_to_idx = {c: i for i, c in enumerate(classes)}
     print(
         f"[abmil] feature={cfg.feature} (min_class_freq={cfg.min_class_freq}) classes={class_to_idx}"
     )
 
-    bags, labels, coords, srcs = build_bags_with_coords(meta, class_to_idx)
+    bags, labels, coords, srcs = build_image_bags_with_sources(meta, class_to_idx)
     print(f"[abmil] {len(bags)} image bags, emb_dim={bags[0].shape[1]}")
 
-    # ── zscore (global approximation of the per-fold cv_train normalisation) ──
+    # z-score with statistics of ALL bags: an approximation of the CV, which normalises each
+    # fold with its training-fold statistics only. Kept as is (the thesis figure uses it).
     allc = np.concatenate(bags, axis=0)
     mu, sd = allc.mean(0), allc.std(0) + 1e-6
     bags = [(np.asarray(b, "float32") - mu) / sd for b in bags]
 
-    # ── head ──
     lit = AbmilLitModule.load_from_checkpoint(cfg.abmil_ckpt, map_location="cpu")
     model = lit.model.eval()
 

@@ -3,12 +3,13 @@
 Loads a checkpoint, runs a few validation batches and prints a report on:
   - Latent space (mu, std, active dims, KLD per dim)
   - Node feature diversity across D4 augmentations (position-level, not mean-pooled)
-  - Raw permuter scores (are they identical for all 8 views?)
-  - Permuter predictions and confidence per augmentation slot
+  - Permuter predictions and raw scores per augmentation slot (if the permuter is active)
   - Activation stats in encoder transformer, permuter transformer, decoder
-  - Equivariance proof (encoder(flip(x)) == flip(encoder(x)))
+  - Equivariance check (encoder(flip(x)) == flip(encoder(x)))
   - Within-augmentation inter-node similarity (are all positions collapsing?)
   - Decoder std diagnostic (is decoder std ~ 1/sqrt(N)?)
+With ``inspect=true`` it also writes the full offline inspection report (weights, activations,
+attention entropy, latent spectrum, FiLM, reconstruction) to ``out_dir``.
 
 Usage:
     uv run python scripts/diagnostics/diagnose_model.py experiment=pigvae ckpt_path=/raid_.../last.ckpt
@@ -19,24 +20,37 @@ Usage:
 import sys
 from pathlib import Path
 
-import numpy as np
 import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+import hydra
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-project_root = rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
-
-import hydra
+from hydra.utils import instantiate
 from omegaconf import DictConfig
 
+from src.models.components.llama_graph_transformer import (
+    SelfAttention,
+    TransformerBlock,
+    get_full_mask,
+    get_neighborhood_mask,
+)
+from src.utils.inspection import (
+    attention_entropy_from_input,
+    collect_activation_stats,
+    film_diagnostics,
+    image_space_reconstruction,
+    latent_diagnostics,
+    reconstruction_diagnostics,
+    weight_diagnostics,
+    write_report,
+)
 from src.utils.resolvers import register_resolvers
 
 register_resolvers()
-
-from hydra.utils import instantiate
-
-# ── helpers ─────────────────────────────────────────────────────────────────
 
 NUM_VIEWS = 8
 AUG_NAMES = ["r0_f", "r0_nf", "r180_f", "r180_nf", "r270_f", "r270_nf", "r90_f", "r90_nf"]
@@ -54,6 +68,8 @@ def _stat(t: torch.Tensor) -> dict:
 
 
 def make_activation_hook(store: dict, key: str, keep_tensor: bool = False):
+    """Forward hook storing summary stats (and optionally the tensor) under ``key``."""
+
     def hook(module, inp, output):
         if isinstance(output, torch.Tensor):
             t = output.detach().float()
@@ -64,86 +80,11 @@ def make_activation_hook(store: dict, key: str, keep_tensor: bool = False):
     return hook
 
 
-# ── core diagnostics ─────────────────────────────────────────────────────────
-
-
-def run_diagnostics(model, batch, tau: float) -> dict:
-    model.eval()
-    act_store = {}
-    hooks = []
-
-    ae = model.graph_ae
-
-    # Register activation hooks (transformer decoder replaces CNN decoder)
-    hook_targets = [
-        ("encoder/graph_transformer", ae.encoder.graph_transformer),
-        ("encoder/fc_in", ae.encoder.fc_in),
-        ("decoder/fc_in", ae.decoder.fc_in),
-        ("decoder/graph_transformer", ae.decoder.graph_transformer),
-    ]
-    if hasattr(ae.decoder, "node_fc_out"):
-        hook_targets.append(("decoder/node_fc_out", ae.decoder.node_fc_out))
-    if hasattr(ae, "permuter") and hasattr(ae.permuter, "scoring_fc"):
-        hook_targets.append(("permuter/scoring_fc", ae.permuter.scoring_fc))
-        hook_targets.append(("permuter/graph_transformer", ae.permuter.graph_transformer))
-
-    for name, module in hook_targets:
-        keep = name == "permuter/scoring_fc"
-        hooks.append(
-            module.register_forward_hook(make_activation_hook(act_store, name, keep_tensor=keep))
-        )
-
-    with torch.no_grad():
-        graph_emb, graph_pred, soft_probs, _perm, mu, logvar = model(
-            graph=batch, training=False, tau=tau
-        )
-        # node_features are not exposed through PLGraphAE.forward — call encode directly.
-        # encode returns (z_nodes, z_global, node_features, mu, logvar).
-        _, _, node_features, _, _ = model.graph_ae.encode(batch)
-
-    for h in hooks:
-        h.remove()
-
-    total_b = node_features.shape[0]
-    B = total_b // NUM_VIEWS
-    N = node_features.shape[1]
-    D = node_features.shape[2]
-
-    # ── 1. Latent space ────────────────────────────────────────────────────
-    if mu is not None and logvar is not None:
-        std = (0.5 * logvar).exp()
-        kld_per_dim = -0.5 * (1 + logvar - mu.pow(2) - std.pow(2))
-        kld_per_dim_mean = kld_per_dim.mean(dim=0)
-        active = (kld_per_dim_mean > 0.1).sum().item()
-        # AE<->VAE spectrum position (law-of-total-variance overlap; full breakdown in
-        # the offline `--inspect` `latent.spectrum` block — see ae_vae_spectrum()).
-        mu_flat = mu.reshape(-1, mu.shape[-1])
-        std_flat = std.reshape(-1, std.shape[-1])
-        mu_var = mu_flat.var(dim=0, unbiased=False).mean()
-        sigma_sq = std_flat.pow(2).mean(dim=0).mean()
-        overlap_ratio = (sigma_sq.sqrt() / mu_var.clamp_min(1e-12).sqrt()).item()
-        noise_fraction = (sigma_sq / (mu_var + sigma_sq).clamp_min(1e-12)).item()
-        latent_diag = {
-            "vae": "enabled",
-            "mu_mean": round(mu.mean().item(), 5),
-            "mu_std": round(mu.std().item(), 5),
-            "std_mean": round(std.mean().item(), 5),
-            "std_per_dim_min": round(std.mean(0).min().item(), 5),
-            "std_per_dim_max": round(std.mean(0).max().item(), 5),
-            "active_dims": active,
-            "total_dims": mu.shape[-1],
-            "kld_per_dim_median": round(kld_per_dim_mean.median().item(), 5),
-            "kld_per_dim_p95": round(kld_per_dim_mean.quantile(0.95).item(), 5),
-            "kld_per_dim_max": round(kld_per_dim_mean.max().item(), 5),
-            "total_kld_mean": round(kld_per_dim.mean().item(), 5),
-            "overlap_ratio": round(overlap_ratio, 4),
-            "noise_fraction": round(noise_fraction, 4),
-            "aggregate_var_mean": round((mu_var + sigma_sq).item(), 4),
-        }
-    else:
-        # Deterministic AE (vae=false) — report graph_emb stats instead
+def _latent_section(graph_emb, mu, logvar) -> dict:
+    """mu/std/KL statistics of the VAE latent, or z statistics of a deterministic AE."""
+    if mu is None or logvar is None:
         z = graph_emb.detach().float()
-        latent_diag = {
+        return {
             "vae": "disabled",
             "z_mean": round(z.mean().item(), 5),
             "z_std": round(z.std().item(), 5),
@@ -153,21 +94,49 @@ def run_diagnostics(model, batch, tau: float) -> dict:
             "z_dims": z.shape[-1],
             "z_norm_mean": round(z.norm(dim=-1).mean().item(), 5),
         }
+    std = (0.5 * logvar).exp()
+    kld_per_dim = -0.5 * (1 + logvar - mu.pow(2) - std.pow(2))
+    kld_per_dim_mean = kld_per_dim.mean(dim=0)
+    active = (kld_per_dim_mean > 0.1).sum().item()
+    # Position on the AE<->VAE spectrum (law-of-total-variance overlap; the full breakdown is in
+    # the `inspect=true` report, latent.spectrum).
+    mu_flat = mu.reshape(-1, mu.shape[-1])
+    std_flat = std.reshape(-1, std.shape[-1])
+    mu_var = mu_flat.var(dim=0, unbiased=False).mean()
+    sigma_sq = std_flat.pow(2).mean(dim=0).mean()
+    overlap_ratio = (sigma_sq.sqrt() / mu_var.clamp_min(1e-12).sqrt()).item()
+    noise_fraction = (sigma_sq / (mu_var + sigma_sq).clamp_min(1e-12)).item()
+    return {
+        "vae": "enabled",
+        "mu_mean": round(mu.mean().item(), 5),
+        "mu_std": round(mu.std().item(), 5),
+        "std_mean": round(std.mean().item(), 5),
+        "std_per_dim_min": round(std.mean(0).min().item(), 5),
+        "std_per_dim_max": round(std.mean(0).max().item(), 5),
+        "active_dims": active,
+        "total_dims": mu.shape[-1],
+        "kld_per_dim_median": round(kld_per_dim_mean.median().item(), 5),
+        "kld_per_dim_p95": round(kld_per_dim_mean.quantile(0.95).item(), 5),
+        "kld_per_dim_max": round(kld_per_dim_mean.max().item(), 5),
+        "total_kld_mean": round(kld_per_dim.mean().item(), 5),
+        "overlap_ratio": round(overlap_ratio, 4),
+        "noise_fraction": round(noise_fraction, 4),
+        "aggregate_var_mean": round((mu_var + sigma_sq).item(), 4),
+    }
 
-    # ── 2. Node feature diversity ─────────────────────────────────────────
+
+def _node_diversity_section(node_features: torch.Tensor) -> dict:
+    """Cosine similarity of the encoder node features across the 8 D4 views."""
+    total_b, N, D = node_features.shape
+    B = total_b // NUM_VIEWS
     views = node_features.view(NUM_VIEWS, B, N, D)
     views_norm = F.normalize(views, dim=-1)
-
     sim_pos = torch.einsum("vbnd,ubnd->uvb", views_norm, views_norm) / N
     off_diag = ~torch.eye(NUM_VIEWS, dtype=torch.bool)
-
-    views_mean = views.mean(dim=2)
-    views_mean_norm = F.normalize(views_mean, dim=-1)
+    views_mean_norm = F.normalize(views.mean(dim=2), dim=-1)
     sim_mean = torch.einsum("vbd,ubd->uvb", views_mean_norm, views_mean_norm)
-
     sim_pair = sim_pos.mean(dim=-1)
-
-    node_diag = {
+    return {
         "position_level_cos_sim (want low)": round(sim_pos[off_diag].mean().item(), 5),
         "position_level_cos_sim_std": round(sim_pos[off_diag].std().item(), 5),
         "mean_pooled_cos_sim (always ~1)": round(sim_mean[off_diag].mean().item(), 5),
@@ -182,130 +151,111 @@ def run_diagnostics(model, batch, tau: float) -> dict:
         },
     }
 
-    # ── 3. Permuter diagnostics ──────────────────────────────────────────
-    perm_diag = {"permuter": "oracle / disabled — no active permuter on this branch"}
-    if soft_probs is not None and soft_probs.numel() > 0:
-        probs = soft_probs.view(NUM_VIEWS, B, NUM_VIEWS)
-        pred_classes = probs.argmax(dim=-1)
-        confidence = probs.max(dim=-1).values
-        per_row_h = -(probs * (probs + 1e-8).log()).sum(-1)
 
-        raw_scores = act_store.get("permuter/scoring_fc__tensor")
-        score_diag = {}
-        if raw_scores is not None:
-            scores_by_view = raw_scores.view(NUM_VIEWS, B, NUM_VIEWS)
-            max_score_diff = (
-                (scores_by_view.unsqueeze(0) - scores_by_view.unsqueeze(1)).abs().max().item()
-            )
-            mean_score_diff = (
-                (scores_by_view.unsqueeze(0) - scores_by_view.unsqueeze(1)).abs().mean().item()
-            )
-            img0_scores = scores_by_view[:, 0, :]
-            img0_diffs = img0_scores - img0_scores[0:1, :]
-            score_diag = {
-                "raw_scores_mean": round(raw_scores.mean().item(), 5),
-                "raw_scores_std": round(raw_scores.std().item(), 5),
-                "max_diff_across_views": round(max_score_diff, 6),
-                "mean_diff_across_views": round(mean_score_diff, 6),
-                "IMAGE_0_score_vectors": {
-                    AUG_NAMES[v]: [round(x, 5) for x in img0_scores[v].tolist()]
-                    for v in range(NUM_VIEWS)
-                },
-                "IMAGE_0_diff_vs_r0_f": {
-                    AUG_NAMES[v]: [round(x, 7) for x in img0_diffs[v].tolist()]
-                    for v in range(NUM_VIEWS)
-                },
-            }
+def _permuter_section(soft_probs, raw_scores, B: int) -> dict:
+    """Predicted D4 class, confidence and raw scores per view (only with an active permuter)."""
+    if soft_probs is None or soft_probs.numel() == 0:
+        return {"permuter": "oracle / disabled — no active permuter on this branch"}
+    probs = soft_probs.view(NUM_VIEWS, B, NUM_VIEWS)
+    pred_classes = probs.argmax(dim=-1)
+    confidence = probs.max(dim=-1).values
+    per_row_h = -(probs * (probs + 1e-8).log()).sum(-1)
 
-        perm_diag = {
-            "mean_confidence": round(confidence.mean().item(), 5),
-            "uniform_confidence_is": round(1.0 / NUM_VIEWS, 5),
-            "per_row_entropy_mean": round(per_row_h.mean().item(), 5),
-            "max_possible_entropy": round(np.log(NUM_VIEWS), 5),
-            "all_views_same_class": bool((pred_classes == pred_classes[0:1]).all().item()),
-            "is_bijective": bool(
-                len({pred_classes[:, 0].tolist()[v] for v in range(NUM_VIEWS)}) == NUM_VIEWS
-            ),
-            "predicted_class_per_aug": {
-                AUG_NAMES[v]: int(pred_classes[v].mode().values.item()) for v in range(NUM_VIEWS)
+    score_diag = {}
+    if raw_scores is not None:
+        scores_by_view = raw_scores.view(NUM_VIEWS, B, NUM_VIEWS)
+        pairwise = (scores_by_view.unsqueeze(0) - scores_by_view.unsqueeze(1)).abs()
+        img0_scores = scores_by_view[:, 0, :]
+        img0_diffs = img0_scores - img0_scores[0:1, :]
+        score_diag = {
+            "raw_scores_mean": round(raw_scores.mean().item(), 5),
+            "raw_scores_std": round(raw_scores.std().item(), 5),
+            "max_diff_across_views": round(pairwise.max().item(), 6),
+            "mean_diff_across_views": round(pairwise.mean().item(), 6),
+            "IMAGE_0_score_vectors": {
+                AUG_NAMES[v]: [round(x, 5) for x in img0_scores[v].tolist()]
+                for v in range(NUM_VIEWS)
             },
-            "confidence_per_aug": {
-                AUG_NAMES[v]: round(confidence[v].mean().item(), 5) for v in range(NUM_VIEWS)
+            "IMAGE_0_diff_vs_r0_f": {
+                AUG_NAMES[v]: [round(x, 7) for x in img0_diffs[v].tolist()]
+                for v in range(NUM_VIEWS)
             },
-            "score_diagnostics": score_diag,
         }
+    return {
+        "mean_confidence": round(confidence.mean().item(), 5),
+        "uniform_confidence_is": round(1.0 / NUM_VIEWS, 5),
+        "per_row_entropy_mean": round(per_row_h.mean().item(), 5),
+        "max_possible_entropy": round(np.log(NUM_VIEWS), 5),
+        "all_views_same_class": bool((pred_classes == pred_classes[0:1]).all().item()),
+        "is_bijective": bool(len(set(pred_classes[:, 0].tolist())) == NUM_VIEWS),
+        "predicted_class_per_aug": {
+            AUG_NAMES[v]: int(pred_classes[v].mode().values.item()) for v in range(NUM_VIEWS)
+        },
+        "confidence_per_aug": {
+            AUG_NAMES[v]: round(confidence[v].mean().item(), 5) for v in range(NUM_VIEWS)
+        },
+        "score_diagnostics": score_diag,
+    }
 
-    # ── 4. Activation stats ───────────────────────────────────────────────
-    activation_diag = {k: v for k, v in act_store.items() if not k.endswith("__tensor")}
 
-    # ── 5. Decoder std diagnostic ─────────────────────────────────────────
-    # graph_pred is a DenseGraphBatch; pull node_features tensor
-    if hasattr(graph_pred, "node_features"):
-        pred = graph_pred.node_features
-    elif isinstance(graph_pred, (list, tuple)):
-        pred = graph_pred[0]
-    else:
-        pred = graph_pred
-    if pred.dim() == 3:
-        decoder_std_diag = {
-            "pred_shape": list(pred.shape),
-            "global_std (1/sqrt(N) ~ 0.167 if collapsed)": round(pred.float().std().item(), 5),
-            "per_position_std_mean": round(pred.float().std(dim=-1).mean().item(), 5),
-            "per_position_std_min": round(pred.float().std(dim=-1).min().item(), 5),
-            "per_position_std_max": round(pred.float().std(dim=-1).max().item(), 5),
-            "across_position_std (should be > 0 if decoder is position-aware)": round(
-                pred.float().mean(dim=-1).std(dim=-1).mean().item(), 5
-            ),
-            "expected_collapsed_std": round(1.0 / N**0.5, 5),
-        }
-    else:
-        decoder_std_diag = {"pred_shape": list(pred.shape), "note": "unexpected shape"}
+def _decoder_std_section(graph_pred, N: int) -> dict:
+    """Spread of the decoder output; a collapsed decoder has std ~ 1/sqrt(N)."""
+    pred = graph_pred.node_features
+    if pred.dim() != 3:
+        return {"pred_shape": list(pred.shape), "note": "unexpected shape"}
+    pred = pred.float()
+    return {
+        "pred_shape": list(pred.shape),
+        "global_std (1/sqrt(N) ~ 0.167 if collapsed)": round(pred.std().item(), 5),
+        "per_position_std_mean": round(pred.std(dim=-1).mean().item(), 5),
+        "per_position_std_min": round(pred.std(dim=-1).min().item(), 5),
+        "per_position_std_max": round(pred.std(dim=-1).max().item(), 5),
+        "across_position_std (should be > 0 if decoder is position-aware)": round(
+            pred.mean(dim=-1).std(dim=-1).mean().item(), 5
+        ),
+        "expected_collapsed_std": round(1.0 / N**0.5, 5),
+    }
 
-    # ── 6. Equivariance proof ─────────────────────────────────────────────
-    # Derive the grid side from the node count (36->6, 256->16) instead of hardcoding.
+
+def _equivariance_section(h_identity: torch.Tensor, h_flip: torch.Tensor) -> dict:
+    """Does flipping the input permute the encoder output the same way (image 0)?"""
+    N = h_identity.shape[0]
     grid = round(N**0.5)
     if grid * grid != N:
-        equivariance_diag = {"note": f"skipped: N={N} is not a square grid"}
-    else:
-        flip_perm = [row * grid + (grid - 1 - col) for row in range(grid) for col in range(grid)]
-
-        h_identity = node_features[B].cpu()
-        h_flip = node_features[0].cpu()
-        h_identity_permuted = h_identity[flip_perm, :]
-
-        raw_diff = (h_flip - h_identity).abs()
-        perm_diff = (h_flip - h_identity_permuted).abs()
-
-        cos_before = F.cosine_similarity(h_flip, h_identity, dim=-1).mean().item()
-        cos_after = F.cosine_similarity(h_flip, h_identity_permuted, dim=-1).mean().item()
-
-        equivariance_diag = {
-            "claim": "encoder(flip(x)) == flip(encoder(x)) iff encoder is permutation-equivariant",
-            "diff WITHOUT permutation": {
-                "max": round(raw_diff.max().item(), 6),
-                "mean": round(raw_diff.mean().item(), 6),
-                "cos_sim": round(cos_before, 6),
-            },
-            "diff AFTER applying flip_perm to identity": {
-                "max": round(perm_diff.max().item(), 6),
-                "mean": round(perm_diff.mean().item(), 6),
-                "cos_sim": round(cos_after, 6),
-            },
-            "verdict": (
-                "EQUIVARIANT (diff<1e-3 after perm)"
-                if perm_diff.max().item() < 1e-3
-                else "NOT perfectly equivariant or content collapsed"
+        return {"note": f"skipped: N={N} is not a square grid"}
+    flip_perm = [row * grid + (grid - 1 - col) for row in range(grid) for col in range(grid)]
+    h_identity_permuted = h_identity[flip_perm, :]
+    raw_diff = (h_flip - h_identity).abs()
+    perm_diff = (h_flip - h_identity_permuted).abs()
+    return {
+        "claim": "encoder(flip(x)) == flip(encoder(x)) iff encoder is permutation-equivariant",
+        "diff WITHOUT permutation": {
+            "max": round(raw_diff.max().item(), 6),
+            "mean": round(raw_diff.mean().item(), 6),
+            "cos_sim": round(F.cosine_similarity(h_flip, h_identity, dim=-1).mean().item(), 6),
+        },
+        "diff AFTER applying flip_perm to identity": {
+            "max": round(perm_diff.max().item(), 6),
+            "mean": round(perm_diff.mean().item(), 6),
+            "cos_sim": round(
+                F.cosine_similarity(h_flip, h_identity_permuted, dim=-1).mean().item(), 6
             ),
-        }
+        },
+        "verdict": (
+            "EQUIVARIANT (diff<1e-3 after perm)"
+            if perm_diff.max().item() < 1e-3
+            else "NOT perfectly equivariant or content collapsed"
+        ),
+    }
 
-    # ── 7. Within-augmentation inter-node similarity ──────────────────────
-    h_id_all = node_features[B].cpu()
-    h_id_norm = F.normalize(h_id_all, dim=-1)
-    sim_within = torch.mm(h_id_norm, h_id_norm.t())
-    off_diag_n = ~torch.eye(N, dtype=torch.bool)
-    inter_node_cos = sim_within[off_diag_n]
 
-    within_aug_diag = {
+def _inter_node_section(h_identity: torch.Tensor) -> dict:
+    """Cosine similarity between different positions of one view (collapse check)."""
+    N = h_identity.shape[0]
+    h_norm = F.normalize(h_identity, dim=-1)
+    sim_within = torch.mm(h_norm, h_norm.t())
+    inter_node_cos = sim_within[~torch.eye(N, dtype=torch.bool)]
+    return {
         "question": "are h_i and h_j similar for different positions i≠j in same augmentation?",
         "inter_node_cos_sim_mean": round(inter_node_cos.mean().item(), 6),
         "inter_node_cos_sim_min": round(inter_node_cos.min().item(), 6),
@@ -320,37 +270,74 @@ def run_diagnostics(model, batch, tau: float) -> dict:
         "spot_check cos(h_5, h_30)": round(sim_within[5, 30].item(), 6),
     }
 
-    # ── 8. Node inspection ───────────────────────────────────────────────
-    node_inspection = {}
+
+def _node_inspection_section(h_identity: torch.Tensor, h_flip: torch.Tensor) -> dict:
+    """The raw feature vectors of four positions, identity view vs flipped view."""
+    out = {}
     for node_idx in [0, 5, 17, 35]:
-        v_identity = h_identity[node_idx]
-        v_flip = h_flip[node_idx]
-        cos = F.cosine_similarity(v_identity.unsqueeze(0), v_flip.unsqueeze(0)).item()
-        l2 = (v_identity - v_flip).norm().item()
-        node_inspection[f"node_{node_idx}"] = {
+        v_identity, v_flip = h_identity[node_idx], h_flip[node_idx]
+        out[f"node_{node_idx}"] = {
             "r0_nf (identity) first 16 dims": [round(x, 4) for x in v_identity[:16].tolist()],
             "r0_f  (flip)     first 16 dims": [round(x, 4) for x in v_flip[:16].tolist()],
             "element-wise diff first 16": [
                 round(x, 4) for x in (v_flip - v_identity)[:16].tolist()
             ],
-            "cosine_similarity": round(cos, 6),
-            "L2_norm_of_diff": round(l2, 6),
+            "cosine_similarity": round(
+                F.cosine_similarity(v_identity.unsqueeze(0), v_flip.unsqueeze(0)).item(), 6
+            ),
+            "L2_norm_of_diff": round((v_identity - v_flip).norm().item(), 6),
             "L2_norm_of_vector": round(v_identity.norm().item(), 4),
         }
+    return out
 
+
+def run_diagnostics(model, batch, tau: float) -> dict:
+    """Forward one batch with activation hooks and compute every report section."""
+    model.eval()
+    ae = model.graph_ae
+    hook_targets = [
+        ("encoder/graph_transformer", ae.encoder.graph_transformer),
+        ("encoder/fc_in", ae.encoder.fc_in),
+        ("decoder/fc_in", ae.decoder.fc_in),
+        ("decoder/graph_transformer", ae.decoder.graph_transformer),
+    ]
+    if hasattr(ae.decoder, "node_fc_out"):
+        hook_targets.append(("decoder/node_fc_out", ae.decoder.node_fc_out))
+    if hasattr(ae, "permuter") and hasattr(ae.permuter, "scoring_fc"):
+        hook_targets.append(("permuter/scoring_fc", ae.permuter.scoring_fc))
+        hook_targets.append(("permuter/graph_transformer", ae.permuter.graph_transformer))
+
+    act_store: dict = {}
+    hooks = [
+        module.register_forward_hook(
+            make_activation_hook(act_store, name, keep_tensor=name == "permuter/scoring_fc")
+        )
+        for name, module in hook_targets
+    ]
+    with torch.no_grad():
+        graph_emb, graph_pred, soft_probs, _perm, mu, logvar = model(
+            graph=batch, training=False, tau=tau
+        )
+        # PLGraphAE.forward does not return the node features, so encode once more.
+        _, _, node_features, _, _ = ae.encode(batch)
+    for h in hooks:
+        h.remove()
+
+    B = node_features.shape[0] // NUM_VIEWS
+    N = node_features.shape[1]
+    # Image 0 in the identity view (r0_nf, block 1) and the flipped view (r0_f, block 0).
+    h_identity = node_features[B].cpu()
+    h_flip = node_features[0].cpu()
     return {
-        "latent": latent_diag,
-        "node_features": node_diag,
-        "permuter": perm_diag,
-        "activations": activation_diag,
-        "decoder_std_diagnostic": decoder_std_diag,
-        "equivariance_proof": equivariance_diag,
-        "within_aug_inter_node_similarity": within_aug_diag,
-        "node_inspection (image 0, r0_nf vs r0_f)": node_inspection,
+        "latent": _latent_section(graph_emb, mu, logvar),
+        "node_features": _node_diversity_section(node_features),
+        "permuter": _permuter_section(soft_probs, act_store.get("permuter/scoring_fc__tensor"), B),
+        "activations": {k: v for k, v in act_store.items() if not k.endswith("__tensor")},
+        "decoder_std_diagnostic": _decoder_std_section(graph_pred, N),
+        "equivariance_proof": _equivariance_section(h_identity, h_flip),
+        "within_aug_inter_node_similarity": _inter_node_section(h_identity),
+        "node_inspection (image 0, r0_nf vs r0_f)": _node_inspection_section(h_identity, h_flip),
     }
-
-
-# ── pretty printer ────────────────────────────────────────────────────────────
 
 
 def _print_dict(d: dict, indent: int = 0):
@@ -392,26 +379,6 @@ def print_report(results: dict, batch_idx: int):
         "NODE INSPECTION — actual vectors at 4 positions (image 0: r0_nf vs r0_f)",
         results["node_inspection (image 0, r0_nf vs r0_f)"],
     )
-
-
-# ── inspection orchestrator ──────────────────────────────────────────────────
-
-from src.models.components.llama_graph_transformer import (
-    SelfAttention,
-    TransformerBlock,
-    get_full_mask,
-    get_neighborhood_mask,
-)
-from src.utils.inspection import (
-    attention_entropy_from_input,
-    collect_activation_stats,
-    film_diagnostics,
-    image_space_reconstruction,
-    latent_diagnostics,
-    reconstruction_diagnostics,
-    weight_diagnostics,
-    write_report,
-)
 
 
 def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
@@ -500,9 +467,6 @@ def inspect_model(model, batch, out_dir, meta: dict, pca_layer=None) -> dict:
     return results
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
-
-
 def load_model_and_data(cfg: DictConfig):
     """Build the datamodule and the PIGVAE module from the composed config, load the checkpoint."""
     dm = instantiate(cfg.data)
@@ -514,26 +478,7 @@ def load_model_and_data(cfg: DictConfig):
     if collate_fn is not None and hasattr(collate_fn, "keep_input"):
         collate_fn.keep_input = True
 
-    graph_ae = instantiate(cfg.model.graph_ae)
-    critic = instantiate(cfg.model.critic)
-    temp_sched = instantiate(cfg.model.temperature_scheduler)
-    entropy_sched = instantiate(cfg.model.entropy_weight_scheduler)
-    kld_sched = instantiate(cfg.model.kld_alpha_scheduler)
-    optimizer_fn = instantiate(cfg.model.optimizer)
-    scheduler_cfg = cfg.model.scheduler
-
-    from src.models.pigvae_auto_module import PLGraphAE
-
-    model = PLGraphAE(
-        graph_ae=graph_ae,
-        critic=critic,
-        temperature_scheduler=temp_sched,
-        entropy_weight_scheduler=entropy_sched,
-        kld_alpha_scheduler=kld_sched,
-        optimizer=optimizer_fn,
-        scheduler=scheduler_cfg,
-        compile=False,
-    )
+    model = instantiate(cfg.model)
 
     ckpt = torch.load(cfg.ckpt_path, map_location="cpu", weights_only=False)
     missing, unexpected = model.load_state_dict(ckpt["state_dict"], strict=False)
@@ -543,7 +488,7 @@ def load_model_and_data(cfg: DictConfig):
         print(f"[WARN] Unexpected keys: {unexpected[:5]}{'...' if len(unexpected) > 5 else ''}")
 
     epoch = ckpt.get("epoch", 0)
-    tau = temp_sched(epoch)
+    tau = model.temperature_scheduler(epoch)
     print(f"[info] Loaded checkpoint — epoch {epoch}, tau={tau:.4f}")
 
     model.eval()

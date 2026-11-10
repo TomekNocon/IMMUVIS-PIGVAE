@@ -1,3 +1,13 @@
+"""Smoke-test the deployed Modal ``/infer`` endpoint (src/deploy/modal) with a zero input.
+
+Sends a ``[batch, num_nodes, din]`` zero tensor and prints the shapes of the returned node logits
+and graph embedding. The input shape is read from the exported ONNX model or given explicitly.
+
+Usage:
+    uv run python scripts/deploy/query_modal.py --url https://<app>.modal.run --onnx-path model.onnx
+    uv run python scripts/deploy/query_modal.py --url https://<app>.modal.run --num-nodes 256 --din 128
+"""
+
 import argparse
 import sys
 
@@ -38,7 +48,7 @@ def resolve_dims_from_onnx(onnx_path: str) -> tuple[int, int]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Test Modal /infer endpoint for ONNX model")
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--url",
         required=True,

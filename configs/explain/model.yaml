@@ -13,8 +13,8 @@ defaults:
 
 task_name: explain_model
 ckpt_path: ???
-method: encoder_ig # encoder_ig | rollout | abmil_ig | abmil_attention
-target: 0 # z_global dim (encoder_ig) or class-logit column (abmil)
+method: encoder_ig # encoder_ig | rollout | faithfulness (ABMIL attribution: explain/abmil.yaml)
+target: 0 # z_global dimension to attribute
 n_steps: 50 # Integrated-Gradients steps
 to_markers: true # map attributions back to the 768 marker channels (inverse PCA)
 
@@ -23,4 +23,3 @@ num_samples: 8
 
 grid_size: 16
 out_dir: ${paths.log_dir}/explain/${method}
-abmil_ckpt: null # trained ABMIL head, only for the abmil_* methods

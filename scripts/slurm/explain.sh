@@ -17,7 +17,7 @@
 # Environment:
 #   CKPT        PIGVAE checkpoint (required)
 #   EXPERIMENT  experiment config the checkpoint was trained with (default: pigvae)
-#   METHOD      encoder_ig | rollout (default: encoder_ig)
+#   METHOD      encoder_ig | rollout | faithfulness (default: encoder_ig)
 #   TARGET      z_global dimension to attribute (default: 0)
 #   NSTEPS      Integrated-Gradients steps (default: 50)
 #   NSAMPLES    crops to explain (default: 8)

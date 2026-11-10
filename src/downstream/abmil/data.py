@@ -44,11 +44,12 @@ def _load_memmap(path: str) -> np.ndarray:
     return _MEMMAP_CACHE[path]
 
 
-def build_image_bags(
-    meta_df: pd.DataFrame, class_to_idx: dict[str, int]
-) -> tuple[list[np.ndarray], torch.Tensor]:
-    """One bag per image (``img_path``) with its label; unlabelled/unknown classes are skipped."""
-    bags, labels = [], []
+def _labelled_image_groups(meta_df: pd.DataFrame, class_to_idx: dict[str, int]):
+    """Yield ``(label, [(embeddings_file, rows), ...])`` per image, in table order.
+
+    Images without a label, or with a class outside ``class_to_idx``, are skipped. Within an
+    image the crops are grouped by embeddings file (sorted), which fixes the crop order of a bag.
+    """
     for _img, group in meta_df.groupby("img_path", sort=False):
         raw = group["feature_value"].iloc[0]
         if pd.isna(raw):
@@ -56,13 +57,42 @@ def build_image_bags(
         label = class_to_idx.get(str(raw))
         if label is None:
             continue
+        yield label, list(group.groupby("embeddings_file"))
+
+
+def build_image_bags(
+    meta_df: pd.DataFrame, class_to_idx: dict[str, int]
+) -> tuple[list[np.ndarray], torch.Tensor]:
+    """One bag per image (``img_path``) with its label; unlabelled/unknown classes are skipped."""
+    bags, labels = [], []
+    for label, files in _labelled_image_groups(meta_df, class_to_idx):
         rows = [
-            _load_memmap(file)[rows_of_file["embedding_idx"].values]
-            for file, rows_of_file in group.groupby("embeddings_file")
+            _load_memmap(file)[rows_of_file["embedding_idx"].values] for file, rows_of_file in files
         ]
         bags.append(np.concatenate(rows, axis=0))
         labels.append(label)
     return bags, torch.tensor(labels, dtype=torch.long)
+
+
+def build_image_bags_with_sources(
+    meta_df: pd.DataFrame, class_to_idx: dict[str, int]
+) -> tuple[list[np.ndarray], torch.Tensor, list[np.ndarray], list[tuple[list[str], np.ndarray]]]:
+    """:func:`build_image_bags` plus, per bag and in bag order, each crop's tissue coordinates
+    ``[S, 2]`` (coords0, coords1) and its source ``(embeddings_file per crop, embedding_idx)``,
+    so per-crop scores can be mapped back onto the slide and the input patches reloaded."""
+    bags, labels, coords, sources = [], [], [], []
+    for label, files in _labelled_image_groups(meta_df, class_to_idx):
+        rows = [
+            _load_memmap(file)[rows_of_file["embedding_idx"].values] for file, rows_of_file in files
+        ]
+        bags.append(np.concatenate(rows, axis=0))
+        labels.append(label)
+        coords.append(np.concatenate([r[["coords0", "coords1"]].values for _, r in files], axis=0))
+        sources.append((
+            [file for file, r in files for _ in range(len(r))],
+            np.concatenate([r["embedding_idx"].values for _, r in files]),
+        ))
+    return bags, torch.tensor(labels, dtype=torch.long), coords, sources
 
 
 def drop_nan_labels(meta_df: pd.DataFrame) -> pd.DataFrame:
