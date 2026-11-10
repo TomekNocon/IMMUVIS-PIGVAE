@@ -1,3 +1,5 @@
+# Installed by `make install`; run on all files with `make format`.
+# Ruff reads its settings (line length, rules, import sorting) from pyproject.toml.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -10,36 +12,17 @@ repos:
         args: ["--fix=lf"]
       - id: detect-private-key
 
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout # strip notebook outputs/metadata before commit
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.10
     hooks:
-      - id: ruff
-        args: ["--fix", "--extend-ignore", "E402"]
-        exclude: ^(notebooks/|src/models/components/metrics/)
+      - id: ruff-check
+        args: ["--fix"]
       - id: ruff-format
-        exclude: ^(notebooks/|src/models/components/metrics/)
-
-  - repo: https://github.com/pycqa/docformatter
-    rev: v1.7.7
-    hooks:
-      - id: docformatter
-        args: ["--in-place", "--wrap-summaries=88", "--wrap-descriptions=88"]
-        exclude: ^(notebooks/|src/models/components/metrics/)
-
-
-  - repo: https://github.com/pycqa/isort
-    rev: 7.0.0
-    hooks:
-      - id: isort
-        args: ["--profile", "black"]
-        exclude: ^(notebooks/|src/models/components/metrics/)
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.18.2
-    hooks:
-      - id: mypy
-        additional_dependencies: ["types-requests", "types-PyYAML"]
-        exclude: ^(notebooks/|src/models/components/metrics/)
 
 default_language_version:
-    python: python3
+  python: python3
