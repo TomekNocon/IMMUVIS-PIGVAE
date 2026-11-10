@@ -1,19 +1,19 @@
-import operator
 from pathlib import Path
 
 import hydra
 import rootutils
 import torch
 import torch.nn as nn
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
-OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)))
-OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y))
 
 from src.data.components.graphs_datamodules import DenseGraphBatch
 from src.utils import RankedLogger, extras, task_wrapper
+from src.utils.resolvers import register_resolvers
+
+register_resolvers()
 
 log = RankedLogger(__name__, rank_zero_only=True)
 

@@ -1,4 +1,3 @@
-import operator
 from typing import Any
 
 import hydra
@@ -7,10 +6,6 @@ import rootutils
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
-
-# Register a custom resolver to multiply values in Hydra configs
-OmegaConf.register_new_resolver("multiply", lambda x, y: operator.mul(int(x), int(y)))
-OmegaConf.register_new_resolver("divide", lambda x, y: int(x) // int(y))
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -39,8 +34,11 @@ from src.utils import (
     instantiate_callbacks,
     instantiate_loggers,
     log_hyperparameters,
+    register_resolvers,
     task_wrapper,
 )
+
+register_resolvers()
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
