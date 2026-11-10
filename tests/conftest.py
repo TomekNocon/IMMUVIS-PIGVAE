@@ -8,6 +8,12 @@ from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import DictConfig, open_dict
 
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.utils.resolvers import register_resolvers
+
+register_resolvers()
+
 
 @pytest.fixture(scope="package")
 def cfg_train_global() -> DictConfig:
@@ -27,11 +33,16 @@ def cfg_train_global() -> DictConfig:
             cfg.trainer.limit_test_batches = 0.1
             cfg.trainer.accelerator = "cpu"
             cfg.trainer.devices = 1
-            cfg.data.num_workers = 0
-            cfg.data.pin_memory = False
+            cfg.data.hparams.num_workers = 0
+            cfg.data.hparams.pin_memory = False
             cfg.extras.print_config = False
             cfg.extras.enforce_tags = False
-            cfg.logger = None
+            cfg.logger = {
+                "csv": {
+                    "_target_": "lightning.pytorch.loggers.csv_logs.CSVLogger",
+                    "save_dir": "${paths.output_dir}",
+                }
+            }
 
     return cfg
 
@@ -43,9 +54,7 @@ def cfg_eval_global() -> DictConfig:
     :return: A DictConfig containing a default Hydra configuration for evaluation.
     """
     with initialize(version_base="1.3", config_path="../configs"):
-        cfg = compose(
-            config_name="eval.yaml", return_hydra_config=True, overrides=["ckpt_path=."]
-        )
+        cfg = compose(config_name="eval.yaml", return_hydra_config=True, overrides=["ckpt_path=."])
 
         # set defaults for all tests
         with open_dict(cfg):
@@ -54,11 +63,16 @@ def cfg_eval_global() -> DictConfig:
             cfg.trainer.limit_test_batches = 0.1
             cfg.trainer.accelerator = "cpu"
             cfg.trainer.devices = 1
-            cfg.data.num_workers = 0
-            cfg.data.pin_memory = False
+            cfg.data.hparams.num_workers = 0
+            cfg.data.hparams.pin_memory = False
             cfg.extras.print_config = False
             cfg.extras.enforce_tags = False
-            cfg.logger = None
+            cfg.logger = {
+                "csv": {
+                    "_target_": "lightning.pytorch.loggers.csv_logs.CSVLogger",
+                    "save_dir": "${paths.output_dir}",
+                }
+            }
 
     return cfg
 
