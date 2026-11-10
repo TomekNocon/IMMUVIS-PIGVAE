@@ -15,7 +15,7 @@ from src.data.components.graphs_datamodules import (
 )
 
 
-class MNISTDataModule(LightningDataModule):
+class FashionMNISTDataModule(LightningDataModule):
     """`LightningDataModule` for the Fashion-MNIST dataset.
 
     Fashion-MNIST is a dataset of Zalando's article images consisting of a training set of 60,000 examples and 
@@ -60,7 +60,7 @@ class MNISTDataModule(LightningDataModule):
     """
 
     def __init__(self, hparams: DictConfig) -> None:
-        """Initialize a `MNISTDataModule`.
+        """Initialize a `FashionMNISTDataModule`.
 
         :param data_dir: The data directory. Defaults to `"data/"`.
         :param train_val_test_split: The train, validation and test split. Defaults to `(55_000, 5_000, 10_000)`.
@@ -265,4 +265,4 @@ def add_channel(x: torch.Tensor) -> torch.Tensor:
 
 
 if __name__ == "__main__":
-    _ = MNISTDataModule()
+    _ = FashionMNISTDataModule()

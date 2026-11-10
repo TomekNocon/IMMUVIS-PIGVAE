@@ -3,12 +3,12 @@ from pathlib import Path
 import pytest
 import torch
 
-from src.data.mnist_datamodule import MNISTDataModule
+from src.data.fashion_mnist_datamodule import FashionMNISTDataModule
 
 
 @pytest.mark.parametrize("batch_size", [32, 128])
-def test_mnist_datamodule(batch_size: int) -> None:
-    """Tests `MNISTDataModule` to verify that Fashion-MNIST can be downloaded correctly, that the necessary
+def test_fashion_mnist_datamodule(batch_size: int) -> None:
+    """Tests `FashionMNISTDataModule` to verify that Fashion-MNIST can be downloaded correctly, that the necessary
     attributes were created (e.g., the dataloader objects), and that dtypes and batch sizes
     correctly match.
 
@@ -16,7 +16,7 @@ def test_mnist_datamodule(batch_size: int) -> None:
     """
     data_dir = "data/"
 
-    dm = MNISTDataModule(data_dir=data_dir, batch_size=batch_size)
+    dm = FashionMNISTDataModule(data_dir=data_dir, batch_size=batch_size)
     dm.prepare_data()
 
     assert not dm.data_train and not dm.data_val and not dm.data_test

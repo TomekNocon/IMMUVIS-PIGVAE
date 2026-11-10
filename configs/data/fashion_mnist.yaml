@@ -1,6 +1,6 @@
 # Using Fashion-MNIST dataset (drop-in replacement for MNIST)
 # Fashion-MNIST: 10 classes of fashion items (T-shirt, Trouser, Pullover, Dress, Coat, Sandal, Shirt, Sneaker, Bag, Ankle boot)
-_target_: src.data.mnist_datamodule.MNISTDataModule
+_target_: src.data.fashion_mnist_datamodule.FashionMNISTDataModule
 hparams:
   data_dir: ${paths.data_dir}
   batch_size: 32 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
