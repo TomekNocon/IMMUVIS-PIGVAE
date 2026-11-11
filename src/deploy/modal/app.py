@@ -30,7 +30,8 @@ _gpu = os.environ.get("PIGVAE_GPU", "L4")
 GPU = None if _gpu.lower() == "none" else _gpu
 IMMUVIS_CODE = "/root/immuvis"  # holds the multiplex_model package from the submodule
 
-REPO = Path(__file__).resolve().parents[3]
+# Local paths only matter where the image is built; inside the container app.py is /root/app.py.
+REPO = Path(__file__).resolve().parents[3] if modal.is_local() else Path("/")
 
 # Versions follow uv.lock. The default PyPI torch wheel ships CUDA 12, which runs on the L4.
 image = (
