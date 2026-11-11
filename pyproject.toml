@@ -106,3 +106,13 @@ dev = [
     "ruff==0.14.10",
     "jupyterlab>=4.0.0",
 ]
+# Serving: the Modal app (src/deploy/modal), its FastAPI layer and the HTTP test client.
+deploy = [
+    "modal>=1.6",
+    "fastapi>=0.115",
+    "python-multipart>=0.0.20",
+    "httpx>=0.28",
+]
+
+[tool.uv]
+default-groups = ["dev", "deploy"]

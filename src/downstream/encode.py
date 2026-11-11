@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from hydra.utils import instantiate
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from src.downstream.memmap_writer import MemmapWriter
 from src.utils.resolvers import register_resolvers
@@ -20,7 +20,11 @@ from src.utils.resolvers import register_resolvers
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _build_pl_module(experiment: str, paths_name: str = "szary"):
+def compose_model_config(experiment: str) -> DictConfig:
+    """``{model, trainer, data}`` config of ``experiment`` with stubs for the training-only parts.
+
+    ``model.graph_ae.hparams`` resolves fully from it (it is what the deploy bundle stores).
+    """
     configs = _PROJECT_ROOT / "configs"
     register_resolvers()
     model_cfg = OmegaConf.load(configs / "model" / "model.yaml")
@@ -38,6 +42,11 @@ def _build_pl_module(experiment: str, paths_name: str = "szary"):
         data_stub = OmegaConf.merge(data_stub, exp_cfg.data)
     ctx = OmegaConf.create({"model": model_cfg, "trainer": trainer_stub, "data": data_stub})
     OmegaConf.set_struct(ctx, False)
+    return ctx
+
+
+def _build_pl_module(experiment: str, paths_name: str = "szary"):
+    ctx = compose_model_config(experiment)
     from src.models.pigvae_auto_module import PLGraphAE
 
     return PLGraphAE(
