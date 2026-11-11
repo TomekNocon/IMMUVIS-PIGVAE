@@ -1,9 +1,9 @@
 """The ImmuVis encoder that produced the stored 16x16x768 embeddings, as a differentiable module.
 
 The refactored ImmuVis-475 checkpoint reproduces the stored embeddings exactly (corr 1.0000,
-max abs 6e-4 on 4 crops of slide 7064); it needs the refactored ImmuVis code, imported from its
-clone. ``encode`` is a plain forward, so Integrated Gradients can attribute a downstream target all
-the way back to the raw IMC markers.
+max abs 6e-4 on 4 crops of slide 7064); it needs the refactored ImmuVis code, imported from the
+``external/multiplex-image-model`` submodule (branch abmil). ``encode`` is a plain forward, so
+Integrated Gradients can attribute a downstream target all the way back to the raw IMC markers.
 """
 
 import sys
@@ -19,8 +19,8 @@ NUM_CHANNELS = 265  # tokenizer vocabulary size the encoder was built with
 
 def load_immuvis(device: str = "cpu") -> tuple[torch.nn.Module, tuple[list[str], list[str]]]:
     """Return ``(model, (missing_keys, unexpected_keys))``; empty key lists mean a clean load."""
-    if str(paths.IMMUVIS_REFACTORED_REPO) not in sys.path:
-        sys.path.insert(0, str(paths.IMMUVIS_REFACTORED_REPO))
+    if str(paths.IMMUVIS_SUBMODULE) not in sys.path:
+        sys.path.insert(0, str(paths.IMMUVIS_SUBMODULE))
     from multiplex_model.modules.immuvis import MultiplexAutoencoder
 
     with open(paths.IMMUVIS_CONFIG) as f:

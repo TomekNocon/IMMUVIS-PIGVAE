@@ -35,9 +35,8 @@ REF_RESULTS = REF_DOWNSTREAM / "results" / "zglobal"
 IMMUVIS_SUBMODULE = REPO / "external" / "multiplex-image-model"
 PANEL_CONFIG = IMMUVIS_SUBMODULE / "configs" / "all_panels_config.yaml"
 MARKER_TOKENIZER = IMMUVIS_SUBMODULE / "configs" / "all_markers_tokenizer.yaml"
-# The checkpoint that reproduces the stored 16x16x768 embeddings (corr 1.0000 on 4 crops of 7064)
-# needs the refactored ImmuVis code, which lives in a separate clone.
-IMMUVIS_REFACTORED_REPO = Path("/home/tnocon/multiplex-image-model")
+# The submodule is pinned to the refactored ImmuVis code (branch abmil), which together with this
+# checkpoint reproduces the stored 16x16x768 embeddings (corr 1.0000 on 4 crops of 7064).
 IMMUVIS_CKPT = RAID / "models" / "ImmuVis-475-768-ma1-refactored.pth"
 IMMUVIS_CONFIG = RAID / "models" / "config.ImmuVis-475-768-ma1-refactored.yaml"
 
