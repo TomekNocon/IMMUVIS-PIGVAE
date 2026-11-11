@@ -24,7 +24,10 @@ shows two example links; a file whose name contains `bad` gives the 422 error st
 
 ## Chat about a result (optional)
 
-The result screen has an "Ask about this result" panel. A language model gets the prediction's
+On the result screen, the "Ask about this result" bar under the prediction offers quick questions
+and "Ask your own"; both open a 400 px chat drawer (Claude Design handoff). On wide screens the page
+moves aside instead of being covered; an answer about a crop pins it in the viewer, and crop
+mentions ("row 0, col 0") highlight it on hover. A language model gets the prediction's
 numbers as JSON (probabilities, logit, per-crop attention and IG, model card; **never the image**)
 plus the rules in `src/chat/prompt.ts` (explain this output only, no diagnosis, say what it cannot
 know, be concise). Nothing goes through the Modal backend; each user connects their own model:
@@ -51,7 +54,7 @@ know, be concise). Nothing goes through the Modal backend; each user connects th
 | `src/App.tsx` | Screen flow (login -> upload -> predicting -> result), theme, error mapping |
 | `src/screens/` | The four screens |
 | `src/result/` | Result screen: `Viewer` (image, heatmap, zoom/pan, compare), `Panel` (prediction, charts, top crops), `model.ts` (derived data, formatting, class colours) |
-| `src/chat/` | Chat panel, connectors (local bridge, OpenAI key, demo), system prompt and context |
+| `src/chat/` | Chat drawer, connectors (local bridge, OpenAI key, demo), system prompt and context, Markdown with crop links |
 | `src/app.css` | Design tokens (light/dark) and shared styles |
 
 The UI talks to the server only through `import { api, ... } from '@/api'`.

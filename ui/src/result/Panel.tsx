@@ -9,11 +9,11 @@ interface Props {
   setHover: (i: number | null) => void
   togglePin: (i: number) => void
   onAgain: () => void
-  /** Optional chat panel, shown above the details. */
-  chat?: ReactNode
+  /** The "Ask about this result" bar, shown under the prediction. */
+  ask?: ReactNode
 }
 
-export function Panel({ m, hover, pin, setHover, togglePin, onAgain, chat }: Props) {
+export function Panel({ m, hover, pin, setHover, togglePin, onAgain, ask }: Props) {
   const [sort, setSort] = useState<'att' | 'ig'>('att')
   const [details, setDetails] = useState(false)
   const cur = hover ?? pin
@@ -56,6 +56,8 @@ export function Panel({ m, hover, pin, setHover, togglePin, onAgain, chat }: Pro
           </span>
         </div>
       </div>
+
+      {ask}
 
       <div>
         <div className="caps" style={{ marginBottom: 8 }}>Crops by direction</div>
@@ -178,8 +180,6 @@ export function Panel({ m, hover, pin, setHover, togglePin, onAgain, chat }: Pro
           <span style={{ textAlign: 'right' }}>IG</span>
         </div>
       </div>
-
-      {chat}
 
       <Details m={m} open={details} onToggle={() => setDetails((d) => !d)} />
 
