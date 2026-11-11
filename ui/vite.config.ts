@@ -14,9 +14,16 @@ export default defineConfig(({ mode }) => {
       // localhost only: never expose the dev server to the network (no `--host`).
       host: '127.0.0.1',
       port: 5173,
-      // During `pnpm dev` the browser calls /api on this server and Vite forwards it to the
-      // Modal gateway, so the page is same-origin and CORS never applies, whatever the port.
-      proxy: env.VITE_API_URL ? { '/api': { target: env.VITE_API_URL, changeOrigin: true } } : undefined,
+      // During `pnpm dev` the browser calls /api and /bridge on this server and Vite forwards
+      // them (to the Modal gateway and to the local chat bridge), so the page is same-origin:
+      // no CORS, and on the cluster only port 5173 needs forwarding.
+      proxy: {
+        ...(env.VITE_API_URL ? { '/api': { target: env.VITE_API_URL, changeOrigin: true } } : {}),
+        '/bridge': {
+          target: env.VITE_CHAT_BRIDGE_URL || 'http://127.0.0.1:8765',
+          rewrite: (p: string) => p.replace(/^\/bridge/, ''),
+        },
+      },
     },
   }
 })

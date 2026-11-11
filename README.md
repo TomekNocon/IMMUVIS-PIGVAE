@@ -149,7 +149,9 @@ make ui-dev          # web app on localhost:5173; sign in with UI_PASSWORD from 
 make ui-mock         # the same on recorded responses, no server needed
 ```
 
-Scripts can call the model server directly with `scripts/deploy/query_modal.py` (proxy token from
+The result screen can also chat about a prediction with a language model you connect yourself
+(your ChatGPT/Claude subscription through `make chat-bridge`, or an OpenAI API key); it only sees
+the numbers, never the image. Scripts can call the model server directly with `scripts/deploy/query_modal.py` (proxy token from
 `make modal-token`).
 
 **Thesis figures**: `extract_*.py` reads the data and models (run on the cluster with

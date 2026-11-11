@@ -6,7 +6,7 @@ GPU ?= none
 
 .PHONY: help install lint format test test-full train clean clean-logs \
 	modal-login modal-bundle modal-secret modal-deploy modal-token modal-api modal-stop \
-	ui-install ui-dev ui-mock ui-build
+	ui-install ui-dev ui-mock ui-build chat-bridge
 
 help: ## Show this help
 	@grep -E '^[.a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -75,6 +75,9 @@ ui-mock: ## Run the UI on recorded responses (no server or password needed)
 
 ui-build: ## Type-check, lint and build the UI into ui/dist
 	cd ui && pnpm build && pnpm lint
+
+chat-bridge: ## Local bridge for the UI chat via your Codex/Claude CLI login [BACKEND=codex|claude MODEL=...]
+	python3 scripts/deploy/chat_bridge.py $(if $(BACKEND),--backend $(BACKEND)) $(if $(MODEL),--model $(MODEL))
 
 # ----------------------------------------------------------------------------------------------
 

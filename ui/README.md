@@ -22,6 +22,27 @@ and open `http://localhost:5173` on your laptop. Stop with Ctrl+C. During develo
 Mock mode: password `wrong` -> 401, `locked` -> 429, anything else signs in. The Upload screen
 shows two example links; a file whose name contains `bad` gives the 422 error state.
 
+## Chat about a result (optional)
+
+The result screen has an "Ask about this result" panel. A language model gets the prediction's
+numbers as JSON (probabilities, logit, per-crop attention and IG, model card; **never the image**)
+plus the rules in `src/chat/prompt.ts` (explain this output only, no diagnosis, say what it cannot
+know, be concise). Nothing goes through the Modal backend; each user connects their own model:
+
+- **My subscription (local):** run the bridge on the computer your browser runs on, with the
+  Codex CLI (`npm i -g @openai/codex && codex login`, ChatGPT plan) or Claude Code (`claude`,
+  Claude plan) installed and signed in: `make chat-bridge` (or
+  `python3 scripts/deploy/chat_bridge.py`, standard library only). It answers on
+  `127.0.0.1:8765`, only to the UI's origins, and runs the CLI without tools in an empty temporary
+  folder. With `make ui-dev` the panel's bridge address is `/bridge`: the dev server forwards it,
+  so on the cluster the bridge can run next to the dev server and only port 5173 is forwarded.
+  A deployed site calls `http://127.0.0.1:8765` on the user's computer; start the bridge there
+  with `--allow-origin https://<site>`.
+- **OpenAI API key:** paste a key from platform.openai.com (billed per use; a ChatGPT subscription
+  is not an API key). It stays in the browser (session storage, or local storage if remembered) and
+  goes only to OpenAI.
+- **Demo replies:** mock mode only, canned answers.
+
 ## Layout
 
 | Path | What |
@@ -30,6 +51,7 @@ shows two example links; a file whose name contains `bad` gives the 422 error st
 | `src/App.tsx` | Screen flow (login -> upload -> predicting -> result), theme, error mapping |
 | `src/screens/` | The four screens |
 | `src/result/` | Result screen: `Viewer` (image, heatmap, zoom/pan, compare), `Panel` (prediction, charts, top crops), `model.ts` (derived data, formatting, class colours) |
+| `src/chat/` | Chat panel, connectors (local bridge, OpenAI key, demo), system prompt and context |
 | `src/app.css` | Design tokens (light/dark) and shared styles |
 
 The UI talks to the server only through `import { api, ... } from '@/api'`.

@@ -150,3 +150,33 @@ a:hover { color: var(--a); }
   min-height: 44px; padding: 6px 8px; border-bottom: 1px solid var(--line); cursor: pointer;
   transition: background 0.2s; font-family: 'IBM Plex Mono', monospace; font-size: 13px;
 }
+
+/* Chat ("Ask about this result") */
+.chat { display: flex; flex-direction: column; gap: 10px; }
+.chatTabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.chatTab {
+  font: inherit; font-size: 13px; height: 32px; padding: 0 12px; border-radius: 6px; cursor: pointer;
+  background: none; color: var(--mut); border: 1px solid var(--line);
+}
+.chatTab.on { color: var(--ink); border-color: var(--ink); }
+.chatCode {
+  margin: 6px 0 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; font-size: 12px; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.chatLog { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; }
+.chatMsg { font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chatMsg.user {
+  align-self: flex-end; max-width: 85%; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 12px;
+}
+.chatChip {
+  font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+  background: none; color: var(--ink); border: 1px solid var(--line);
+}
+.chatChip:hover { border-color: var(--mut); }
+.chatInput { flex: 1; height: auto; min-height: 44px; padding: 10px 12px; font-size: 14px; resize: vertical; line-height: 1.4; }
+.chatMsg.reply { white-space: normal; }
+.chatMsg.reply p, .chatMsg.reply ul, .chatMsg.reply ol { margin: 0 0 8px; }
+.chatMsg.reply ul, .chatMsg.reply ol { padding-left: 20px; }
+.chatMsg.reply li { margin: 2px 0; }
+.chatMsg.reply strong { font-weight: 600; }

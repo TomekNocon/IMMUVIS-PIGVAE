@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { InfoResponse, PredictResponse } from '@/api'
+import { Chat } from '@/chat/Chat'
 import { buildModel } from '@/result/model'
 import { Panel } from '@/result/Panel'
 import { Viewer } from '@/result/Viewer'
@@ -27,7 +28,15 @@ export function Result({
     >
       <Viewer m={m} hover={hover} pin={pin} setHover={setHover} togglePin={togglePin} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28, minWidth: 0 }}>
-        <Panel m={m} hover={hover} pin={pin} setHover={setHover} togglePin={togglePin} onAgain={onAgain} />
+        <Panel
+          m={m}
+          hover={hover}
+          pin={pin}
+          setHover={setHover}
+          togglePin={togglePin}
+          onAgain={onAgain}
+          chat={<Chat result={result} />}
+        />
         <div className="mono mut" style={{ fontSize: 11 }}>
           {result.model.label} · fold {result.model.fold} · AUROC {result.model.fold_val_auroc.toFixed(3)} ·{' '}
           {result.model.bundle}

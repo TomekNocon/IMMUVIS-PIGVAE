@@ -1,5 +1,5 @@
 // Side panel of the Result screen: prediction, direction tally, scatter, top crops, details.
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { CLASS_VAR, igClass, mix, pct, signed, type CropView, type ResultModel } from './model'
 
 interface Props {
@@ -9,9 +9,11 @@ interface Props {
   setHover: (i: number | null) => void
   togglePin: (i: number) => void
   onAgain: () => void
+  /** Optional chat panel, shown above the details. */
+  chat?: ReactNode
 }
 
-export function Panel({ m, hover, pin, setHover, togglePin, onAgain }: Props) {
+export function Panel({ m, hover, pin, setHover, togglePin, onAgain, chat }: Props) {
   const [sort, setSort] = useState<'att' | 'ig'>('att')
   const [details, setDetails] = useState(false)
   const cur = hover ?? pin
@@ -176,6 +178,8 @@ export function Panel({ m, hover, pin, setHover, togglePin, onAgain }: Props) {
           <span style={{ textAlign: 'right' }}>IG</span>
         </div>
       </div>
+
+      {chat}
 
       <Details m={m} open={details} onToggle={() => setDetails((d) => !d)} />
 
