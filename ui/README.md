@@ -1,22 +1,23 @@
 # IMC subtype viewer (UI)
 
-Browser front end for the IMC inference API on Modal. Design: `../docs/design/2026-11-11-imc-web-ui.md`;
-product brief (what the numbers mean, error states): `../docs/design/2026-11-11-imc-web-ui-brief.md`;
-visual design: the Claude Design project "IMC Subtype Viewer".
+Browser front end for the IMC inference API on Modal (`src/deploy/`): sign in, upload a raw cords
+IMC image, see the DX.name prediction with per-crop attention and Integrated Gradients. Visual
+design: the Claude Design project "IMC Subtype Viewer".
 
-## Run (on bury)
+## Run
 
-```bash
-cd ui
-pnpm install       # first time only
-pnpm dev:mock      # recorded responses: no server, any password, instant
-pnpm dev           # the real API (VITE_API_URL in .env.local); sign in with UI_PASSWORD from ../.env
-pnpm build         # type-check and build into dist/
-pnpm lint
-```
+From the repository root (or the `pnpm` command inside `ui/`):
 
-Open the forwarded port 5173 on your laptop (VS Code -> Ports tab) as `http://localhost:5173`
-(the API only accepts that exact origin in development). Stop with Ctrl+C.
+| make | pnpm | What |
+|------|------|------|
+| `make ui-install` | `pnpm install` | install dependencies (`make ui-install` also creates `.env.local` from `.env.example`) |
+| `make ui-dev` | `pnpm dev` | the real API; sign in with `UI_PASSWORD` from the repo-root `.env` |
+| `make ui-mock` | `pnpm dev:mock` | recorded responses: no server, any password, instant |
+| `make ui-build` | `pnpm build && pnpm lint` | type-check, lint, build into `dist/` |
+
+The dev server listens on `localhost:5173`; on the cluster, forward that port (VS Code -> Ports tab)
+and open `http://localhost:5173` on your laptop. Stop with Ctrl+C. During development Vite forwards
+`/api` to the gateway in `VITE_API_URL` (see `vite.config.ts`), so any local port works.
 
 Mock mode: password `wrong` -> 401, `locked` -> 429, anything else signs in. The Upload screen
 shows two example links; a file whose name contains `bad` gives the 422 error state.
@@ -35,18 +36,21 @@ The UI talks to the server only through `import { api, ... } from '@/api'`.
 
 ## When the backend API changes
 
-```bash
-uv run python scripts/deploy/export_openapi.py   # repo root: Python models -> src/deploy/openapi.json
-cd ui && pnpm gen:api                            # -> src/api/schema.ts (TypeScript types)
-```
+The response shapes are defined once, as Python models in `src/deploy/schemas.py`. After changing
+them, run `make modal-api`, which does two steps:
+
+1. `scripts/deploy/export_openapi.py` writes the API description `src/deploy/openapi.json`;
+2. `pnpm gen:api` (a script in `package.json`, using `openapi-typescript`) turns that file into
+   the TypeScript types `src/api/schema.ts`, which the UI code imports through `src/api/types.ts`.
 
 `tests/test_deploy_contract.py` fails if `openapi.json` or the fixtures drift from the backend.
 
 ## Deploy
 
 Any static host works (Vercel, Cloudflare Pages): root directory `ui`, build command `pnpm build`,
-output `dist`, environment variable `VITE_API_URL`. Then add the site's address to `UI_ORIGINS`
-in the Modal Secret `pigvae-imc-ui` so the API accepts calls from it.
+output `dist`, environment variable `VITE_API_URL` (the gateway address from `.env.example`). The
+built site calls the gateway directly, so allow its address: add it to `UI_ORIGINS` in the
+repo-root `.env` (comma-separated), then `make modal-secret FORCE=1 && make modal-deploy`.
 
 ## Notes
 

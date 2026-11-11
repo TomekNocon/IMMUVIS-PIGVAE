@@ -48,16 +48,19 @@ src/
   downstream/          frozen-encoder feature extraction, gated ABMIL + cross-validation
   explainability/      attention rollout, Integrated Gradients, faithfulness, IMC rendering
   baselines/dgi/       Deep Graph Infomax baseline
-  deploy/modal/        ONNX serving on Modal (work in progress)
+  deploy/              inference API: raw TIFF -> ImmuVis -> PCA -> PIGVAE -> ABMIL, browser API
+                       gateway (password login), Modal app (deploy/modal/app.py)
   utils/               Hydra/Lightning utilities, model inspection, callbacks
   train.py eval.py     entry points
 scripts/
   data/                PCA fitting, embeddings -> HDF5 conversion
+  deploy/              model bundle export, API contract export, credentials (.env <-> Modal)
   downstream/          encode -> label join -> ABMIL CV -> comparison table
   explain/             encoder / ABMIL attribution, IMC visualisation
   diagnostics/         checkpoint health report
   thesis_figures/      figure extraction (cluster) and rendering (anywhere)
   slurm/               SLURM launchers for all of the above
+ui/                    web app for the inference API (React + TypeScript + Vite, pnpm)
 external/              git submodules: ImmuVis (multiplex-image-model), DGI
 notebooks/             exploratory notebooks (outputs are stripped on commit)
 tests/                 unit tests + integration tests on real data
@@ -75,8 +78,10 @@ tests/                 unit tests + integration tests on real data
 ```bash
 git clone --recurse-submodules https://github.com/TomekNocon/IMMUVIS-PIGVAE.git
 cd IMMUVIS-PIGVAE
-make install        # uv sync, submodules, pre-commit hooks
+make install        # uv sync, submodules, pre-commit hooks, .env from .env.example
 ```
+
+The web app additionally needs Node.js and pnpm (`corepack enable pnpm`).
 
 The data is not part of the repository. `configs/paths/szary.yaml` sets the root on the cluster;
 the IMC datamodule expects
@@ -129,6 +134,23 @@ sbatch --export=ALL,INPUT=<image.tiff> scripts/slurm/visualize_imc.sh     # mark
 ```bash
 uv run python scripts/diagnostics/diagnose_model.py experiment=pigvae ckpt_path=<ckpt> inspect=true
 ```
+
+**Web app** (upload a raw cords IMC image, get the DX.name prediction with per-crop attention and
+Integrated Gradients). The model chain runs on [Modal](https://modal.com); the UI runs locally or on
+any static host. `make help` lists all targets; `ui/README.md` has the details.
+
+```bash
+make modal-login     # once: log in to Modal
+make modal-bundle    # export the models + parity check, upload to the Modal Volume (SLURM job on szary)
+make modal-secret    # UI password: generated into .env if missing, pushed to a Modal Secret
+make modal-deploy    # model server + API gateway (GPU=L4 once the Modal account has billing)
+make ui-install      # UI dependencies + ui/.env.local
+make ui-dev          # web app on localhost:5173; sign in with UI_PASSWORD from .env
+make ui-mock         # the same on recorded responses, no server needed
+```
+
+Scripts can call the model server directly with `scripts/deploy/query_modal.py` (proxy token from
+`make modal-token`).
 
 **Thesis figures**: `extract_*.py` reads the data and models (run on the cluster with
 `scripts/slurm/run_gpu.sh` / `run_cpu.sh`); `fig_*.py` renders from the cached results into
