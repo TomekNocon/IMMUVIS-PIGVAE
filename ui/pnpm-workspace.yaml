@@ -1,0 +1,26 @@
+# pnpm waits a day before installing new releases (supply-chain safety); these were let through
+# deliberately for the override below. Safe to delete once they are older than a day.
+minimumReleaseAgeExclude:
+  - vite@8.3.8
+  - rolldown@1.2.19
+  - '@rolldown/binding-android-arm-eabi@1.2.19'
+  - '@rolldown/binding-android-arm64@1.2.19'
+  - '@rolldown/binding-darwin-arm64@1.2.19'
+  - '@rolldown/binding-darwin-x64@1.2.19'
+  - '@rolldown/binding-freebsd-x64@1.2.19'
+  - '@rolldown/binding-linux-arm-gnueabihf@1.2.19'
+  - '@rolldown/binding-linux-arm64-gnu@1.2.19'
+  - '@rolldown/binding-linux-arm64-musl@1.2.19'
+  - '@rolldown/binding-linux-ppc64-gnu@1.2.19'
+  - '@rolldown/binding-linux-s390x-gnu@1.2.19'
+  - '@rolldown/binding-linux-x64-gnu@1.2.19'
+  - '@rolldown/binding-linux-x64-musl@1.2.19'
+  - '@rolldown/binding-openharmony-arm64@1.2.19'
+  - '@rolldown/binding-wasm32-wasi@1.2.19'
+  - '@rolldown/binding-win32-arm64-msvc@1.2.19'
+  - '@rolldown/binding-win32-x64-msvc@1.2.19'
+
+# rolldown 1.2.18's native binary needs AVX2 and crashes ("Illegal instruction") on the cluster
+# login node's Sandy Bridge Xeon; 1.2.19 runs there.
+overrides:
+  rolldown: 1.2.19

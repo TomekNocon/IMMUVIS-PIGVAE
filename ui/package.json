@@ -1,0 +1,30 @@
+{
+  "name": "imc-subtype-viewer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "gen:api": "openapi-typescript ../src/deploy/openapi.json -o src/api/schema.ts",
+    "dev:mock": "VITE_USE_MOCK=1 vite"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.107.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "openapi-typescript": "^7.13.0",
+    "oxlint": "^1.90.0",
+    "typescript": "~5.9.3",
+    "vite": "8.3.8"
+  },
+  "packageManager": "pnpm@12.18.0"
+}
