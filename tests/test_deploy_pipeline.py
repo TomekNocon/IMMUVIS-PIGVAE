@@ -13,6 +13,9 @@ from src.deploy.pipeline import (
 from src.downstream.abmil.model import GatedABMIL
 
 D = 16
+# Fake panel with the default preview markers at their cords positions.
+MARKERS = [f"m{i}" for i in range(43)]
+MARKERS[34], MARKERS[13], MARKERS[19] = "panCK", "CD45", "DNA1"
 
 
 class FakeImmuVis:
@@ -53,7 +56,7 @@ def make_pipeline(num_classes: int = 2) -> IMCPipeline:
         torch.zeros(768),
         FakeGAE(),
         head,
-        markers=[f"m{i}" for i in range(43)],
+        markers=MARKERS,
         manifest={"bundle_id": "test"},
         batch_size=2,
     )

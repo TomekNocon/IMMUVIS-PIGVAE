@@ -13,6 +13,7 @@ import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 
 from src.deploy.pipeline import IMCPipeline, InvalidImageError
+from src.deploy.preview import UnknownMarkerError
 
 MAX_UPLOAD_BYTES = 1 << 30  # 1 GiB
 
@@ -29,21 +30,40 @@ def read_image(data: bytes) -> np.ndarray:
         raise InvalidImageError(f"could not read the file as a TIFF or .npy: {exc}") from exc
 
 
+def load_upload(file: UploadFile) -> np.ndarray:
+    """Read an uploaded image; 413 when too large, 422 when not a TIFF/.npy."""
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"file larger than {MAX_UPLOAD_BYTES} bytes")
+    try:
+        return read_image(data)
+    except InvalidImageError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+def predict_envelope(
+    pipeline: IMCPipeline, data: bytes, ig_steps: int, preview_markers: list[str] | None
+) -> tuple[int, dict]:
+    """Run ``/api/predict`` for the browser gateway: ``(status, body)``, never raising on bad input.
+
+    Exceptions do not cross the Modal call (the gateway cannot import torch), so input errors
+    come back as ``(422, {"detail": ...})``.
+    """
+    kwargs = {"preview_markers": preview_markers} if preview_markers else {}
+    try:
+        return 200, pipeline.predict(
+            read_image(data), ig_steps=ig_steps, include_preview=True, **kwargs
+        )
+    except (InvalidImageError, UnknownMarkerError) as exc:
+        return 422, {"detail": str(exc)}
+
+
 def create_app(get_pipeline: Callable[[], IMCPipeline]) -> FastAPI:
     """Build the API; ``get_pipeline`` returns the loaded pipeline (loaded once by the caller)."""
     api = FastAPI(
         title="PIGVAE IMC API",
         description="Raw cords IMC image -> DX.name prediction with per-crop explanations.",
     )
-
-    def _load(file: UploadFile) -> np.ndarray:
-        data = file.file.read(MAX_UPLOAD_BYTES + 1)
-        if len(data) > MAX_UPLOAD_BYTES:
-            raise HTTPException(413, f"file larger than {MAX_UPLOAD_BYTES} bytes")
-        try:
-            return read_image(data)
-        except InvalidImageError as exc:
-            raise HTTPException(422, str(exc)) from exc
 
     @api.get("/healthz")
     def healthz() -> dict:
@@ -62,7 +82,7 @@ def create_app(get_pipeline: Callable[[], IMCPipeline]) -> FastAPI:
         ] = 50,
         include_embeddings: Annotated[bool, Query(description="add each crop's z_global")] = False,
     ) -> dict:
-        img = _load(file)
+        img = load_upload(file)
         try:
             return get_pipeline().predict(
                 img, ig_steps=ig_steps, include_embeddings=include_embeddings
@@ -72,7 +92,7 @@ def create_app(get_pipeline: Callable[[], IMCPipeline]) -> FastAPI:
 
     @api.post("/embed")
     def embed(file: Annotated[UploadFile, File()]) -> dict:
-        img = _load(file)
+        img = load_upload(file)
         try:
             return get_pipeline().embed_json(img)
         except InvalidImageError as exc:

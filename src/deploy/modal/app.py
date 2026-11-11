@@ -1,15 +1,25 @@
 """Modal deployment of the IMC API (``src/deploy/api.py`` over ``src/deploy/pipeline.py``).
 
-One GPU container loads ImmuVis, the PCA, PIGVAE and the ABMIL head once from the bundle Volume
-and serves ``/healthz``, ``/info``, ``/predict`` and ``/embed``. Callers need a Modal proxy-auth
-token (``Modal-Key`` / ``Modal-Secret`` headers); unauthenticated requests are rejected by Modal
-before a container starts. At most one container runs, and it stops after 5 idle minutes.
+Two web endpoints:
+
+- ``IMCServer.web``: the script API (``/healthz``, ``/info``, ``/predict``, ``/embed``). Callers
+  need a Modal proxy-auth token (``Modal-Key`` / ``Modal-Secret`` headers); Modal rejects other
+  requests before a container starts.
+- ``api_gateway``: the browser API (``/api/*``, ``src/deploy/ui_api.py``) in a small gateway container
+  without torch. It checks the UI password and session tokens itself and calls ``IMCServer`` only
+  for logged-in requests, so anonymous traffic never starts the model container. Its password,
+  signing key and allowed browser origins come from the Modal Secret ``pigvae-imc-ui``
+  (``UI_PASSWORD``, ``UI_SIGNING_KEY``, ``UI_ORIGINS`` comma-separated).
+
+The model container loads ImmuVis, the PCA, PIGVAE and the ABMIL head once from the bundle
+Volume. At most one container of each runs, and they stop after 2 idle minutes.
 
 One-time setup (from the repo root)::
 
     uv run modal setup                                              # log in
     uv run modal volume create pigvae-imc-bundle
     uv run modal volume put pigvae-imc-bundle <out>/bundle_DX.name /  # scripts/deploy/export_bundle.py
+    uv run modal secret create pigvae-imc-ui UI_PASSWORD=... UI_SIGNING_KEY=... UI_ORIGINS=...
     uv run modal deploy src/deploy/modal/app.py
 
 Then create a proxy-auth token in the Modal dashboard (Settings -> Proxy Auth Tokens) and call the
@@ -28,6 +38,7 @@ BUNDLE = f"{BUNDLE_DIR}/bundle_DX.name"  # the uploaded bundle directory inside 
 # GPU type; `PIGVAE_GPU=none modal deploy ...` serves on CPU (slower, no payment method needed).
 _gpu = os.environ.get("PIGVAE_GPU", "L4")
 GPU = None if _gpu.lower() == "none" else _gpu
+UI_SECRET = "pigvae-imc-ui"  # noqa: S105 - the Secret's name, not its value
 IMMUVIS_CODE = "/root/immuvis"  # holds the multiplex_model package from the submodule
 
 # Local paths only matter where the image is built; inside the container app.py is /root/app.py.
@@ -53,12 +64,21 @@ image = (
         "tifffile==2025.5.10",
         "fastapi==0.162.4",
         "python-multipart==0.0.33",
+        "pillow==11.3.0",
     )
     .add_local_dir(
         REPO / "external" / "multiplex-image-model" / "multiplex_model",
         f"{IMMUVIS_CODE}/multiplex_model",
         ignore=["**/__pycache__"],
     )
+    .add_local_python_source("src")
+)
+
+# The browser gateway: web framework only, starts in a second or two.
+gateway_image = (
+    modal.Image
+    .debian_slim(python_version="3.12")
+    .uv_pip_install("fastapi==0.162.4", "python-multipart==0.0.33", "pydantic==2.11.7")
     .add_local_python_source("src")
 )
 
@@ -73,7 +93,7 @@ bundle = modal.Volume.from_name(VOLUME_NAME)
     memory=8192,
     volumes={BUNDLE_DIR: bundle},
     max_containers=1,  # caps the cost even if the token leaks
-    scaledown_window=300,  # seconds idle before the container stops
+    scaledown_window=120,  # seconds idle before the container stops (idle time is billed)
     timeout=600,
 )
 class IMCServer:
@@ -91,3 +111,42 @@ class IMCServer:
         from src.deploy.api import create_app
 
         return create_app(lambda: self.pipeline)
+
+    @modal.method()
+    def info(self) -> dict:
+        return self.pipeline.info()
+
+    @modal.method()
+    def predict_bytes(
+        self, data: bytes, ig_steps: int, preview_markers: list[str] | None
+    ) -> tuple[int, dict]:
+        from src.deploy.api import predict_envelope
+
+        return predict_envelope(self.pipeline, data, ig_steps, preview_markers)
+
+
+@app.function(
+    image=gateway_image,
+    cpu=0.25,
+    memory=1024,  # holds one upload (capped at 300 MB) in memory
+    secrets=[modal.Secret.from_name(UI_SECRET)],
+    max_containers=1,  # the login rate limiter lives in this one container's memory
+    scaledown_window=120,
+    timeout=600,
+)
+@modal.concurrent(max_inputs=20)
+@modal.asgi_app()
+def api_gateway():
+    from src.deploy.ui_api import create_ui_app
+
+    server = IMCServer()
+    origins = [o.strip() for o in os.environ.get("UI_ORIGINS", "").split(",") if o.strip()]
+    return create_ui_app(
+        info=lambda: server.info.remote(),
+        predict=lambda data, steps, markers: tuple(
+            server.predict_bytes.remote(data, steps, markers)
+        ),
+        password=os.environ.get("UI_PASSWORD", ""),
+        signing_key=os.environ.get("UI_SIGNING_KEY", "").encode(),
+        allowed_origins=origins,
+    )

@@ -1,0 +1,640 @@
+{
+  "components": {
+    "schemas": {
+      "Body_post_predict_api_predict_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "TIFF or .npy, [43, H, W] raw ion counts",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_post_predict_api_predict_post",
+        "type": "object"
+      },
+      "Crop": {
+        "properties": {
+          "attention": {
+            "description": "ABMIL attention weight; sums to 1 over crops",
+            "title": "Attention",
+            "type": "number"
+          },
+          "col": {
+            "description": "Top-left pixel column in the original image",
+            "title": "Col",
+            "type": "integer"
+          },
+          "ig_importance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Signed Integrated-Gradients contribution; > 0 pushes toward classes[1]",
+            "title": "Ig Importance"
+          },
+          "row": {
+            "description": "Top-left pixel row in the original image",
+            "title": "Row",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "row",
+          "col",
+          "attention",
+          "ig_importance"
+        ],
+        "title": "Crop",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "description": "Human-readable reason",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ImageInfo": {
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "n_crops": {
+            "title": "N Crops",
+            "type": "integer"
+          },
+          "tile_size": {
+            "title": "Tile Size",
+            "type": "integer"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "height",
+          "width",
+          "tile_size",
+          "n_crops"
+        ],
+        "title": "ImageInfo",
+        "type": "object"
+      },
+      "InfoResponse": {
+        "properties": {
+          "bundle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Id of the deployed model bundle",
+            "title": "Bundle"
+          },
+          "classes": {
+            "description": "Class names; IG sign refers to classes[1]",
+            "items": {
+              "type": "string"
+            },
+            "title": "Classes",
+            "type": "array"
+          },
+          "device": {
+            "description": "cpu or cuda",
+            "title": "Device",
+            "type": "string"
+          },
+          "fold": {
+            "description": "Cross-validation fold the head was trained on",
+            "title": "Fold",
+            "type": "integer"
+          },
+          "fold_val_auroc": {
+            "description": "Validation AUROC of that fold",
+            "title": "Fold Val Auroc",
+            "type": "number"
+          },
+          "label": {
+            "description": "Clinical variable the head predicts, e.g. DX.name",
+            "title": "Label",
+            "type": "string"
+          },
+          "markers": {
+            "description": "Expected channel order of the uploaded image",
+            "items": {
+              "type": "string"
+            },
+            "title": "Markers",
+            "type": "array"
+          },
+          "max_side": {
+            "description": "Largest accepted image side in pixels",
+            "title": "Max Side",
+            "type": "integer"
+          },
+          "n_markers": {
+            "title": "N Markers",
+            "type": "integer"
+          },
+          "tile_size": {
+            "description": "Crop side in image pixels",
+            "title": "Tile Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "fold",
+          "fold_val_auroc",
+          "bundle",
+          "classes",
+          "markers",
+          "n_markers",
+          "tile_size",
+          "max_side",
+          "device"
+        ],
+        "title": "InfoResponse",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "password": {
+            "maxLength": 256,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "LoginResponse": {
+        "properties": {
+          "expires_at": {
+            "description": "Unix seconds",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "token": {
+            "description": "Send as `Authorization: Bearer <token>`",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expires_at"
+        ],
+        "title": "LoginResponse",
+        "type": "object"
+      },
+      "ModelInfo": {
+        "properties": {
+          "bundle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Id of the deployed model bundle",
+            "title": "Bundle"
+          },
+          "fold": {
+            "description": "Cross-validation fold the head was trained on",
+            "title": "Fold",
+            "type": "integer"
+          },
+          "fold_val_auroc": {
+            "description": "Validation AUROC of that fold",
+            "title": "Fold Val Auroc",
+            "type": "number"
+          },
+          "label": {
+            "description": "Clinical variable the head predicts, e.g. DX.name",
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "fold",
+          "fold_val_auroc",
+          "bundle"
+        ],
+        "title": "ModelInfo",
+        "type": "object"
+      },
+      "PredictResponse": {
+        "properties": {
+          "crops": {
+            "items": {
+              "$ref": "#/components/schemas/Crop"
+            },
+            "title": "Crops",
+            "type": "array"
+          },
+          "image": {
+            "$ref": "#/components/schemas/ImageInfo"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "logit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Logit"
+          },
+          "model": {
+            "$ref": "#/components/schemas/ModelInfo"
+          },
+          "prediction": {
+            "title": "Prediction",
+            "type": "string"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/Preview"
+          },
+          "probabilities": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Probabilities",
+            "type": "object"
+          },
+          "timing_ms": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Timing Ms",
+            "type": "object"
+          }
+        },
+        "required": [
+          "label",
+          "prediction",
+          "probabilities",
+          "logit",
+          "image",
+          "crops",
+          "preview",
+          "model",
+          "timing_ms"
+        ],
+        "title": "PredictResponse",
+        "type": "object"
+      },
+      "Preview": {
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "markers": {
+            "description": "Markers shown as red, green, blue",
+            "items": {
+              "type": "string"
+            },
+            "title": "Markers",
+            "type": "array"
+          },
+          "png_base64": {
+            "description": "RGB PNG, base64",
+            "title": "Png Base64",
+            "type": "string"
+          },
+          "scale": {
+            "description": "Preview pixels per image pixel",
+            "title": "Scale",
+            "type": "number"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "png_base64",
+          "width",
+          "height",
+          "scale",
+          "markers"
+        ],
+        "title": "Preview",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Password login, then raw cords IMC image -> DX.name prediction.",
+    "title": "PIGVAE IMC browser API",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/healthz": {
+      "get": {
+        "description": "Gateway liveness; does not start the model.",
+        "operationId": "healthz_api_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Healthz Api Healthz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz"
+      }
+    },
+    "/api/info": {
+      "get": {
+        "description": "Model card and expected input; also wakes the model container.",
+        "operationId": "get_info_api_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InfoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Info"
+      }
+    },
+    "/api/login": {
+      "post": {
+        "operationId": "login_api_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Login"
+      }
+    },
+    "/api/predict": {
+      "post": {
+        "operationId": "post_predict_api_predict_post",
+        "parameters": [
+          {
+            "description": "Integrated-Gradients steps; 0 = off",
+            "in": "query",
+            "name": "ig_steps",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Integrated-Gradients steps; 0 = off",
+              "maximum": 500,
+              "minimum": 0,
+              "title": "Ig Steps",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Three comma-separated marker names for R,G,B",
+            "in": "query",
+            "name": "preview_markers",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Three comma-separated marker names for R,G,B",
+              "title": "Preview Markers"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_post_predict_api_predict_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Predict"
+      }
+    }
+  }
+}

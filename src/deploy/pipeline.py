@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,6 +24,7 @@ import numpy as np
 import torch
 
 from src.data.imc_raw import CROP, crops, preprocess
+from src.deploy.preview import DEFAULT_PREVIEW_MARKERS, render_preview, resolve_markers
 
 N_MARKERS = 43  # cords panel
 MAX_SIDE = 4096  # pixels; larger uploads are rejected
@@ -93,6 +94,7 @@ class Embedding:
     height: int
     width: int
     timings_ms: dict[str, float] = field(default_factory=dict)
+    preprocessed: np.ndarray | None = None  # [43, H, W] in [0, 1], for the preview
 
 
 class IMCPipeline:
@@ -201,7 +203,8 @@ class IMCPipeline:
         img = validate_image(raw)
         timings: dict[str, float] = {}
         t0 = time.perf_counter()
-        tiles = crops(preprocess(img))
+        pre = preprocess(img)
+        tiles = crops(pre)
         timings["preprocess"] = (time.perf_counter() - t0) * 1e3
 
         coords = [ij for ij, _ in tiles]
@@ -226,19 +229,27 @@ class IMCPipeline:
             t_pigvae += time.perf_counter() - t0
         timings["immuvis"], timings["pigvae"] = t_immuvis * 1e3, t_pigvae * 1e3
         _, height, width = img.shape
-        return Embedding(coords, torch.cat(out).cpu(), height, width, timings)
+        return Embedding(coords, torch.cat(out).cpu(), height, width, timings, pre)
 
     def predict(
-        self, raw: np.ndarray, ig_steps: int = 50, include_embeddings: bool = False
+        self,
+        raw: np.ndarray,
+        ig_steps: int = 50,
+        include_embeddings: bool = False,
+        include_preview: bool = False,
+        preview_markers: Sequence[str] = DEFAULT_PREVIEW_MARKERS,
     ) -> dict[str, Any]:
         """Prediction, attention and Integrated Gradients per crop, as a JSON-ready dict.
 
         ``ig_importance`` is each crop's signed Integrated-Gradients contribution: for a binary
         (single-logit) head to that logit, so positive pushes toward ``classes[1]``; for a
         multi-class head to the logit of the predicted class. ``ig_steps=0`` skips IG.
+        ``include_preview`` adds an RGB PNG of ``preview_markers`` (see :mod:`.preview`).
         """
         from src.explainability.abmil_attribution import abmil_attention, abmil_ig, crop_importance
 
+        if include_preview:  # fail on bad marker names before the expensive part
+            resolve_markers(preview_markers, self.markers)
         emb = self.embed(raw)
         timings = dict(emb.timings_ms)
         model = self.head.model
@@ -269,7 +280,7 @@ class IMCPipeline:
         timings["ig"] = (time.perf_counter() - t0) * 1e3
 
         z = emb.z_global.tolist() if include_embeddings else [None] * len(emb.coords)
-        return {
+        out: dict[str, Any] = {
             "label": self.head.label,
             "prediction": classes[pred],
             "probabilities": dict(zip(classes, probs, strict=True)),
@@ -295,6 +306,11 @@ class IMCPipeline:
             "model": self._model_info(),
             "timing_ms": {k: round(v, 1) for k, v in timings.items()},
         }
+        if include_preview:
+            t0 = time.perf_counter()
+            out["preview"] = render_preview(emb.preprocessed, preview_markers, self.markers)
+            out["timing_ms"]["preview"] = round((time.perf_counter() - t0) * 1e3, 1)
+        return out
 
     def embed_json(self, raw: np.ndarray) -> dict[str, Any]:
         """``/embed`` response: image size and per-crop ``z_global``."""
