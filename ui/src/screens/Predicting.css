@@ -1,0 +1,27 @@
+.predicting { flex: 1; display: grid; place-items: center; padding: 40px 24px; }
+.predictingBody { display: flex; gap: 48px; align-items: center; flex-wrap: wrap; justify-content: center; }
+.predictingSide { width: min(100%, 340px); display: flex; flex-direction: column; gap: 18px; }
+.predictingSide .title { font-size: 32px; line-height: 1.15; margin: 0 0 6px; }
+.predictingFile { font-size: 14px; overflow-wrap: anywhere; }
+
+/* Always dark, like the result viewer. */
+.tileGrid {
+  display: grid; grid-template-columns: repeat(4, 44px); gap: 4px; padding: 14px;
+  background: #06080a; border-radius: 10px;
+}
+.tileGrid > div {
+  width: 44px; height: 44px; border-radius: 2px; transition: background 0.5s;
+  background: rgba(255, 255, 255, 0.07);
+}
+.tileGrid > .done { background: rgba(255, 255, 255, 0.42); }
+.tileGrid > .now { background: rgba(255, 255, 255, 0.85); }
+
+.progress { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.progress > div { height: 100%; background: var(--ink); transition: width 0.2s linear; }
+
+.stages { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.stages li { display: flex; align-items: center; gap: 10px; font-size: 14px; transition: color 0.4s; color: var(--mut); }
+.stages li.done, .stages li.active { color: var(--ink); }
+.stages li > span { width: 8px; height: 8px; border-radius: 50%; transition: background 0.4s; background: var(--line); }
+.stages li.done > span { background: var(--ink); }
+.stages li.active > span { background: var(--a); animation: pulse 1.2s infinite; }

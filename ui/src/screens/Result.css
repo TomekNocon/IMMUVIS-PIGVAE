@@ -1,0 +1,5 @@
+.resultMain {
+  flex: 1; width: 100%; max-width: 1320px; margin: 0 auto; padding: 24px 28px 40px; display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 28px; align-items: start;
+}
+.resultSide { display: flex; flex-direction: column; gap: 28px; min-width: 0; }

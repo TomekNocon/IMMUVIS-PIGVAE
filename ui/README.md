@@ -52,10 +52,15 @@ know, be concise). Nothing goes through the Modal backend; each user connects th
 |------|------|
 | `src/api/` | **The contract**: client, mock, generated types, fixtures. Changed only together with the backend. The fixtures are real API responses for images 8080 and 7810 (held out from fold 3) with **synthetic preview images**: the real previews are patient-derived and stay off git. |
 | `src/App.tsx` | Screen flow (login -> upload -> predicting -> result), theme, error mapping |
-| `src/screens/` | The four screens |
-| `src/result/` | Result screen: `Viewer` (image, heatmap, zoom/pan, compare), `Panel` (prediction, charts, top crops), `model.ts` (derived data, formatting, class colours) |
-| `src/chat/` | Chat drawer, connectors (local bridge, OpenAI key, demo), system prompt and context, Markdown with crop links |
-| `src/app.css` | Design tokens (light/dark) and shared styles |
+| `src/screens/` | The four screens; each splits into small named components |
+| `src/result/` | Result screen: `Viewer` (image, heatmap, pin/compare) with `useZoomPan` (zoom and drag), `Panel` (prediction, charts, top crops), `model.ts` (derived data, formatting, class colours) |
+| `src/chat/` | `AskBar`, `ChatDrawer` (`Connect` or `Conversation`), `store.ts` (the connected model), connectors (local bridge, OpenAI key, demo), system prompt and context, Markdown with crop links |
+| `src/components/` | Pieces used across screens: `AppHeader`, `Field`, `cx` (class names) |
+| `src/app.css` | Design tokens (light/dark) and shared styles (text, buttons, inputs) |
+
+**Styling:** plain CSS. Each component's styles sit next to it (`Upload.tsx` + `Upload.css`);
+inline `style` is used only for values computed from the data (crop positions, bar widths, class
+colours).
 
 The UI talks to the server only through `import { api, ... } from '@/api'`.
 

@@ -1,0 +1,50 @@
+.upload {
+  flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 48px 28px; display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 48px; align-items: start;
+}
+.uploadMain { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.uploadMain .title { font-size: 44px; line-height: 1.08; text-wrap: pretty; }
+.uploadLead { margin: 0; max-width: 52ch; }
+.uploadSide { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+
+.dropzone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  min-height: 210px; padding: 24px; border: 1.5px dashed var(--line); border-radius: 10px; background: transparent;
+  cursor: pointer; text-align: center; transition: border-color 0.25s, background 0.25s;
+}
+.dropzone:hover { border-color: var(--mut); }
+.dropzone.dragging { border-color: var(--a); background: var(--panel); }
+.dropTitle { font-size: 17px; font-weight: 500; }
+
+.fileCard { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 14px; animation: rise 0.35s both; }
+.fileInfo { flex: 1; min-width: 140px; }
+.fileName { font-weight: 500; overflow-wrap: anywhere; }
+
+.errorBox {
+  padding: 14px 16px; border: 1px solid var(--err); border-radius: 8px; display: flex;
+  flex-direction: column; gap: 6px; animation: rise 0.35s both;
+}
+.errorTitle { font-weight: 600; }
+.errorDetail { font-size: 13px; overflow-wrap: anywhere; }
+.errorBox .ghost { align-self: flex-start; margin-top: 4px; }
+
+.examples { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.textbtn.toA { border-bottom-color: var(--a); }
+.textbtn.toS { border-bottom-color: var(--s); }
+
+.modelHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.serverStatus { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.statusDot { width: 8px; height: 8px; border-radius: 50%; background: var(--mut); animation: pulse 1.2s infinite; }
+.statusDot.ready { background: oklch(0.75 0.14 150); animation: none; }
+.modelCard { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 9px 20px; padding: 16px; font-size: 14px; }
+.modelCard dd { margin: 0; }
+.classList { display: flex; flex-direction: column; gap: 2px; }
+.classList > span { display: flex; align-items: center; gap: 8px; }
+.swatch { width: 9px; height: 9px; }
+.swatch.toA { background: var(--a); }
+.swatch.toS { background: var(--s); }
+
+.uploadHead { margin-bottom: 10px; }
+.uploadText { margin: 0 0 10px; font-size: 14px; }
+.markerList { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.markerList li { font-size: 12px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 4px; margin-top: 6px; }

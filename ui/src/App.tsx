@@ -2,7 +2,8 @@
 // Design: Claude Design handoff "IMC Subtype Viewer" (product brief: docs/design/2026-11-11-imc-web-ui-brief.md).
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { api, ApiError, UnauthorizedError, USING_MOCK, type PredictResponse } from '@/api'
+import { api, ApiError, UnauthorizedError, type PredictResponse } from '@/api'
+import { AppHeader } from '@/components/AppHeader'
 import { Login } from '@/screens/Login'
 import { Predicting } from '@/screens/Predicting'
 import { Result } from '@/screens/Result'
@@ -104,27 +105,11 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="hdr">
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-          <span className="serif" style={{ fontSize: 21, fontWeight: 500 }}>
-            IMC subtype viewer
-          </span>
-          <span className="mono mut" style={{ fontSize: 12 }}>
-            lung · adenocarcinoma / squamous
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {USING_MOCK && <span className="mockTag">mock data</span>}
-          <button className="hbtn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-          </button>
-          {shown !== 'login' && (
-            <button className="hbtn" onClick={signOut}>
-              Sign out
-            </button>
-          )}
-        </div>
-      </header>
+      <AppHeader
+        theme={theme}
+        onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+        onSignOut={shown !== 'login' ? signOut : undefined}
+      />
 
       {shown === 'login' && (
         <Login

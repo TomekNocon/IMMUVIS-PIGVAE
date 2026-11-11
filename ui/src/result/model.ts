@@ -11,6 +11,14 @@ export interface CropView {
   igRank: number // 0 = largest |IG|
 }
 
+/** The hovered and pinned crop (indices into ResultModel.crops), shared by the viewer and the panel. */
+export interface CropSelection {
+  hover: number | null
+  pin: number | null
+  setHover: (i: number | null) => void
+  togglePin: (i: number) => void
+}
+
 export interface ResultModel {
   crops: CropView[]
   maxAtt: number

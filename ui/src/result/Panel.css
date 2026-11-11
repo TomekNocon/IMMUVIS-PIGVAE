@@ -1,0 +1,59 @@
+.sidePanel { display: flex; flex-direction: column; gap: 28px; min-width: 0; animation: rise 0.5s 0.12s both; }
+
+/* Prediction */
+.title.predTitle { font-size: clamp(38px, 4.6vw, 58px); line-height: 1.05; margin: 6px 0 16px; text-wrap: balance; }
+.probBar {
+  display: flex; height: 10px; border-radius: 2px; overflow: hidden; gap: 2px; transform-origin: left;
+  animation: grow 0.9s 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.probBar > div { min-width: 3px; }
+.probBar > :first-child { background: var(--a); }
+.probBar > :last-child { flex: 1; background: var(--s); }
+.probLabels { display: flex; justify-content: space-between; gap: 16px; margin-top: 8px; font-size: 14px; }
+.probLabels > :last-child { text-align: right; }
+.probLabels strong { font-weight: 500; }
+
+/* Crops by direction */
+.dirStrip { display: flex; gap: 3px; }
+.dirStrip > div { flex: 1; height: 22px; cursor: pointer; outline-offset: 1px; }
+.dirNote { margin-top: 8px; font-size: 14px; }
+
+/* Attention vs attribution */
+.scatterTitle { margin-top: 28px; }
+.scatter { position: relative; height: 170px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.scatterZero { position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--line); }
+.scatterAxis { position: absolute; left: 8px; font-size: 11px; }
+.scatterAxis.toS { top: 4px; color: var(--s); }
+.scatterAxis.toA { bottom: 4px; color: var(--a); }
+.scatterDots { position: absolute; inset: 14px 16px 14px 12px; }
+.scatterDots > div {
+  position: absolute; border-radius: 50%; transform: translate(-50%, -50%); cursor: pointer;
+  outline-offset: 2px; transition: left 0.5s, top 0.5s, width 0.2s, height 0.2s;
+}
+.scatterScale { display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; }
+
+/* Top 5 crops */
+.topHead { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.sortTabs { display: flex; gap: 12px; font-size: 13px; }
+.sortTab {
+  font: inherit; background: none; border: none; padding: 0 0 2px; cursor: pointer;
+  color: var(--mut); border-bottom: 1px solid transparent;
+}
+.sortTab.on { color: var(--ink); border-bottom-color: var(--ink); }
+.topList { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.toprow, .topLegend { display: grid; grid-template-columns: 22px minmax(0, 1fr) 64px 64px; gap: 10px; padding: 6px 8px; }
+.toprow {
+  align-items: center; min-height: 44px; border-bottom: 1px solid var(--line); cursor: pointer;
+  transition: background 0.2s; font-family: 'IBM Plex Mono', monospace; font-size: 13px;
+}
+.toprow.on { background: var(--panel); }
+.topCrop { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.topBar { height: 3px; transition: width 0.5s; }
+.topLegend { font-size: 12px; }
+.sidePanel .num { text-align: right; }
+
+/* Details */
+.detailsList { margin: 12px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 20px; font-size: 13px; }
+.detailsList dd { margin: 0; }
+.timingBar { display: flex; height: 6px; gap: 2px; margin-top: 10px; }
+.timingNames { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 11px; }

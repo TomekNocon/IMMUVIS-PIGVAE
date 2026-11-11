@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { InfoResponse, PredictResponse } from '@/api'
-import { AskBar, ChatDrawer, type PendingQuestion } from '@/chat/Chat'
+import { AskBar } from '@/chat/AskBar'
+import { ChatDrawer, type PendingQuestion } from '@/chat/ChatDrawer'
 import type { CropRef } from '@/chat/markdown'
 import { buildModel } from '@/result/model'
 import { Panel } from '@/result/Panel'
 import { Viewer } from '@/result/Viewer'
+import './Result.css'
 
 export function Result({
   result,
@@ -67,7 +69,7 @@ export function Result({
     <>
       <main className="resultMain">
         <Viewer m={m} hover={hover} pin={pin} setHover={setHover} togglePin={togglePin} />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 28, minWidth: 0 }}>
+        <div className="resultSide">
           <Panel
             m={m}
             hover={hover}
@@ -85,7 +87,7 @@ export function Result({
               />
             }
           />
-          <div className="mono mut" style={{ fontSize: 11 }}>
+          <div className="footnote">
             {result.model.label} · fold {result.model.fold} · AUROC {result.model.fold_val_auroc.toFixed(3)} ·{' '}
             {result.model.bundle}
             {info ? ` · ${info.device}` : ''}

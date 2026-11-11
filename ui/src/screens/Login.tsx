@@ -1,6 +1,8 @@
 import { useMutation } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { api, ApiError, USING_MOCK } from '@/api'
+import { Field } from '@/components/Field'
+import './Login.css'
 
 function loginMessage(err: unknown): string {
   if (err instanceof ApiError) {
@@ -21,25 +23,11 @@ export function Login({ note, onDone }: { note: string | null; onDone: () => voi
   }
 
   return (
-    <main style={{ flex: 1, display: 'grid', placeItems: 'center', padding: '32px 20px' }}>
-      <form
-        onSubmit={submit}
-        className="rise"
-        style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 16 }}
-      >
-        <h1 className="serif" style={{ fontWeight: 400, fontSize: 40, lineHeight: 1.1, margin: 0 }}>
-          Sign in
-        </h1>
-        {note && (
-          <div
-            className="mut"
-            style={{ fontSize: 14, border: '1px solid var(--line)', borderRadius: 6, padding: '10px 12px' }}
-          >
-            {note}
-          </div>
-        )}
-        <label className="mut" style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-          Password
+    <main className="login">
+      <form onSubmit={submit} className="rise loginForm">
+        <h1 className="title">Sign in</h1>
+        {note && <div className="mut loginNote">{note}</div>}
+        <Field label="Password">
           <input
             className="input"
             type="password"
@@ -51,20 +39,16 @@ export function Login({ note, onDone }: { note: string | null; onDone: () => voi
               login.reset()
             }}
           />
-        </label>
+        </Field>
         {login.error && (
-          <div role="alert" style={{ fontSize: 14, color: 'var(--err)' }}>
+          <div role="alert" className="errorText">
             {loginMessage(login.error)}
           </div>
         )}
         <button className="primary" type="submit" disabled={login.isPending}>
           {login.isPending ? 'Signing in…' : 'Sign in'}
         </button>
-        {USING_MOCK && (
-          <div className="mono mut" style={{ fontSize: 12 }}>
-            Mock: any password works. "wrong" gives 401, "locked" gives 429.
-          </div>
-        )}
+        {USING_MOCK && <div className="hint">Mock: any password works. "wrong" gives 401, "locked" gives 429.</div>}
       </form>
     </main>
   )

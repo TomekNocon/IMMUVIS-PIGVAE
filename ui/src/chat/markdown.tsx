@@ -23,11 +23,7 @@ function inline(text: string, cropRef?: CropRef): ReactNode[] {
       return <strong key={i}>{crops(part.slice(2, -2), cropRef, `b${i}`)}</strong>
     }
     if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
-      return (
-        <code key={i} className="mono" style={{ fontSize: '0.9em' }}>
-          {part.slice(1, -1)}
-        </code>
-      )
+      return <code key={i}>{part.slice(1, -1)}</code>
     }
     return <span key={i}>{crops(part, cropRef, `t${i}`)}</span>
   })
