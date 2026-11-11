@@ -152,6 +152,7 @@ configs/local/default.yaml
 /data/
 /logs/
 .env
+.env.local
 
 # Ruff
 .ruff_cache
@@ -169,3 +170,9 @@ wandb/
 .claude/
 .cursor/
 .superpowers/
+
+# Web UI (ui/): installed packages
+node_modules/
+
+# Design notes, kept local for now
+/docs/design/
