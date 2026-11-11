@@ -1461,6 +1461,7 @@ deploy = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "modal" },
+    { name = "python-dotenv" },
     { name = "python-multipart", version = "0.0.32", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "python-multipart", version = "0.0.33", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
@@ -1509,6 +1510,7 @@ deploy = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "modal", specifier = ">=1.6" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },
 ]
 dev = [

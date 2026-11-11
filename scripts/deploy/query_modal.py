@@ -1,10 +1,10 @@
 """Send an IMC image to the deployed API (``src/deploy/modal``) and print the result.
 
 Authentication uses a Modal proxy-auth token from the environment (``MODAL_KEY``,
-``MODAL_SECRET``). ``--json`` writes the full response for further use (e.g. a UI).
+``MODAL_SECRET``), or from a ``.env`` file in the repo root (gitignored). ``--json`` writes the full response for further use (e.g. a UI).
 
 Usage:
-    export MODAL_KEY=wk-... MODAL_SECRET=ws-...
+    # .env:  MODAL_KEY=wk-...  MODAL_SECRET=ws-...   (or export them)
     uv run python scripts/deploy/query_modal.py --url https://<workspace>--pigvae-imc-imcserver-web.modal.run --info
     uv run python scripts/deploy/query_modal.py --url ... --image 7443.tiff --json out.json
     uv run python scripts/deploy/query_modal.py --url ... --image 7443.tiff --embed
@@ -17,6 +17,9 @@ import sys
 from pathlib import Path
 
 import requests
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def main() -> None:
@@ -31,9 +34,13 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=600.0, help="seconds (cold start ~1 min)")
     args = parser.parse_args()
 
+    load_dotenv(ROOT / ".env")  # does not override variables already set in the shell
     key, secret = os.environ.get("MODAL_KEY"), os.environ.get("MODAL_SECRET")
     if not key or not secret:
-        sys.exit("set MODAL_KEY and MODAL_SECRET (a proxy-auth token from the Modal dashboard)")
+        sys.exit(
+            "set MODAL_KEY and MODAL_SECRET in .env or the shell "
+            "(a proxy-auth token from the Modal dashboard)"
+        )
     headers = {"Modal-Key": key, "Modal-Secret": secret}
     base = args.url.rstrip("/")
 

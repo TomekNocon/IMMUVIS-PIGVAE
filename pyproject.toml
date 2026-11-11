@@ -112,6 +112,7 @@ deploy = [
     "fastapi>=0.115",
     "python-multipart>=0.0.20",
     "httpx>=0.28",
+    "python-dotenv>=1.0",
 ]
 
 [tool.uv]
