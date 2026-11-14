@@ -161,7 +161,8 @@ the numbers, never the image. Scripts can call the model server directly with `s
 ## Development
 
 ```bash
-make lint           # ruff check + format check
+make lint           # Python: ruff check + format check
+make lint-ui        # web UI: oxlint + tsc (needs `make ui-install` first)
 make format         # all pre-commit hooks, fixing in place
 make test           # fast tests
 make test-full      # all tests; the integration tests need the IMC data (they skip without it)

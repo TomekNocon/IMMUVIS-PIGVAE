@@ -14,6 +14,7 @@ From the repository root (or the `pnpm` command inside `ui/`):
 | `make ui-dev` | `pnpm dev` | the real API; sign in with `UI_PASSWORD` from the repo-root `.env` |
 | `make ui-mock` | `pnpm dev:mock` | recorded responses: no server, any password, instant |
 | `make ui-build` | `pnpm build && pnpm lint` | type-check, lint, build into `dist/` |
+| `make lint-ui` | `pnpm lint && pnpm exec tsc -b` | lint and type-check only (no build); also runs in CI |
 
 The dev server listens on `localhost:5173`; on the cluster, forward that port (VS Code -> Ports tab)
 and open `http://localhost:5173` on your laptop. Stop with Ctrl+C. During development Vite forwards

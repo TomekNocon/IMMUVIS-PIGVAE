@@ -4,7 +4,7 @@ EXPERIMENT ?= pigvae
 # Modal GPU for the model server; set GPU=L4 once the Modal account has a payment method.
 GPU ?= none
 
-.PHONY: help install lint format test test-full train clean clean-logs \
+.PHONY: help install lint lint-ui format test test-full train clean clean-logs \
 	modal-login modal-bundle modal-secret modal-deploy modal-token modal-api modal-stop \
 	ui-install ui-dev ui-mock ui-build chat-bridge
 
@@ -17,9 +17,12 @@ install: ## Create the environment (uv), install the git pre-commit hooks, creat
 	uv run pre-commit install
 	@test -f .env || (cp .env.example .env && chmod 600 .env && echo "created .env from .env.example")
 
-lint: ## Check style without modifying files
+lint: ## Check Python style without modifying files (ruff)
 	uv run ruff check .
 	uv run ruff format --check .
+
+lint-ui: ## Lint and type-check the web UI (oxlint + tsc)
+	cd ui && pnpm lint && pnpm exec tsc -b
 
 format: ## Run all pre-commit hooks on every file (fixes in place)
 	uv run pre-commit run --all-files
